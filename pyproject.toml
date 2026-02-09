@@ -1,0 +1,27 @@
+[project]
+name = "chargeghost-evse"
+version = "0.1.0"
+description = "An EVSE simulator written in Python, beautified and made easy with the help of Textual"
+authors = [
+    {name = "Marcin Hamiga",email = "marcin.hamiga@proton.me"}
+]
+license = {text = "AGPLv3"}
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "textual (>=7.5.0,<8.0.0)",
+    "ocpp (>=2.1.0,<3.0.0)",
+    "websockets (>=16.0,<17.0)",
+    "pydantic (>=2.12.5,<3.0.0)",
+    "pydantic-settings (>=2.12.0,<3.0.0)",
+    "pyinstaller (>=6.18.0,<7.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)"
+]
+
+[tool.poetry]
+packages = [{ include = "chargeghost_evse", from = "src" }]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
