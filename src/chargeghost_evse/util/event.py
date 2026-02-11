@@ -1,16 +1,27 @@
 from collections.abc import Callable
+import weakref
 
 class Event:
 	def __init__(self):
-		self.callbacks: list[Callable] = []
+		self.callbacks: list[weakref.ref] = []
 
 	def subscribe(self, callback: Callable) -> Callable:
-		self.callbacks.append(callback)
-		return lambda: self.unsubscribe(callback)
+		if hasattr(callback, "__self__") and hasattr(callback, "__func__"):
+			ref = weakref.WeakMethod(callback)
+		else:
+			ref = weakref.ref(callback)
+		
+		self.callbacks.append(ref)
+		return lambda: self.unsubscribe(ref)
 
-	def unsubscribe(self, callback: Callable) -> None:
-		self.callbacks.remove(callback)
+	def unsubscribe(self, ref: weakref.ref) -> None:
+		if ref in self.callbacks:
+			self.callbacks.remove(ref)
 
 	def emit(self, *args, **kwargs) -> None:
-		for callback in self.callbacks:
-			callback(*args, **kwargs)
+		for ref in list(self.callbacks):
+			callback = ref()
+			if callback is not None:
+				callback(*args, **kwargs)
+			else:
+				self.callbacks.remove(ref)

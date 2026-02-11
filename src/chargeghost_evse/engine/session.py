@@ -1,9 +1,12 @@
+from chargeghost_evse.util.subscriber import Subscriber
 from chargeghost_evse.util.event import Event
+import time
 
-class Session:
+class Session(Subscriber):
 	def __init__(self, transaction_id: int = -1, connector_id: int = 0, max_energy:float = 0.0):
+		super().__init__()
 		self.transaction_id: int = transaction_id
-		self.start_date: str = None
+		self.start_time: float = time.time()
 		self.energy_charged: float = 0.0
 		self.connector_id: int = connector_id
 		self.state_of_charge: float = 0.0 # Current state of charge of the "EV" in %

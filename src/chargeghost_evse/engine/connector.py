@@ -1,3 +1,4 @@
+from chargeghost_evse.util.subscriber import Subscriber
 import enum
 
 class ConnectorState(enum.Enum):
@@ -9,12 +10,14 @@ class ConnectorState(enum.Enum):
 	UNAVAILABLE = "Unavailable"
 	FAULTED = "Faulted"
 
-class Connector:
-	def __init__(self, id: int, voltage:float = 230.0, current:float = 16.0):
+class Connector(Subscriber):
+	def __init__(self, id: int, voltage:float = 230.0, current:float = 32.0, phase:int = 1):
+		super().__init__()
 		self.status: ConnectorState = ConnectorState.AVAILABLE
 		self.id: int = id
 		self.voltage: float = voltage
 		self.current: float = current
+		self.phase: int = phase
 		
 	def set_status(self, status: ConnectorState) -> None:
 		self.status = status
