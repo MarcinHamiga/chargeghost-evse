@@ -3,6 +3,7 @@ from chargeghost_evse.util.event import Event
 from typing import Optional
 import enum
 
+
 class ConnectorState(enum.Enum):
     AVAILABLE = "Available"
     PREPARING = "Preparing"
@@ -13,18 +14,21 @@ class ConnectorState(enum.Enum):
     UNAVAILABLE = "Unavailable"
     FAULTED = "Faulted"
 
+
 class Connector(Subscriber):
-    def __init__(self, id: int, voltage:float = 230.0, current:float = 32.0, phase:int = 1):
+    def __init__(
+        self, id: int, voltage: float = 230.0, current: float = 32.0, phase: int = 1
+    ):
         super().__init__()
         self.id: int = id
         self.voltage: float = voltage
         self.current: float = current
         self.phase: int = phase
-        
+
         self._status: ConnectorState = ConnectorState.AVAILABLE
         self.is_plugged_in: bool = False
         self.id_tag: Optional[str] = None
-        
+
         self.on_status_change: Event = Event()
 
     @property
@@ -53,8 +57,8 @@ class Connector(Subscriber):
         self.id_tag = id_tag
         # If we are preparing (plugged in) and now authorized, we might want to start charging
         # But typically the Engine orchestrates the StartTransaction which then sets Charging
-        pass 
-        
+        pass
+
     def start_charging(self) -> None:
         if self.is_plugged_in:
             self.status = ConnectorState.CHARGING
@@ -77,7 +81,6 @@ class Connector(Subscriber):
     def handle_session_stopped(self, connector_id: int) -> None:
         if self.id == connector_id:
             self.stop_charging()
-    
+
     def get_status(self) -> ConnectorState:
         return self.status
-

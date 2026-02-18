@@ -2,6 +2,7 @@ from textual.widgets import RichLog
 from textual.binding import Binding
 from rich.markup import escape
 
+
 class LogPanel(RichLog):
     BINDINGS = [
         Binding("c", "copy", "Copy Logs"),

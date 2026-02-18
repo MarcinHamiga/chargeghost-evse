@@ -1,7 +1,6 @@
 import asyncio
 import ssl
 import threading
-import time
 import websockets
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,17 +18,16 @@ class AsyncRunner:
         password: str = "",
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
-        charge_point_vendor: str = "ChargeGhost"
+        charge_point_vendor: str = "ChargeGhost",
     ):
         self.charge_point_id = charge_point_id
-        
-        # Ensure URL ends with the Charge Point ID (OCPP Requirement)
+
         stripped_url = url.rstrip("/")
         if stripped_url.split("/")[-1] != charge_point_id:
             self.url = f"{stripped_url}/{charge_point_id}"
         else:
             self.url = stripped_url
-            
+
         self.password = password
         self.skip_tls_verify = skip_tls_verify
         self.charge_point_model = charge_point_model
@@ -40,6 +38,8 @@ class AsyncRunner:
         self.on_log = Event()
         self._connected = False
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._shutdown_event: Optional[asyncio.Event] = None
+        self._thread_shutdown = threading.Event()
 
     def _log(self, message: str) -> None:
         self.on_log.emit(message=message)
@@ -49,14 +49,21 @@ class AsyncRunner:
         thread.start()
         return thread
 
+    def shutdown(self) -> None:
+        self._thread_shutdown.set()
+        if self._shutdown_event and self.loop:
+            self.loop.call_soon_threadsafe(self._shutdown_event.set)
+
     def _start_loop(self) -> None:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
+        self._shutdown_event = asyncio.Event()
         self.loop.run_until_complete(self._run_adapter())
 
     def _get_auth_header(self) -> dict:
         if self.password:
             import base64
+
             credentials = f"{self.charge_point_id}:{self.password}"
             encoded = base64.b64encode(credentials.encode()).decode()
             return {"Authorization": f"Basic {encoded}"}
@@ -78,45 +85,42 @@ class AsyncRunner:
     async def _run_adapter(self) -> None:
         retry_delay = 1
         max_retry_delay = 60
-        
-        while True:
+
+        while self._shutdown_event is not None and not self._shutdown_event.is_set():
             try:
                 self._log(message=f"Connecting to {self.url}...")
                 extra_headers = self._get_auth_header()
                 ssl_context = self._get_ssl_context()
-                
+
                 async with websockets.connect(
                     self.url,
-                    subprotocols=["ocpp1.6"],
+                    subprotocols=["ocpp1.6"],  # type: ignore[list-item]
                     additional_headers=extra_headers,
-                    ssl=ssl_context
+                    ssl=ssl_context,
                 ) as ws:
                     self.adapter = Adapter(
                         self.charge_point_id,
                         ws,
                         command_queue=self.command_queue,
                         charge_point_model=self.charge_point_model,
-                        charge_point_vendor=self.charge_point_vendor
+                        charge_point_vendor=self.charge_point_vendor,
                     )
                     self.adapter.on_log.subscribe(self._log)
                     self._connected = True
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
-                    
+
                     adapter_task = asyncio.create_task(self.adapter.start())
-                    
+
                     try:
-                        boot_response = await self.adapter.send_boot_notification()
-                        
+                        await self.adapter.send_boot_notification()
+
                         if self.adapter.registration_status:
                             reg_status = self.adapter.registration_status
                             if hasattr(reg_status, "value"):
                                 reg_status = reg_status.value
                             self._log(message=f"Registration status: {reg_status}")
-                        
-                        await asyncio.gather(
-                            adapter_task,
-                            self._heartbeat_loop()
-                        )
+
+                        await asyncio.gather(adapter_task, self._heartbeat_loop())
                     finally:
                         if not adapter_task.done():
                             adapter_task.cancel()
@@ -126,9 +130,11 @@ class AsyncRunner:
                             pass
                         except Exception:
                             pass
-                    
+
             except websockets.ConnectionClosed as e:
-                self._log(message=f"Connection closed: code={e.code}, reason={e.reason}")
+                self._log(
+                    message=f"Connection closed: code={e.code}, reason={e.reason}"
+                )
             except ConnectionRefusedError:
                 self._log(message="Connection refused by server")
             except Exception as e:
@@ -138,20 +144,40 @@ class AsyncRunner:
                 self.adapter = None
                 if self._heartbeat_task and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
-            
-            self._log(message=f"Retrying in {retry_delay}s...")
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
+
+            if self._shutdown_event is not None and not self._shutdown_event.is_set():
+                self._log(message=f"Retrying in {retry_delay}s...")
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(), timeout=retry_delay
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                retry_delay = min(retry_delay * 2, max_retry_delay)
 
     async def _heartbeat_loop(self) -> None:
-        while self._connected and self.adapter:
+        while (
+            self._connected
+            and self.adapter
+            and self._shutdown_event is not None
+            and not self._shutdown_event.is_set()
+        ):
             interval = self.adapter.heartbeat_interval
             if interval <= 0:
                 interval = 300
-            
-            await asyncio.sleep(interval)
-            
-            if self._connected and self.adapter:
+
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=interval)
+                break
+            except asyncio.TimeoutError:
+                pass
+
+            if (
+                self._connected
+                and self.adapter
+                and self._shutdown_event is not None
+                and not self._shutdown_event.is_set()
+            ):
                 try:
                     await self.adapter.send_heartbeat()
                 except Exception as e:
@@ -168,7 +194,7 @@ class Bridge:
         password: str = "",
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
-        charge_point_vendor: str = "ChargeGhost"
+        charge_point_vendor: str = "ChargeGhost",
     ):
         self.engine = engine
         self.url = url
@@ -179,142 +205,150 @@ class Bridge:
             password=password,
             skip_tls_verify=skip_tls_verify,
             charge_point_model=charge_point_model,
-            charge_point_vendor=charge_point_vendor
+            charge_point_vendor=charge_point_vendor,
         )
         self.on_log = self.runner.on_log
         self._meter_values_thread: Optional[threading.Thread] = None
+        self._shutdown_event = threading.Event()
 
     def setup(self) -> None:
         self.engine.session_started.subscribe(self.on_engine_session_started)
         self.engine.session_stopped.subscribe(self.on_engine_session_stopped)
         self.engine.connector_status_changed.subscribe(self.on_connector_status_change)
-        
+
         self.runner.run_in_thread()
-        
-        self._meter_values_thread = threading.Thread(target=self._meter_values_loop, daemon=True)
+
+        self._meter_values_thread = threading.Thread(
+            target=self._meter_values_loop, daemon=True
+        )
         self._meter_values_thread.start()
-        
+
         threading.Thread(target=self._initial_status_loop, daemon=True).start()
 
+    def shutdown(self) -> None:
+        self._shutdown_event.set()
+        self.runner.shutdown()
+
     def _initial_status_loop(self) -> None:
-        while True:
+        while not self._shutdown_event.is_set():
             if self.runner.is_connected and self.runner.adapter:
                 if self.runner.adapter.registration_status:
                     self._send_initial_status_notifications()
                     break
-            time.sleep(0.5)
+            self._shutdown_event.wait(timeout=0.5)
 
     def _send_initial_status_notifications(self) -> None:
         if not self.runner.adapter or not self.runner.loop:
             return
-        
+
         self._log(message="Sending initial StatusNotification for all connectors...")
-        
+
         for connector in self.engine.connectors:
-            conn_status = connector.status
-            if hasattr(conn_status, "value"):
-                conn_status = conn_status.value
-            
+            conn_status = connector.status.value
+
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_status_notification(
                     connector_id=connector.id + 1,
                     error_code="NoError",
-                    status=conn_status
+                    status=conn_status,
                 ),
-                self.runner.loop
+                self.runner.loop,
             )
 
     def _meter_values_loop(self) -> None:
-        while True:
+        while not self._shutdown_event.is_set():
             if self.engine.session and self.engine.energy_meter.is_charging:
                 if self.runner.adapter and self.runner.loop:
                     asyncio.run_coroutine_threadsafe(
                         self.runner.adapter.send_meter_values(
                             connector_id=self.engine.session.connector_id + 1,
                             value=self.engine.energy_meter.get_meter_reading(),
-                            transaction_id=self.engine.session.transaction_id
+                            transaction_id=self.engine.session.transaction_id,
                         ),
-                        self.runner.loop
+                        self.runner.loop,
                     )
-            time.sleep(10)
+            self._shutdown_event.wait(timeout=10)
 
     def _log(self, message: str) -> None:
         self.on_log.emit(message=message)
 
     def on_connector_status_change(self, connector_id: int, status) -> None:
         if self.runner.adapter and self.runner.loop:
-            conn_status = status
-            if hasattr(conn_status, "value"):
-                conn_status = conn_status.value
-                
-            self._log(message=f"Connector {connector_id} status changed to {conn_status}")
+            conn_status = status.value if hasattr(status, "value") else str(status)
+
+            self._log(
+                message=f"Connector {connector_id} status changed to {conn_status}"
+            )
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_status_notification(
                     connector_id=connector_id + 1,
                     error_code="NoError",
-                    status=conn_status
+                    status=conn_status,
                 ),
-                self.runner.loop
+                self.runner.loop,
             )
 
     def on_engine_session_started(self, connector_id: int) -> None:
         if not self.runner.adapter or not self.runner.loop:
             return
-        
+
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+
         session = self.engine.session
         if not session:
             return
-        
+
         self._log(message=f"Session started on connector {connector_id}")
         id_tag = session.id_tag or "UNKNOWN_TAG"
-        
+
         async def send_start_tx() -> None:
-            response = await self.runner.adapter.send_start_transaction(
+            response = await adapter.send_start_transaction(
                 connector_id=connector_id + 1,
                 id_tag=id_tag,
                 meter_start=int(self.engine.energy_meter.get_meter_reading()),
-                timestamp=datetime.now(timezone.utc).isoformat()
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
             if response and response.transaction_id and self.engine.session is session:
                 session.transaction_id = response.transaction_id
                 self._log(message=f"Transaction ID assigned: {response.transaction_id}")
-        
-        asyncio.run_coroutine_threadsafe(send_start_tx(), self.runner.loop)
+
+        asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
 
     def on_engine_session_stopped(self, connector_id: int) -> None:
         if not self.runner.adapter or not self.runner.loop:
             return
-        
+
         last_session = self.engine.last_stopped_session
         if not last_session:
             self._log(message=f"No session info available for connector {connector_id}")
             return
-        
+
         transaction_id = last_session.get("transaction_id", 0)
         meter_stop = last_session.get("meter_stop", 0)
-        
-        self._log(message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}")
-        
+
+        self._log(
+            message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}"
+        )
+
         asyncio.run_coroutine_threadsafe(
             self.runner.adapter.send_stop_transaction(
                 meter_stop=int(meter_stop),
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 transaction_id=transaction_id,
-                reason="Local"
+                reason="Local",
             ),
-            self.runner.loop
+            self.runner.loop,
         )
 
     def send_authorize(self, id_tag: str) -> None:
         if self.runner.adapter and self.runner.loop:
             asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_authorize(id_tag=id_tag),
-                self.runner.loop
+                self.runner.adapter.send_authorize(id_tag=id_tag), self.runner.loop
             )
 
     def send_heartbeat(self) -> None:
         if self.runner.adapter and self.runner.loop:
             asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_heartbeat(),
-                self.runner.loop
+                self.runner.adapter.send_heartbeat(), self.runner.loop
             )
