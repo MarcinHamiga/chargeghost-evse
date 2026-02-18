@@ -21,6 +21,9 @@ dependencies = [
 [tool.poetry]
 packages = [{ include = "chargeghost_evse", from = "src" }]
 
+[tool.poetry.scripts]
+chargeghost-evse = "chargeghost_evse.main:main"
+
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
