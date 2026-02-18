@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFormLayout,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,16 +23,54 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QFrame,
+    QProgressBar,
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ui.bridge import QtSignalBridge
+from chargeghost_evse.ui.widgets.connector_panel import ConnectorPanel
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.status_panel import StatusPanel
-from chargeghost_evse.util.config import SimulationConfig
+from chargeghost_evse.util.config import ConnectorConfig, SimulationConfig
 
 STYLES_PATH = Path(__file__).parent / "styles" / "e_mobility.qss"
+
+
+class MetricCard(QFrame):
+    def __init__(self, title: str, unit: str = "", parent=None):
+        super().__init__(parent)
+        self.setObjectName("metricCard")
+        self.setProperty("card", True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setMinimumWidth(160)
+        self.setMinimumHeight(80)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(4)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("color: #8b949e; font-size: 11px; font-weight: 600; text-transform: uppercase;")
+        layout.addWidget(self.title_label)
+
+        value_layout = QHBoxLayout()
+        self.value_label = QLabel("--")
+        self.value_label.setObjectName("metricValue")
+        self.value_label.setStyleSheet("color: #1EAD98; font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace;")
+        value_layout.addWidget(self.value_label)
+
+        if unit:
+            self.unit_label = QLabel(unit)
+            self.unit_label.setStyleSheet("color: #6e7681; font-size: 12px; font-weight: 500; margin-bottom: -4px;")
+            value_layout.addWidget(self.unit_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        
+        value_layout.addStretch()
+        layout.addLayout(value_layout)
+
+    def set_value(self, value: str):
+        self.value_label.setText(value)
 
 
 class ModeSelectWidget(QWidget):
@@ -39,60 +79,104 @@ class ModeSelectWidget(QWidget):
         self.main_window = main_window
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(20)
+        layout.setSpacing(40)
         layout.setContentsMargins(40, 40, 40, 40)
 
+        header_container = QVBoxLayout()
+        header_container.setSpacing(10)
+
         title = QLabel("⚡ ChargeGhost EVSE")
-        title.setObjectName("title")
+        title.setObjectName("mainTitle")
+        title.setStyleSheet("font-size: 42px; font-weight: 800; color: #1EAD98; margin-bottom: 0px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        header_container.addWidget(title)
 
         subtitle = QLabel("Electric Vehicle Supply Equipment Simulator")
-        subtitle.setObjectName("subtitle")
+        subtitle.setObjectName("mainSubtitle")
+        subtitle.setStyleSheet("font-size: 16px; color: #8b949e; font-weight: 400;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
+        header_container.addWidget(subtitle)
+        
+        layout.addLayout(header_container)
 
-        mode_label = QLabel("Select Mode")
-        mode_label.setObjectName("sectionHeader")
+        mode_container = QVBoxLayout()
+        mode_container.setSpacing(24)
+        
+        mode_label = QLabel("Select Simulation Mode")
+        mode_label.setStyleSheet("color: #e6edf3; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;")
         mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(mode_label)
+        mode_container.addWidget(mode_label)
 
-        btn_container = QVBoxLayout()
-        btn_container.setSpacing(12)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(20)
+        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        sim_btn = QPushButton("🔌  Simulator Mode")
+        sim_card = QFrame()
+        sim_card.setProperty("card", True)
+        sim_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sim_card.setFixedSize(280, 200)
+        sim_layout = QVBoxLayout(sim_card)
+        sim_layout.setContentsMargins(24, 24, 24, 24)
+        sim_layout.setSpacing(16)
+        
+        sim_icon = QLabel("🔌")
+        sim_icon.setStyleSheet("font-size: 48px;")
+        sim_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sim_layout.addWidget(sim_icon)
+
+        sim_btn = QPushButton("Simulator Mode")
         sim_btn.setObjectName("sim_btn")
         sim_btn.setProperty("primary", True)
-        sim_btn.setMinimumWidth(240)
-        sim_btn.setMinimumHeight(48)
+        sim_btn.setMinimumHeight(44)
         sim_btn.clicked.connect(lambda: self.main_window.switch_to_mode("simulator"))
-        btn_container.addWidget(sim_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        sim_layout.addWidget(sim_btn)
+        
+        sim_desc = QLabel("Full autonomous simulation with OCPP integration")
+        sim_desc.setWordWrap(True)
+        sim_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sim_desc.setStyleSheet("color: #8b949e; font-size: 12px;")
+        sim_layout.addWidget(sim_desc)
+        
+        btn_row.addWidget(sim_card)
 
-        manual_btn = QPushButton("🔧  Manual Mode")
+        manual_card = QFrame()
+        manual_card.setProperty("card", True)
+        manual_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        manual_card.setFixedSize(280, 200)
+        manual_layout = QVBoxLayout(manual_card)
+        manual_layout.setContentsMargins(24, 24, 24, 24)
+        manual_layout.setSpacing(16)
+
+        manual_icon = QLabel("🔧")
+        manual_icon.setStyleSheet("font-size: 48px;")
+        manual_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        manual_layout.addWidget(manual_icon)
+
+        manual_btn = QPushButton("Manual Mode")
         manual_btn.setObjectName("manual_btn")
-        manual_btn.setMinimumWidth(240)
-        manual_btn.setMinimumHeight(48)
+        manual_btn.setMinimumHeight(44)
         manual_btn.clicked.connect(lambda: self.main_window.switch_to_mode("manual"))
-        btn_container.addWidget(manual_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        manual_layout.addWidget(manual_btn)
 
-        layout.addLayout(btn_container)
+        manual_desc = QLabel("Raw OCPP message control and protocol debugging")
+        manual_desc.setWordWrap(True)
+        manual_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        manual_desc.setStyleSheet("color: #8b949e; font-size: 12px;")
+        manual_layout.addWidget(manual_desc)
+
+        btn_row.addWidget(manual_card)
+        mode_container.addLayout(btn_row)
+        
+        layout.addLayout(mode_container)
+        layout.addStretch()
 
         self.log_panel = LogPanel()
-        self.log_panel.setMinimumHeight(120)
-        self.log_panel.setMaximumHeight(180)
-        layout.addWidget(self.log_panel, stretch=1)
+        self.log_panel.setMinimumHeight(100)
+        self.log_panel.setMaximumHeight(140)
+        layout.addWidget(self.log_panel)
 
 
 class SimulatorWidget(QWidget):
-    """
-    Simulator mode widget for ChargeGhost EVSE.
-
-    Note: This implementation currently supports single-connector operation.
-    While the engine supports multiple connectors, the UI controls and session
-    details display operate on connector 0 (the first connector). Future
-    versions may add multi-connector support with connector selection.
-    """
-
     _transaction_counter: int = 0
 
     def __init__(self, main_window):
@@ -101,6 +185,7 @@ class SimulatorWidget(QWidget):
         self.config = SimulationConfig.load()
         self.engine = self.main_window.engine
         self.bridge = self.main_window.bridge
+        self._selected_connector_id: int = 1
 
         self.setup_ui()
 
@@ -120,270 +205,309 @@ class SimulatorWidget(QWidget):
         self.tabs = QTabWidget()
         left_panel.addWidget(self.tabs)
 
+        # -- CONTROLS TAB --
         controls_tab = QWidget()
         controls_layout = QVBoxLayout(controls_tab)
         controls_layout.setSpacing(12)
+        controls_layout.setContentsMargins(12, 12, 12, 12)
 
         self.btn_plug = QPushButton("🔌  Plug In")
         self.btn_plug.setObjectName("btn_plug")
         self.btn_plug.setProperty("primary", True)
-        self.btn_plug.setMinimumHeight(40)
+        self.btn_plug.setMinimumHeight(44)
         self.btn_plug.clicked.connect(self.action_plug_in)
         controls_layout.addWidget(self.btn_plug)
 
-        self.btn_swipe = QPushButton("💳  Swipe Card")
+        self.btn_swipe = QPushButton("💳  Start Charging")
         self.btn_swipe.setObjectName("btn_swipe")
         self.btn_swipe.setProperty("success", True)
-        self.btn_swipe.setMinimumHeight(40)
+        self.btn_swipe.setMinimumHeight(44)
         self.btn_swipe.clicked.connect(self.action_swipe_card)
         controls_layout.addWidget(self.btn_swipe)
 
-        self.btn_unplug = QPushButton("⚡  Unplug")
+        self.btn_unplug = QPushButton("⏏  Unplug")
         self.btn_unplug.setObjectName("btn_unplug")
         self.btn_unplug.setProperty("danger", True)
-        self.btn_unplug.setMinimumHeight(40)
+        self.btn_unplug.setMinimumHeight(44)
         self.btn_unplug.clicked.connect(self.action_unplug)
         controls_layout.addWidget(self.btn_unplug)
 
         self.status_panel = StatusPanel()
+        self.status_panel.on_connector_selected.connect(self._on_connector_panel_select)
         controls_layout.addWidget(self.status_panel)
+        controls_layout.addStretch()
 
         self.tabs.addTab(controls_tab, "Controls")
 
-        config_tab = QWidget()
-        config_layout = QFormLayout(config_tab)
-        config_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        config_layout.setSpacing(12)
-        config_layout.setContentsMargins(8, 16, 8, 8)
+        # -- CONNECTORS TAB --
+        connectors_tab = QWidget()
+        connectors_layout = QVBoxLayout(connectors_tab)
+        connectors_layout.setSpacing(8)
+        connectors_layout.setContentsMargins(8, 8, 8, 8)
 
+        self.connector_panel = ConnectorPanel()
+        self.connector_panel.set_engine(self.engine)
+        self.connector_panel.set_callbacks(
+            on_apply=self._on_connector_apply,
+            on_remove=self._on_connector_remove,
+            on_add=self._on_connector_add,
+        )
+        connectors_layout.addWidget(self.connector_panel)
+
+        self.tabs.addTab(connectors_tab, "Connectors")
+
+        # -- CONFIG TAB --
+        config_tab = QWidget()
+        config_scroll = QScrollArea()
+        config_scroll.setWidgetResizable(True)
+        config_content = QWidget()
+        config_layout = QVBoxLayout(config_content)
+        config_layout.setSpacing(16)
+        config_layout.setContentsMargins(12, 12, 12, 12)
+
+        # Connection Group
+        conn_group = QGroupBox("Connection Settings")
+        conn_form = QFormLayout(conn_group)
+        conn_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        
         self.input_url = QLineEdit()
-        self.input_url.setMinimumWidth(200)
         self.input_url.setPlaceholderText("ws://example.com/ocpp")
         self.input_url.setText(self.config.connection_url)
-        config_layout.addRow("Connection URL:", self.input_url)
+        conn_form.addRow("URL:", self.input_url)
 
         self.input_ocpp_id = QLineEdit()
-        self.input_ocpp_id.setMinimumWidth(200)
         self.input_ocpp_id.setPlaceholderText("CP-001")
         self.input_ocpp_id.setText(self.config.ocpp_id)
-        config_layout.addRow("OCPP ID:", self.input_ocpp_id)
+        conn_form.addRow("OCPP ID:", self.input_ocpp_id)
 
         self.input_password = QLineEdit()
-        self.input_password.setMinimumWidth(200)
         self.input_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_password.setPlaceholderText("Optional")
         self.input_password.setText(self.config.ocpp_password)
-        config_layout.addRow("OCPP Password:", self.input_password)
-
-        self.input_model = QLineEdit()
-        self.input_model.setMinimumWidth(200)
-        self.input_model.setPlaceholderText("ChargeGhostV1")
-        self.input_model.setText(self.config.charge_point_model)
-        config_layout.addRow("Model:", self.input_model)
-
-        self.input_vendor = QLineEdit()
-        self.input_vendor.setMinimumWidth(200)
-        self.input_vendor.setPlaceholderText("ChargeGhost")
-        self.input_vendor.setText(self.config.charge_point_vendor)
-        config_layout.addRow("Vendor:", self.input_vendor)
-
-        self.input_connectors = QLineEdit()
-        self.input_connectors.setMinimumWidth(200)
-        self.input_connectors.setPlaceholderText("1")
-        self.input_connectors.setText(str(self.config.num_connectors))
-        config_layout.addRow("Connectors:", self.input_connectors)
-
+        conn_form.addRow("Password:", self.input_password)
+        
         self.checkbox_skip_tls = QCheckBox("Skip TLS Verification")
         self.checkbox_skip_tls.setChecked(self.config.skip_tls_verify)
-        config_layout.addRow(self.checkbox_skip_tls)
+        conn_form.addRow(self.checkbox_skip_tls)
+        config_layout.addWidget(conn_group)
+
+        # Identity Group
+        ident_group = QGroupBox("Station Identity")
+        ident_form = QFormLayout(ident_group)
+        
+        self.input_model = QLineEdit()
+        self.input_model.setPlaceholderText("ChargeGhostV1")
+        self.input_model.setText(self.config.charge_point_model)
+        ident_form.addRow("Model:", self.input_model)
+
+        self.input_vendor = QLineEdit()
+        self.input_vendor.setPlaceholderText("ChargeGhost")
+        self.input_vendor.setText(self.config.charge_point_vendor)
+        ident_form.addRow("Vendor:", self.input_vendor)
+        config_layout.addWidget(ident_group)
 
         self.btn_save_config = QPushButton("💾  Save Configuration")
         self.btn_save_config.setObjectName("btn_save_config")
         self.btn_save_config.setProperty("primary", True)
-        self.btn_save_config.setMinimumHeight(36)
+        self.btn_save_config.setMinimumHeight(40)
         self.btn_save_config.clicked.connect(self.action_save_config)
-        config_layout.addRow(self.btn_save_config)
+        config_layout.addWidget(self.btn_save_config)
 
+        config_layout.addStretch()
+        config_scroll.setWidget(config_content)
+        config_tab_layout = QVBoxLayout(config_tab)
+        config_tab_layout.setContentsMargins(0, 0, 0, 0)
+        config_tab_layout.addWidget(config_scroll)
         self.tabs.addTab(config_tab, "Config")
 
+        # -- SESSION TAB (DASHBOARD) --
         session_tab = QWidget()
-        session_scroll = QScrollArea()
-        session_scroll.setWidgetResizable(True)
-        session_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        session_content = QWidget()
-        session_layout = QVBoxLayout(session_content)
-        session_layout.setSpacing(8)
-        session_layout.setContentsMargins(8, 8, 8, 8)
+        session_layout = QVBoxLayout(session_tab)
+        session_layout.setSpacing(16)
+        session_layout.setContentsMargins(12, 12, 12, 12)
 
-        id_tag_header = QLabel("ID Tag")
-        id_tag_header.setObjectName("sectionHeader")
-        session_layout.addWidget(id_tag_header)
-
+        # ID Tag Section
+        tag_container = QFrame()
+        tag_container.setProperty("card", True)
+        tag_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        tag_layout = QHBoxLayout(tag_container)
+        tag_layout.setContentsMargins(12, 8, 12, 8)
+        tag_layout.addWidget(QLabel("👤 ID Tag:"))
         self.input_id_tag = QLineEdit()
-        self.input_id_tag.setPlaceholderText("Enter ID Tag")
-        session_layout.addWidget(self.input_id_tag)
-
-        self.btn_apply_id_tag = QPushButton("Apply ID Tag")
-        self.btn_apply_id_tag.setMinimumHeight(32)
+        self.input_id_tag.setPlaceholderText("Enter tag (e.g. RFID-001)")
+        tag_layout.addWidget(self.input_id_tag)
+        self.btn_apply_id_tag = QPushButton("Apply")
         self.btn_apply_id_tag.clicked.connect(self.action_apply_id_tag)
-        session_layout.addWidget(self.btn_apply_id_tag)
+        tag_layout.addWidget(self.btn_apply_id_tag)
+        session_layout.addWidget(tag_container)
 
-        conn_header = QLabel("🔌 Connector")
-        conn_header.setObjectName("sectionHeader")
-        session_layout.addWidget(conn_header)
+        # Dashboard Grid
+        dash_scroll = QScrollArea()
+        dash_scroll.setWidgetResizable(True)
+        dash_content = QWidget()
+        dash_layout = QVBoxLayout(dash_content)
+        dash_layout.setSpacing(16)
+        
+        metrics_grid = QGridLayout()
+        metrics_grid.setSpacing(12)
+        
+        self.metric_tx_id = MetricCard("Transaction ID")
+        self.metric_energy = MetricCard("Energy Charged", "Wh")
+        self.metric_soc = MetricCard("State of Charge", "%")
+        self.metric_duration = MetricCard("Session Duration", "s")
+        self.metric_voltage = MetricCard("Voltage", "V")
+        self.metric_current = MetricCard("Current", "A")
+        self.metric_power = MetricCard("Current Power", "kW")
+        self.metric_meter = MetricCard("Total Meter", "Wh")
 
-        self.lbl_conn_status = QLabel("Status: --")
-        self.lbl_conn_status.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_conn_status)
+        metrics_grid.addWidget(self.metric_tx_id, 0, 0)
+        metrics_grid.addWidget(self.metric_duration, 0, 1)
+        metrics_grid.addWidget(self.metric_energy, 1, 0)
+        metrics_grid.addWidget(self.metric_soc, 1, 1)
+        metrics_grid.addWidget(self.metric_power, 2, 0)
+        metrics_grid.addWidget(self.metric_meter, 2, 1)
+        metrics_grid.addWidget(self.metric_voltage, 3, 0)
+        metrics_grid.addWidget(self.metric_current, 3, 1)
+        
+        dash_layout.addLayout(metrics_grid)
 
-        self.lbl_conn_plugged = QLabel("Plugged: --")
-        self.lbl_conn_plugged.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_conn_plugged)
+        # SoC Progress Bar
+        soc_group = QGroupBox("State of Charge")
+        soc_group_layout = QVBoxLayout(soc_group)
+        self.session_progress = QProgressBar()
+        self.session_progress.setMinimumHeight(24)
+        soc_group_layout.addWidget(self.session_progress)
+        dash_layout.addWidget(soc_group)
 
-        self.lbl_conn_voltage = QLabel("Voltage: -- V")
-        self.lbl_conn_voltage.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_conn_voltage)
-
-        self.lbl_conn_current = QLabel("Current: -- A")
-        self.lbl_conn_current.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_conn_current)
-
-        self.lbl_conn_phase = QLabel("Phase: --")
-        self.lbl_conn_phase.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_conn_phase)
-
-        session_header = QLabel("⚡ Session")
-        session_header.setObjectName("sectionHeader")
-        session_layout.addWidget(session_header)
-
-        self.lbl_session_tx_id = QLabel("Transaction ID: --")
-        self.lbl_session_tx_id.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_tx_id)
-
-        self.lbl_session_conn_id = QLabel("Connector ID: --")
-        self.lbl_session_conn_id.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_conn_id)
-
-        self.lbl_session_id_tag = QLabel("ID Tag: --")
-        self.lbl_session_id_tag.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_id_tag)
-
-        self.lbl_session_energy = QLabel("Energy Charged: -- Wh")
-        self.lbl_session_energy.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_energy)
-
-        self.lbl_session_soc = QLabel("State of Charge: --%")
-        self.lbl_session_soc.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_soc)
-
-        self.lbl_session_max = QLabel("Max Energy: -- Wh")
-        self.lbl_session_max.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_max)
-
-        self.lbl_session_duration = QLabel("Duration: --")
-        self.lbl_session_duration.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_session_duration)
-
-        meter_header = QLabel("📊 Energy Meter")
-        meter_header.setObjectName("sectionHeader")
-        session_layout.addWidget(meter_header)
-
-        self.lbl_meter_reading = QLabel("Reading: -- Wh")
-        self.lbl_meter_reading.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_meter_reading)
-
-        self.lbl_meter_charging = QLabel("Charging: --")
-        self.lbl_meter_charging.setObjectName("sessionLabel")
-        session_layout.addWidget(self.lbl_meter_charging)
-
-        session_layout.addStretch()
-        session_scroll.setWidget(session_content)
-        session_tab_layout = QVBoxLayout(session_tab)
-        session_tab_layout.setContentsMargins(0, 0, 0, 0)
-        session_tab_layout.addWidget(session_scroll)
-
+        dash_layout.addStretch()
+        dash_scroll.setWidget(dash_content)
+        session_layout.addWidget(dash_scroll)
+        
         self.tabs.addTab(session_tab, "Session")
 
+        # -- LOG PANEL (RIGHT) --
         right_panel = QVBoxLayout()
         right_panel.setSpacing(8)
         main_layout.addLayout(right_panel, 7)
 
+        log_header = QHBoxLayout()
         log_title = QLabel("📋 Activity Log")
         log_title.setObjectName("sectionHeader")
-        right_panel.addWidget(log_title)
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+
+        self.btn_clear_logs = QPushButton("Clear")
+        self.btn_clear_logs.setMinimumHeight(24)
+        self.btn_clear_logs.clicked.connect(lambda: self.log_panel.clear())
+        log_header.addWidget(self.btn_clear_logs)
+
+        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode.setObjectName("btn_log_mode")
+        self.btn_log_mode.setCheckable(True)
+        self.btn_log_mode.setMinimumHeight(24)
+        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
+        log_header.addWidget(self.btn_log_mode)
+        right_panel.addLayout(log_header)
 
         self.log_panel = LogPanel()
         right_panel.addWidget(self.log_panel)
 
+    def _on_connector_panel_select(self, connector_id: int) -> None:
+        self._selected_connector_id = connector_id
+        self.status_panel.set_selected_connector(connector_id)
+
+    def _get_selected_connector(self):
+        return self.engine.get_connector(self._selected_connector_id)
+
+    def _ensure_valid_selection(self) -> None:
+        if self.engine.get_connector(self._selected_connector_id) is None:
+            if self.engine.connectors:
+                self._selected_connector_id = self.engine.connectors[0].id
+
     def update_ui(self):
+        self._ensure_valid_selection()
+        self.status_panel.set_selected_connector(self._selected_connector_id)
         self.status_panel.update_status(self.engine)
         self._update_session_details()
 
-        if self.engine.connectors:
-            conn = self.engine.connectors[0]
+        conn = self._get_selected_connector()
+        if conn:
             self.btn_plug.setEnabled(not conn.is_plugged_in)
             self.btn_unplug.setEnabled(conn.is_plugged_in)
             self.btn_swipe.setEnabled(conn.is_plugged_in)
+            
+            if self.engine.session:
+                self.btn_swipe.setText("⏹  Stop Charging")
+                self.btn_swipe.setProperty("danger", True)
+                self.btn_swipe.setProperty("success", False)
+            else:
+                self.btn_swipe.setText("💳  Start Charging")
+                self.btn_swipe.setProperty("success", True)
+                self.btn_swipe.setProperty("danger", False)
+            
+            # Refresh style to apply danger/success properties
+            self.btn_swipe.style().unpolish(self.btn_swipe)
+            self.btn_swipe.style().polish(self.btn_swipe)
 
     def _update_session_details(self):
-        if self.engine.connectors:
-            conn = self.engine.connectors[0]
-            self.lbl_conn_status.setText(f"Status: {conn.status.value}")
-            self.lbl_conn_plugged.setText(
-                f"Plugged: {'Yes' if conn.is_plugged_in else 'No'}"
-            )
-            self.lbl_conn_voltage.setText(f"Voltage: {conn.voltage:.1f} V")
-            self.lbl_conn_current.setText(f"Current: {conn.current:.1f} A")
-            self.lbl_conn_phase.setText(f"Phase: {conn.phase}")
+        conn = self._get_selected_connector()
+        if conn:
+            self.metric_voltage.set_value(f"{conn.voltage:.1f}")
+            self.metric_current.set_value(f"{conn.current:.1f}")
+            power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
+            self.metric_power.set_value(f"{power_kw:.2f}")
+        else:
+            self.metric_voltage.set_value("--")
+            self.metric_current.set_value("--")
+            self.metric_power.set_value("--")
 
         session = self.engine.session
         if session:
-            self.lbl_session_tx_id.setText(f"Transaction ID: {session.transaction_id}")
-            self.lbl_session_conn_id.setText(f"Connector ID: {session.connector_id}")
-            self.lbl_session_id_tag.setText(f"ID Tag: {session.id_tag or '--'}")
-            self.lbl_session_energy.setText(
-                f"Energy Charged: {session.energy_charged:.3f} Wh"
-            )
-            self.lbl_session_soc.setText(
-                f"State of Charge: {session.state_of_charge:.2f}%"
-            )
-            self.lbl_session_max.setText(f"Max Energy: {session.max_energy:.3f} Wh")
+            self.metric_tx_id.set_value(str(session.transaction_id))
+            self.metric_energy.set_value(f"{session.energy_charged:.2f}")
+            self.metric_soc.set_value(f"{session.state_of_charge:.1f}")
             duration = time.monotonic() - session.start_time
-            self.lbl_session_duration.setText(f"Duration: {duration:.1f} s")
+            self.metric_duration.set_value(f"{duration:.0f}")
+            self.session_progress.setValue(int(session.state_of_charge))
         else:
-            self.lbl_session_tx_id.setText("Transaction ID: --")
-            self.lbl_session_conn_id.setText("Connector ID: --")
-            self.lbl_session_id_tag.setText("ID Tag: --")
-            self.lbl_session_energy.setText("Energy Charged: -- Wh")
-            self.lbl_session_soc.setText("State of Charge: --%")
-            self.lbl_session_max.setText("Max Energy: -- Wh")
-            self.lbl_session_duration.setText("Duration: --")
+            self.metric_tx_id.set_value("--")
+            self.metric_energy.set_value("--")
+            self.metric_soc.set_value("--")
+            self.metric_duration.set_value("--")
+            self.session_progress.setValue(0)
 
         meter = self.engine.energy_meter
-        self.lbl_meter_reading.setText(f"Reading: {meter.get_meter_reading():.3f} Wh")
-        self.lbl_meter_charging.setText(
-            f"Charging: {'Yes' if meter.is_charging else 'No'}"
-        )
+        self.metric_meter.set_value(f"{meter.get_meter_reading():.1f}")
 
     def action_plug_in(self):
-        self.engine.plug_in(0)
-        self.log_panel.log_message("[green]UI:[/green] Plugged In")
+        # Unplug any currently plugged-in connectors first
+        for conn in self.engine.connectors:
+            if conn.is_plugged_in and conn.id != self._selected_connector_id:
+                self.engine.unplug(conn.id)
+                self.log_panel.log_message(
+                    f"[yellow]UI:[/yellow] Auto-unplugged Connector {conn.id}"
+                )
+
+        self.engine.plug_in(self._selected_connector_id)
+        self.log_panel.log_message(
+            f"[green]UI:[/green] Plugged In to Connector {self._selected_connector_id}"
+        )
 
     def action_unplug(self):
-        self.engine.unplug(0)
-        self.log_panel.log_message("[yellow]UI:[/yellow] Unplugged")
+        self.engine.unplug(self._selected_connector_id)
+        self.log_panel.log_message(
+            f"[yellow]UI:[/yellow] Unplugged from Connector {self._selected_connector_id}"
+        )
 
     def action_swipe_card(self):
         if not self.engine.session:
             SimulatorWidget._transaction_counter += 1
             temp_tx_id = SimulatorWidget._transaction_counter
-            self.engine.start_session(connector_id=0, transaction_id=temp_tx_id)
+            self.engine.start_session(
+                connector_id=self._selected_connector_id, transaction_id=temp_tx_id
+            )
             self.log_panel.log_message(
-                "[green]UI:[/green] Swiped Card - Requesting Start Session"
+                f"[green]UI:[/green] Swiped Card - Requesting Start Session on Connector {self._selected_connector_id}"
             )
         else:
             self.engine.stop_session()
@@ -393,9 +517,12 @@ class SimulatorWidget(QWidget):
 
     def action_apply_id_tag(self):
         id_tag = self.input_id_tag.text().strip()
-        if id_tag and self.engine.connectors:
-            self.engine.connectors[0].id_tag = id_tag
-            self.log_panel.log_message(f"[green]UI:[/green] ID Tag set to: {id_tag}")
+        conn = self._get_selected_connector()
+        if id_tag and conn:
+            conn.id_tag = id_tag
+            self.log_panel.log_message(
+                f"[green]UI:[/green] ID Tag set to: {id_tag} on Connector {self._selected_connector_id}"
+            )
         elif not id_tag:
             self.log_panel.log_message("[yellow]UI:[/yellow] Please enter an ID Tag")
 
@@ -421,22 +548,63 @@ class SimulatorWidget(QWidget):
         self.config.ocpp_password = self.input_password.text()
         self.config.charge_point_model = self.input_model.text() or "ChargeGhostV1"
         self.config.charge_point_vendor = self.input_vendor.text() or "ChargeGhost"
-        try:
-            num_connectors = int(self.input_connectors.text() or "1")
-            if num_connectors < 1:
-                self.log_panel.log_message(
-                    "[red]Config:[/red] Connectors must be at least 1"
-                )
-                return
-            self.config.num_connectors = num_connectors
-        except ValueError:
-            self.log_panel.log_message(
-                "[red]Config:[/red] Invalid number of connectors"
-            )
-            return
         self.config.skip_tls_verify = self.checkbox_skip_tls.isChecked()
+        self.config.connectors = [
+            ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
+            for c in self.engine.connectors
+        ]
+        self.config.num_connectors = len(self.engine.connectors)
         self.config.save()
         self.log_panel.log_message("[green]Config:[/green] Configuration saved.")
+
+    def _on_connector_apply(
+        self, connector_id: int, voltage: float, current: float, phase: int
+    ) -> None:
+        error = self.engine.update_connector(connector_id, voltage, current, phase)
+        if error:
+            self.log_panel.log_message(f"[red]Connector:[/red] {error}")
+        else:
+            self.log_panel.log_message(
+                f"[green]Connector {connector_id}:[/green] Updated to "
+                f"{voltage}V, {current}A, {phase}Ph"
+            )
+
+    def _on_connector_remove(self, connector_id: int) -> None:
+        if len(self.engine.connectors) <= 1:
+            self.log_panel.log_message(
+                "[red]Connector:[/red] Cannot remove the last connector"
+            )
+            return
+
+        if self.engine.session and self.engine.session.connector_id == connector_id:
+            self.log_panel.log_message(
+                "[red]Connector:[/red] Cannot remove connector with active session"
+            )
+            return
+
+        self.engine.remove_connector(connector_id)
+        self.connector_panel.rebuild_cards()
+        self._ensure_valid_selection()
+        self.log_panel.log_message(
+            f"[yellow]Connector:[/yellow] Removed connector {connector_id}"
+        )
+
+    def _on_connector_add(self) -> None:
+        connector = self.engine.add_connector()
+        self.connector_panel.rebuild_cards()
+        self._selected_connector_id = connector.id
+        self.log_panel.log_message(
+            f"[green]Connector:[/green] Added connector {connector.id}"
+        )
+
+    def action_toggle_log_mode(self):
+        is_detailed = self.btn_log_mode.isChecked()
+        if is_detailed:
+            self.main_window.signal_bridge.log_mode = "verbose"
+            self.btn_log_mode.setText("Compact")
+        else:
+            self.main_window.signal_bridge.log_mode = "compact"
+            self.btn_log_mode.setText("Detailed")
 
 
 class ManualWidget(QWidget):
@@ -461,44 +629,52 @@ class ManualWidget(QWidget):
         controls_title.setObjectName("sectionHeader")
         controls.addWidget(controls_title)
 
+        # Basic Messages Group
+        basic_group = QGroupBox("Lifecycle Messages")
+        basic_layout = QVBoxLayout(basic_group)
+        
         self.btn_boot = QPushButton("📤  BootNotification")
         self.btn_boot.setMinimumHeight(40)
         self.btn_boot.clicked.connect(self.action_boot)
-        controls.addWidget(self.btn_boot)
+        basic_layout.addWidget(self.btn_boot)
 
         self.btn_heartbeat = QPushButton("💓  Heartbeat")
         self.btn_heartbeat.setMinimumHeight(40)
         self.btn_heartbeat.clicked.connect(self.action_heartbeat)
-        controls.addWidget(self.btn_heartbeat)
+        basic_layout.addWidget(self.btn_heartbeat)
+        
+        self.btn_status = QPushButton("📡  StatusNotification")
+        self.btn_status.setMinimumHeight(40)
+        self.btn_status.clicked.connect(self.action_status)
+        basic_layout.addWidget(self.btn_status)
+        controls.addWidget(basic_group)
+
+        # Transaction Group
+        tx_group = QGroupBox("Transaction Control")
+        tx_layout = QVBoxLayout(tx_group)
 
         start_row = QHBoxLayout()
-        start_row.setSpacing(8)
         self.btn_start = QPushButton("▶️  Start")
         self.btn_start.setProperty("success", True)
         self.btn_start.setMinimumHeight(40)
         self.btn_start.clicked.connect(self.action_start)
         self.input_tag = QLineEdit()
         self.input_tag.setPlaceholderText("ID Tag")
-        start_row.addWidget(self.btn_start)
-        start_row.addWidget(self.input_tag)
-        controls.addLayout(start_row)
+        start_row.addWidget(self.btn_start, 1)
+        start_row.addWidget(self.input_tag, 2)
+        tx_layout.addLayout(start_row)
 
         stop_row = QHBoxLayout()
-        stop_row.setSpacing(8)
         self.btn_stop = QPushButton("⏹️  Stop")
         self.btn_stop.setProperty("danger", True)
         self.btn_stop.setMinimumHeight(40)
         self.btn_stop.clicked.connect(self.action_stop)
         self.input_tx_id = QLineEdit()
-        self.input_tx_id.setPlaceholderText("Transaction ID")
-        stop_row.addWidget(self.btn_stop)
-        stop_row.addWidget(self.input_tx_id)
-        controls.addLayout(stop_row)
-
-        self.btn_status = QPushButton("📡  StatusNotification")
-        self.btn_status.setMinimumHeight(40)
-        self.btn_status.clicked.connect(self.action_status)
-        controls.addWidget(self.btn_status)
+        self.input_tx_id.setPlaceholderText("TX ID")
+        stop_row.addWidget(self.btn_stop, 1)
+        stop_row.addWidget(self.input_tx_id, 2)
+        tx_layout.addLayout(stop_row)
+        controls.addWidget(tx_group)
 
         controls.addStretch()
 
@@ -506,12 +682,36 @@ class ManualWidget(QWidget):
         right_panel.setSpacing(8)
         layout.addLayout(right_panel, 7)
 
+        log_header = QHBoxLayout()
         log_title = QLabel("📋 Activity Log")
         log_title.setObjectName("sectionHeader")
-        right_panel.addWidget(log_title)
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+
+        self.btn_clear_logs = QPushButton("Clear")
+        self.btn_clear_logs.setMinimumHeight(24)
+        self.btn_clear_logs.clicked.connect(lambda: self.log_panel.clear())
+        log_header.addWidget(self.btn_clear_logs)
+
+        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode.setObjectName("btn_log_mode")
+        self.btn_log_mode.setCheckable(True)
+        self.btn_log_mode.setMinimumHeight(24)
+        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
+        log_header.addWidget(self.btn_log_mode)
+        right_panel.addLayout(log_header)
 
         self.log_panel = LogPanel()
         right_panel.addWidget(self.log_panel)
+
+    def action_toggle_log_mode(self):
+        is_detailed = self.btn_log_mode.isChecked()
+        if is_detailed:
+            self.main_window.signal_bridge.log_mode = "verbose"
+            self.btn_log_mode.setText("Compact")
+        else:
+            self.main_window.signal_bridge.log_mode = "compact"
+            self.btn_log_mode.setText("Detailed")
 
     def action_boot(self):
         adapter = self.bridge.runner.adapter
@@ -596,8 +796,12 @@ class MainWindow(QMainWindow):
 
         self.config = SimulationConfig.load()
         self.engine = Engine()
-        for _ in range(self.config.num_connectors):
-            self.engine.add_connector()
+        for connector_config in self.config.connectors:
+            self.engine.add_connector(
+                voltage=connector_config.voltage,
+                current=connector_config.current,
+                phase=connector_config.phase,
+            )
 
         self.bridge = Bridge(
             self.engine,
@@ -669,8 +873,11 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() == self.simulator:
             self.simulator.update_ui()
 
-    @Slot(str, str)
-    def on_log_received(self, source, message):
+    @Slot(str, str, bool)
+    def on_log_received(self, source, message, is_important):
+        if self.signal_bridge.log_mode == "compact" and not is_important:
+            return
+
         source_colors = {
             "Engine": "yellow",
             "OCPP": "blue",

@@ -17,55 +17,86 @@ class Engine(Subscriber):
         self.energy_meter: EnergyMeter = EnergyMeter()
         self.command_queue: queue.Queue = queue.Queue()
         self.event_queue: deque[float] = deque(maxlen=1000)
-        self.connectors: list[Connector] = []
+        self._connectors: dict[int, Connector] = {}
+        self._next_connector_id: int = 1
         self.last_update_time: Optional[float] = None
         self.last_display_time: Optional[float] = None
 
         self.session_started: Event = Event()
         self.session_stopped: Event = Event()
         self.connector_status_changed: Event = Event()
+        self.connector_parameters_changed: Event = Event()
         self.on_log: Event = Event()
 
         self.simulation_time_step: float = 0.1
         self.display_time_step: float = 1.0
 
-    def _log(self, message: str):
-        self.on_log.emit(message=message)
+    @property
+    def connectors(self) -> list[Connector]:
+        return [self._connectors[cid] for cid in sorted(self._connectors.keys())]
+
+    def _log(self, message: str, **kwargs):
+        self.on_log.emit(message=message, **kwargs)
 
     def add_connector(
         self, voltage: float = 230.0, current: float = 32.0, phase: int = 1
-    ):
-        connector_id = len(self.connectors)
+    ) -> Connector:
+        connector_id = self._next_connector_id
+        self._next_connector_id += 1
         connector = Connector(connector_id, voltage, current, phase)
 
         connector.subscribe_to(self.session_started, connector.handle_session_started)
         connector.subscribe_to(self.session_stopped, connector.handle_session_stopped)
         connector.on_status_change.subscribe(self.handle_connector_status_change)
 
-        self.connectors.append(connector)
+        self._connectors[connector_id] = connector
         return connector
 
-    def remove_connector(self, connector_id: int):
-        if 0 <= connector_id < len(self.connectors):
-            # Unsubscribe the connector being removed
-            self.connectors[connector_id].unsubscribe_all()
+    def remove_connector(self, connector_id: int) -> None:
+        if connector_id in self._connectors:
+            if self.session and self.session.connector_id == connector_id:
+                return
+            self._connectors[connector_id].unsubscribe_all()
+            del self._connectors[connector_id]
 
-            head = self.connectors[:connector_id]
-            tail = self.connectors[connector_id + 1 :]
-            for conn in tail:
-                conn.id -= 1
-            self.connectors = head + tail
+    def update_connector(
+        self,
+        connector_id: int,
+        voltage: Optional[float] = None,
+        current: Optional[float] = None,
+        phase: Optional[int] = None,
+    ) -> Optional[str]:
+        connector = self._connectors.get(connector_id)
+        if connector is None:
+            return f"Connector {connector_id} not found"
+
+        error = connector.set_parameters(voltage=voltage, current=current, phase=phase)
+        if error:
+            return error
+
+        self.connector_parameters_changed.emit(
+            connector_id=connector_id,
+            voltage=connector.voltage,
+            current=connector.current,
+            phase=connector.phase,
+        )
+        return None
+
+    def get_connector(self, connector_id: int) -> Optional[Connector]:
+        return self._connectors.get(connector_id)
 
     def handle_connector_status_change(self, connector_id, status):
         self.connector_status_changed.emit(connector_id=connector_id, status=status)
 
-    def plug_in(self, connector_id: int):
-        if 0 <= connector_id < len(self.connectors):
-            self.connectors[connector_id].plug_in()
+    def plug_in(self, connector_id: int) -> None:
+        connector = self._connectors.get(connector_id)
+        if connector:
+            connector.plug_in()
 
-    def unplug(self, connector_id: int):
-        if 0 <= connector_id < len(self.connectors):
-            self.connectors[connector_id].unplug()
+    def unplug(self, connector_id: int) -> None:
+        connector = self._connectors.get(connector_id)
+        if connector:
+            connector.unplug()
             if self.session is not None and self.session.connector_id == connector_id:
                 self.stop_session()
 
@@ -75,12 +106,12 @@ class Engine(Subscriber):
         transaction_id: int,
         max_energy: float = 55000.0,
         id_tag: Optional[str] = None,
-    ):
-        if not (0 <= connector_id < len(self.connectors)):
+    ) -> None:
+        connector = self._connectors.get(connector_id)
+        if connector is None:
             self._log(f"Error: Connector {connector_id} not found.")
             return
 
-        connector = self.connectors[connector_id]
         if not connector.is_plugged_in:
             self._log(f"Error: Connector {connector_id} is not plugged in.")
             return
@@ -142,7 +173,9 @@ class Engine(Subscriber):
                 return
             self.last_update_time = current_time
 
-            connector = self.connectors[self.session.connector_id]
+            connector = self._connectors.get(self.session.connector_id)
+            if connector is None:
+                return
             self.energy_meter.update(
                 connector.voltage,
                 connector.current,
@@ -164,7 +197,7 @@ class Engine(Subscriber):
 
     def _handle_command(self, command):
         action = command.get("action")
-        connector_id = command.get("connector_id", 0)
+        connector_id = command.get("connector_id", 1)
         if action == "START":
             self.start_session(
                 connector_id=connector_id,

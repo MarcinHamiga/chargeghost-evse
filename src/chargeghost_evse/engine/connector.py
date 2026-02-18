@@ -1,5 +1,13 @@
 from chargeghost_evse.util.subscriber import Subscriber
 from chargeghost_evse.util.event import Event
+from chargeghost_evse.util.config import (
+    VOLTAGE_MIN,
+    VOLTAGE_MAX,
+    CURRENT_MIN,
+    CURRENT_MAX,
+    PHASE_MIN,
+    PHASE_MAX,
+)
 from typing import Optional
 import enum
 
@@ -30,6 +38,7 @@ class Connector(Subscriber):
         self.id_tag: Optional[str] = None
 
         self.on_status_change: Event = Event()
+        self.on_parameters_change: Event = Event()
 
     @property
     def status(self) -> ConnectorState:
@@ -40,6 +49,39 @@ class Connector(Subscriber):
         if self._status != new_status:
             self._status = new_status
             self.on_status_change.emit(connector_id=self.id, status=new_status)
+
+    def set_parameters(
+        self,
+        voltage: Optional[float] = None,
+        current: Optional[float] = None,
+        phase: Optional[int] = None,
+    ) -> Optional[str]:
+        if voltage is not None:
+            if not (VOLTAGE_MIN <= voltage <= VOLTAGE_MAX):
+                return f"Voltage must be between {VOLTAGE_MIN}V and {VOLTAGE_MAX}V"
+            self.voltage = voltage
+
+        if current is not None:
+            if not (CURRENT_MIN <= current <= CURRENT_MAX):
+                return f"Current must be between {CURRENT_MIN}A and {CURRENT_MAX}A"
+            self.current = current
+
+        if phase is not None:
+            if not (PHASE_MIN <= phase <= PHASE_MAX):
+                return f"Phase must be between {PHASE_MIN} and {PHASE_MAX}"
+            self.phase = phase
+
+        self.on_parameters_change.emit(
+            connector_id=self.id,
+            voltage=self.voltage,
+            current=self.current,
+            phase=self.phase,
+        )
+        return None
+
+    @property
+    def power(self) -> float:
+        return self.voltage * self.current * self.phase
 
     def plug_in(self) -> None:
         if not self.is_plugged_in:
