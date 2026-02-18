@@ -149,6 +149,10 @@ async def on_remote_start_transaction(
 	...
 ```
 
+### UI & Styling
+- **QSS**: Use `rgba()` for transparency (e.g., `background-color: rgba(30, 173, 152, 0.2);`).
+- **Opacity**: The `opacity` property is **NOT** supported in PySide6 QSS. To achieve a faded look for disabled elements, explicitly set `rgba` values for `background-color`, `color`, and `border` in the `:disabled` pseudo-state.
+
 ### Configuration
 - Use `SimulationConfig` dataclass for user configuration
 - Config stored in `~/.chargeghost/config.json`

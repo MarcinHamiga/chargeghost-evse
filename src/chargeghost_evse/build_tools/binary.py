@@ -3,7 +3,6 @@
 
 import platform
 import shutil
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -33,28 +32,6 @@ def check_icons() -> bool:
     return icon_path.exists()
 
 
-def fix_macos_terminal_launch():
-    app_path = PROJECT_ROOT / "dist" / "ChargeGhost EVSE.app"
-    contents_dir = app_path / "Contents"
-    macos_dir = contents_dir / "MacOS"
-
-    old_exe = macos_dir / "chargeghost-evse"
-    new_exe = macos_dir / "chargeghost-evse-bin"
-
-    if old_exe.exists():
-        old_exe.rename(new_exe)
-
-    wrapper_script = macos_dir / "chargeghost-evse"
-    wrapper_script.write_text("""#!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-osascript -e "tell application \\"Terminal\\" to activate" \\
-          -e "tell application \\"Terminal\\" to do script \\"'${SCRIPT_DIR}/chargeghost-evse-bin'\\""
-""")
-    wrapper_script.chmod(
-        wrapper_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    )
-
-
 def main():
     if not check_icons():
         print("Icons not found. Generating icons first...")
@@ -81,7 +58,6 @@ def main():
             intermediate_dir = dist_dir / "chargeghost-evse"
             if intermediate_dir.exists():
                 shutil.rmtree(intermediate_dir)
-            fix_macos_terminal_launch()
             app_path = dist_dir / "ChargeGhost EVSE.app"
             print("\nBuild complete!")
             print(f"  macOS app: {app_path}")

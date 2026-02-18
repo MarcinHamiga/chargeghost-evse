@@ -35,7 +35,25 @@ from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.status_panel import StatusPanel
 from chargeghost_evse.util.config import ConnectorConfig, SimulationConfig
 
-STYLES_PATH = Path(__file__).parent / "styles" / "e_mobility.qss"
+
+def get_resource_path(relative_path: str) -> Path:
+	"""Get the correct path to a resource file, works both in source and frozen mode.
+
+	When running from source, resources are relative to this file's location.
+	When frozen with PyInstaller, resources are in sys._MEIPASS or the executable dir.
+	"""
+	if getattr(sys, "frozen", False):
+		# Running in a PyInstaller bundle
+		base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+		# In frozen mode, resources are placed at the package structure level
+		return base_path / "chargeghost_evse" / "ui" / relative_path
+	else:
+		# Running from source - resources are relative to this file
+		base_path = Path(__file__).parent
+		return base_path / relative_path
+
+
+STYLES_PATH = get_resource_path("styles/e_mobility.qss")
 
 
 class MetricCard(QFrame):
