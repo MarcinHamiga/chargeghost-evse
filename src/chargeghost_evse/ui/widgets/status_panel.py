@@ -1,6 +1,6 @@
 from textual.widgets import Static
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal
+from textual.containers import Vertical
 from textual.widgets import Label
 
 class StatusPanel(Static):

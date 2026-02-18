@@ -1,16 +1,18 @@
 from chargeghost_evse.util.subscriber import Subscriber
 from chargeghost_evse.util.event import Event
 import time
+from typing import Optional
 
 class Session(Subscriber):
-	def __init__(self, transaction_id: int = -1, connector_id: int = 0, max_energy:float = 0.0):
+	def __init__(self, transaction_id: int = -1, connector_id: int = 0, max_energy:float = 0.0, id_tag: Optional[str] = None):
 		super().__init__()
 		self.transaction_id: int = transaction_id
 		self.start_time: float = time.time()
 		self.energy_charged: float = 0.0
 		self.connector_id: int = connector_id
-		self.state_of_charge: float = 0.0 # Current state of charge of the "EV" in %
-		self.max_energy: float = max_energy # Battery capacity of the "EV" in Wh
+		self.state_of_charge: float = 0.0
+		self.max_energy: float = max_energy
+		self.id_tag: Optional[str] = id_tag
 		self.ev_max_charge_reached: Event = Event()
 
 	def process_energy_delivery(self, amount:float=0.0) -> None:

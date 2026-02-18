@@ -26,5 +26,14 @@ class Subscriber:
 				unsub()
 		self._subscriptions.clear()
 
+	def close(self) -> None:
+		self.unsubscribe_all()
+
+	def __enter__(self) -> 'Subscriber':
+		return self
+
+	def __exit__(self, exc_type, exc, tb) -> None:
+		self.close()
+
 	def __del__(self):
 		self.unsubscribe_all()

@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.engine.connector import Connector, ConnectorState
@@ -9,21 +10,22 @@ import queue
 class Engine(Subscriber):
 	def __init__(self):
 		super().__init__()
-		self.session: Session = None
+		self.session: Optional[Session] = None
+		self.last_stopped_session: Optional[dict] = None
 		self.energy_meter: EnergyMeter = EnergyMeter()
 		self.command_queue: queue.Queue = queue.Queue()
 		self.event_queue: list = []
 		self.connectors: list[Connector] = []
-		self.last_update_time: float = None
-		self.last_display_time: float = None
+		self.last_update_time: Optional[float] = None
+		self.last_display_time: Optional[float] = None
 
 		self.session_started: Event = Event()
 		self.session_stopped: Event = Event()
 		self.connector_status_changed: Event = Event()
 		self.on_log: Event = Event()
 
-		self.simulation_time_step: float = 0.1 # in seconds
-		self.display_time_step: float = 1.0 # in seconds
+		self.simulation_time_step: float = 0.1
+		self.display_time_step: float = 1.0
 
 	def _log(self, message: str):
 		self.on_log.emit(message=message)
@@ -63,7 +65,7 @@ class Engine(Subscriber):
 			if self.session and self.session.connector_id == connector_id:
 				self.stop_session()
 
-	def start_session(self, connector_id: int, transaction_id: int, max_energy: float = 55000.0):
+	def start_session(self, connector_id: int, transaction_id: int, max_energy: float = 55000.0, id_tag: Optional[str] = None):
 		if not (0 <= connector_id < len(self.connectors)):
 			self._log(f"Error: Connector {connector_id} not found.")
 			return
@@ -77,7 +79,7 @@ class Engine(Subscriber):
 			self._log(f"Error: Session already active on connector {self.session.connector_id}.")
 			return
 
-		self.session = Session(transaction_id=transaction_id, connector_id=connector_id, max_energy=max_energy)
+		self.session = Session(transaction_id=transaction_id, connector_id=connector_id, max_energy=max_energy, id_tag=id_tag or connector.id_tag)
 		self.session.subscribe_to(self.energy_meter.energy_consumed, self.session.process_energy_delivery)
 		self.energy_meter.subscribe_to(self.session.ev_max_charge_reached, self.energy_meter.handle_max_charge_reached)
 		self.energy_meter.is_charging = True
@@ -87,6 +89,13 @@ class Engine(Subscriber):
 	def stop_session(self):
 		if self.session:
 			connector_id = self.session.connector_id
+			self.last_stopped_session = {
+				"transaction_id": self.session.transaction_id,
+				"connector_id": connector_id,
+				"energy_charged": self.session.energy_charged,
+				"id_tag": self.session.id_tag,
+				"meter_stop": self.energy_meter.get_meter_reading()
+			}
 			self.energy_meter.unsubscribe_from(self.session.ev_max_charge_reached)
 			self.session.unsubscribe_all()
 			self._log(f"Session time [s]: {time.time() - self.session.start_time}")
@@ -113,7 +122,6 @@ class Engine(Subscriber):
 			connector = self.connectors[self.session.connector_id]
 			self.energy_meter.update(connector.voltage, connector.current, connector.phase, interval_seconds=interval)
 			if display_interval >= self.display_time_step:
-				# Removed print(self.get_session_info())
 				self.last_display_time = current_time
 			
 			self.event_queue.append(self.energy_meter.get_meter_reading())
@@ -135,7 +143,8 @@ class Engine(Subscriber):
 			self.start_session(
 				connector_id=connector_id,
 				transaction_id=command.get("transaction_id", 0),
-				max_energy=command.get("max_energy", 55000.0)
+				max_energy=command.get("max_energy", 55000.0),
+				id_tag=command.get("id_tag")
 			)
 		elif action == "STOP":
 			self.stop_session()
