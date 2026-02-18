@@ -4,7 +4,7 @@ Guidelines for AI coding agents working on the ChargeGhost EVSE codebase.
 
 ## Project Overview
 
-ChargeGhost EVSE is a Python-based Electric Vehicle Supply Equipment (EVSE) simulator that communicates via OCPP 1.6 with a Central System. It uses Textual for a terminal-based user interface (TUI).
+ChargeGhost EVSE is a Python-based Electric Vehicle Supply Equipment (EVSE) simulator that communicates via OCPP 1.6 with a Central System. It uses PySide6 (Qt) for a graphical user interface.
 
 ## Build Commands
 
@@ -19,17 +19,12 @@ chargeghost-evse                  # Installed command
 PYTHONPATH=src python3 -m chargeghost_evse.main   # From source
 ```
 
-### Running Individual Modules (Development)
-```bash
-poetry run python src/chargeghost_evse/engine/engine.py
-poetry run python src/chargeghost_evse/ocpp_adapter/adapter.py
-```
-
 ### Testing
 ```bash
 poetry run pytest                              # Run all tests
 poetry run pytest tests/test_engine.py         # Run a single test file
-poetry run pytest tests/test_engine.py::test_session_start -v  # Run single test
+poetry run pytest tests/test_engine.py::TestEngine::test_session_start -v  # Run single test
+poetry run pytest -x                           # Stop on first failure
 ```
 
 ### Linting and Type Checking
@@ -37,6 +32,7 @@ poetry run pytest tests/test_engine.py::test_session_start -v  # Run single test
 poetry run mypy src/           # Type checking
 poetry run ruff check src/     # Linting
 poetry run ruff format src/    # Format
+poetry run ruff check src/ --fix  # Auto-fix lint issues
 ```
 
 ## Project Structure
@@ -47,7 +43,7 @@ src/chargeghost_evse/
 ├── engine/              # Core simulation (Engine, Connector, Session, EnergyMeter)
 ├── ocpp_adapter/        # OCPP 1.6 protocol handling (Adapter)
 ├── bridge/              # Connects engine to OCPP adapter (AsyncRunner, Bridge)
-├── ui/                  # Textual TUI components (app, widgets)
+├── ui/                  # PySide6 Qt widgets and main window
 └── util/                # Shared utilities (Event, Subscriber, config)
 ```
 
@@ -60,6 +56,18 @@ src/chargeghost_evse/
 ### Imports
 Group imports in order: stdlib (alphabetical), third-party (alphabetical), local (alphabetical), with blank lines between groups.
 
+```python
+import asyncio
+from typing import Optional
+
+from PySide6.QtCore import Qt, QTimer
+from ocpp.routing import on
+from ocpp.v16 import call, call_result
+
+from chargeghost_evse.engine.session import Session
+from chargeghost_evse.util.event import Event
+```
+
 ### Type Annotations
 - Always use type hints for function parameters and return types
 - Use `Optional[T]` for optional parameters (not `T | None`)
@@ -67,23 +75,22 @@ Group imports in order: stdlib (alphabetical), third-party (alphabetical), local
 - Class instance variables should have type annotations
 
 ```python
-def start_session(self, connector_id: int, transaction_id: int, 
-                  max_energy: float = 55000.0, id_tag: Optional[str] = None) -> None:
-    ...
+def start_session(self, connector_id: int, transaction_id: int,
+				  max_energy: float = 55000.0, id_tag: Optional[str] = None) -> None:
+	...
 
 self.connectors: list[Connector] = []
 self.session: Optional[Session] = None
 ```
 
 ### Naming Conventions
-- **Classes**: PascalCase (`ChargeGhostApp`, `AsyncRunner`)
+- **Classes**: PascalCase (`Engine`, `AsyncRunner`)
 - **Functions/Methods**: snake_case (`start_session`, `get_meter_reading`)
 - **Private methods**: Prefix with underscore (`_log`, `_process_commands`)
-- **Constants**: UPPER_SNAKE_CASE (`CONFIG_FILE`)
-- **Variables**: snake_case (`connector_id`, `transaction_id`)
+- **Constants**: UPPER_SNAKE_CASE (`CONFIG_FILE`, `STYLES_PATH`)
 - Use `TYPE_CHECKING` block for circular import type hints
 
-### Indentation
+### Formatting
 - Use tabs for indentation
 - Maximum line length: 100 characters
 
@@ -101,19 +108,22 @@ self.session: Optional[Session] = None
 ### Logging
 - Use internal `_log` method that emits to `on_log` event
 - Prefix with context: `"[blue]OCPP:[/blue]"`, `"[yellow]Engine:[/yellow]"`
-- Use Textual markup for colored logs
+
+```python
+def _log(self, message: str) -> None:
+	self.on_log.emit(message=message)
+```
 
 ### Error Handling
 - Use specific exception types
 - Handle `try/except` around external operations (WebSocket, file I/O)
-- Log errors with descriptive messages
 
 ```python
 try:
-    ocpp_connector_id = int(connector_id)
+	ocpp_connector_id = int(connector_id)
 except (TypeError, ValueError):
-    self._log(message=f"Invalid connector_id received: {connector_id}")
-    return call_result.RemoteStartTransaction(status=RemoteStartStopStatus.rejected)
+	self._log(message=f"Invalid connector_id received: {connector_id}")
+	return call_result.RemoteStartTransaction(status=RemoteStartStopStatus.rejected)
 ```
 
 ### Async Code
@@ -121,32 +131,39 @@ except (TypeError, ValueError):
 - Run async from threads: `asyncio.run_coroutine_threadsafe(coro, loop)`
 - Use `async with` for context managers
 
-### Configuration
-- Use `SimulationConfig` dataclass for user configuration
-- Config stored in `~/.chargeghost/config.json`
-- Load with `SimulationConfig.load()`, save with `config.save()`
-
 ### Threading
 - OCPP adapter runs in separate daemon thread
-- Check thread context: `threading.current_thread() != threading.main_thread()`
-- UI updates from background threads: `app.call_from_thread()`
+- Use `threading.Event` for shutdown signaling
+- All Qt UI operations must occur on the main thread
 
 ### OCPP Patterns
 - Use `@on("MessageName")` decorator for incoming message handlers
 - Return appropriate `call_result.*` objects
 - OCPP connector IDs are 1-indexed; internal indices are 0-indexed
 
+```python
+@on("RemoteStartTransaction")
+async def on_remote_start_transaction(
+	self, connector_id: Optional[int], id_tag: str, **kwargs
+) -> call_result.RemoteStartTransaction:
+	...
+```
+
+### Configuration
+- Use `SimulationConfig` dataclass for user configuration
+- Config stored in `~/.chargeghost/config.json`
+- Load with `SimulationConfig.load()`, save with `config.save()`
+
 ## Key Dependencies
 
-- **textual**: TUI framework (>=7.5.0)
+- **PySide6**: Qt GUI framework (>=6.8.0)
 - **ocpp**: OCPP protocol implementation (>=2.1.0)
 - **websockets**: WebSocket client (>=16.0)
 - **pydantic/pydantic-settings**: Configuration validation
-- **pyyaml**: YAML parsing
 
 ## Important Notes
 
 - Single-session EVSE: Only one transaction active at a time
 - OCPP 1.6 protocol only
 - The Bridge connects engine events to OCPP messages automatically
-- UI updates must happen on the main thread (use `call_from_thread`)
+- WebSocket runs in a background daemon thread with its own asyncio event loop
