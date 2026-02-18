@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+from typing import Literal
 
 CONFIG_FILE = Path.home() / ".chargeghost" / "config.json"
+
+LogMode = Literal["verbose", "compact"]
 
 
 @dataclass
@@ -14,6 +17,7 @@ class SimulationConfig:
     charge_point_vendor: str = "ChargeGhost"
     num_connectors: int = 1
     skip_tls_verify: bool = False
+    log_mode: LogMode = field(default="compact")
 
     @classmethod
     def load(cls) -> "SimulationConfig":
@@ -31,6 +35,7 @@ class SimulationConfig:
                     charge_point_vendor=data.get("charge_point_vendor", "ChargeGhost"),
                     num_connectors=data.get("num_connectors", 1),
                     skip_tls_verify=data.get("skip_tls_verify", False),
+                    log_mode=data.get("log_mode", "compact"),
                 )
             except (json.JSONDecodeError, IOError):
                 pass

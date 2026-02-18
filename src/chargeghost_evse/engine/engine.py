@@ -29,8 +29,8 @@ class Engine(Subscriber):
         self.simulation_time_step: float = 0.1
         self.display_time_step: float = 1.0
 
-    def _log(self, message: str):
-        self.on_log.emit(message=message)
+    def _log(self, message: str, **kwargs):
+        self.on_log.emit(message=message, **kwargs)
 
     def add_connector(
         self, voltage: float = 230.0, current: float = 32.0, phase: int = 1

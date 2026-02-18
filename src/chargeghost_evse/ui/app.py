@@ -312,9 +312,19 @@ class SimulatorWidget(QWidget):
         right_panel.setSpacing(8)
         main_layout.addLayout(right_panel, 7)
 
+        log_header = QHBoxLayout()
         log_title = QLabel("📋 Activity Log")
         log_title.setObjectName("sectionHeader")
-        right_panel.addWidget(log_title)
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+
+        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode.setObjectName("btn_log_mode")
+        self.btn_log_mode.setCheckable(True)
+        self.btn_log_mode.setMinimumHeight(24)
+        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
+        log_header.addWidget(self.btn_log_mode)
+        right_panel.addLayout(log_header)
 
         self.log_panel = LogPanel()
         right_panel.addWidget(self.log_panel)
@@ -438,6 +448,15 @@ class SimulatorWidget(QWidget):
         self.config.save()
         self.log_panel.log_message("[green]Config:[/green] Configuration saved.")
 
+    def action_toggle_log_mode(self):
+        is_detailed = self.btn_log_mode.isChecked()
+        if is_detailed:
+            self.main_window.signal_bridge.log_mode = "verbose"
+            self.btn_log_mode.setText("Compact")
+        else:
+            self.main_window.signal_bridge.log_mode = "compact"
+            self.btn_log_mode.setText("Detailed")
+
 
 class ManualWidget(QWidget):
     def __init__(self, main_window):
@@ -506,12 +525,31 @@ class ManualWidget(QWidget):
         right_panel.setSpacing(8)
         layout.addLayout(right_panel, 7)
 
+        log_header = QHBoxLayout()
         log_title = QLabel("📋 Activity Log")
         log_title.setObjectName("sectionHeader")
-        right_panel.addWidget(log_title)
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+
+        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode.setObjectName("btn_log_mode")
+        self.btn_log_mode.setCheckable(True)
+        self.btn_log_mode.setMinimumHeight(24)
+        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
+        log_header.addWidget(self.btn_log_mode)
+        right_panel.addLayout(log_header)
 
         self.log_panel = LogPanel()
         right_panel.addWidget(self.log_panel)
+
+    def action_toggle_log_mode(self):
+        is_detailed = self.btn_log_mode.isChecked()
+        if is_detailed:
+            self.main_window.signal_bridge.log_mode = "verbose"
+            self.btn_log_mode.setText("Compact")
+        else:
+            self.main_window.signal_bridge.log_mode = "compact"
+            self.btn_log_mode.setText("Detailed")
 
     def action_boot(self):
         adapter = self.bridge.runner.adapter
@@ -669,8 +707,11 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() == self.simulator:
             self.simulator.update_ui()
 
-    @Slot(str, str)
-    def on_log_received(self, source, message):
+    @Slot(str, str, bool)
+    def on_log_received(self, source, message, is_important):
+        if self.signal_bridge.log_mode == "compact" and not is_important:
+            return
+
         source_colors = {
             "Engine": "yellow",
             "OCPP": "blue",

@@ -1,5 +1,6 @@
+import json
 from datetime import datetime, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
@@ -20,6 +21,7 @@ class Adapter(cp):
         super().__init__(id, connection, response_timeout)
         self.command_queue = command_queue
         self.on_log = Event()
+        self.on_ocpp_message = Event()
 
         self.charge_point_model = charge_point_model
         self.charge_point_vendor = charge_point_vendor
@@ -29,8 +31,55 @@ class Adapter(cp):
         self.on_registration_accepted = Event()
         self.on_heartbeat_response = Event()
 
-    def _log(self, message: str) -> None:
-        self.on_log.emit(message=message)
+    def _log(
+        self, message: str, *, is_ocpp_message: bool = False, is_important: bool = True
+    ) -> None:
+        self.on_log.emit(
+            message=message, is_ocpp_message=is_ocpp_message, is_important=is_important
+        )
+
+    def _log_ocpp_raw(
+        self, direction: str, action: str, payload: Any, message_id: str = ""
+    ) -> None:
+        try:
+            if isinstance(payload, dict):
+                payload_str = json.dumps(payload, indent=2)
+            else:
+                payload_str = str(payload)
+        except (TypeError, ValueError):
+            payload_str = str(payload)
+
+        raw_msg = f"[{direction}] {action}"
+        if message_id:
+            raw_msg += f" (id={message_id})"
+        raw_msg += f"\n{payload_str}"
+
+        is_important = action in {
+            "BootNotification",
+            "StartTransaction",
+            "StopTransaction",
+            "Authorize",
+            "RemoteStartTransaction",
+            "RemoteStopTransaction",
+            "StatusNotification",
+            "MeterValues",
+            "Heartbeat",
+        }
+
+        self.on_ocpp_message.emit(
+            direction=direction, action=action, payload=payload_str
+        )
+        self._log(raw_msg, is_ocpp_message=True, is_important=is_important)
+
+    async def _send_call(self, call):
+        self._log_ocpp_raw("TX", call.__class__.__name__, call.__dict__)
+        return await super()._send_call(call)
+
+    async def _handle_call(self, msg):
+        if hasattr(msg, "unique_id") and hasattr(msg, "action"):
+            payload = getattr(msg, "payload", msg.__dict__)
+            self._log_ocpp_raw("RX", msg.action, payload, getattr(msg, "unique_id", ""))
+        return await super()._handle_call(msg)
 
     def get_active_transaction_id(self, connector_id: int) -> Optional[int]:
         return self.active_transactions.get(connector_id)
@@ -47,7 +96,9 @@ class Adapter(cp):
         self, connector_id: Optional[int], id_tag: str, **kwargs
     ) -> call_result.RemoteStartTransaction:
         self._log(
-            message=f"Received RemoteStartTransaction: connector_id={connector_id}, id_tag={id_tag}"
+            f"RemoteStartTransaction: connector_id={connector_id}, id_tag={id_tag}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         internal_connector_index: Optional[int] = None
@@ -55,13 +106,21 @@ class Adapter(cp):
             try:
                 ocpp_connector_id = int(connector_id)
             except (TypeError, ValueError):
-                self._log(message=f"Invalid connector_id received: {connector_id}")
+                self._log(
+                    f"Invalid connector_id: {connector_id}",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
                 return call_result.RemoteStartTransaction(
                     status=RemoteStartStopStatus.rejected
                 )
 
             if ocpp_connector_id <= 0:
-                self._log(message=f"Out-of-range connector_id: {ocpp_connector_id}")
+                self._log(
+                    f"Out-of-range connector_id: {ocpp_connector_id}",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
                 return call_result.RemoteStartTransaction(
                     status=RemoteStartStopStatus.rejected
                 )
@@ -70,7 +129,9 @@ class Adapter(cp):
 
         if self.command_queue:
             self._log(
-                message=f"Enqueuing START command for connector index: {internal_connector_index}"
+                f"Enqueuing START for connector {internal_connector_index}",
+                is_ocpp_message=False,
+                is_important=False,
             )
             self.command_queue.put(
                 {
@@ -90,7 +151,9 @@ class Adapter(cp):
         self, transaction_id: int, **kwargs
     ) -> call_result.RemoteStopTransaction:
         self._log(
-            message=f"Received RemoteStopTransaction: transaction_id={transaction_id}"
+            f"RemoteStopTransaction: transaction_id={transaction_id}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         matching_connector: Optional[int] = None
@@ -100,14 +163,20 @@ class Adapter(cp):
                 break
 
         if matching_connector is None:
-            self._log(message=f"No active transaction found with id: {transaction_id}")
+            self._log(
+                f"No active transaction: {transaction_id}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
             return call_result.RemoteStopTransaction(
                 status=RemoteStartStopStatus.rejected
             )
 
         if self.command_queue:
             self._log(
-                message=f"Enqueuing STOP command for transaction: {transaction_id}"
+                f"Enqueuing STOP for tx {transaction_id}",
+                is_ocpp_message=False,
+                is_important=False,
             )
             self.command_queue.put(
                 {
@@ -129,39 +198,55 @@ class Adapter(cp):
             charge_point_vendor=self.charge_point_vendor,
         )
         self._log(
-            message=f"Sending BootNotification: model={self.charge_point_model}, vendor={self.charge_point_vendor}"
+            f"BootNotification: model={self.charge_point_model}, vendor={self.charge_point_vendor}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         response: call_result.BootNotification = await self.call(request)
         self._log(
-            message=f"BootNotification response: status={response.status}, interval={response.interval}"
+            f"BootNotification response: status={response.status}, interval={response.interval}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         self.registration_status = response.status
         if response.status == RegistrationStatus.accepted:
             self.heartbeat_interval = response.interval
             self._log(
-                message=f"Registration accepted. Heartbeat interval: {self.heartbeat_interval}s"
+                f"Registration accepted. Heartbeat: {self.heartbeat_interval}s",
+                is_ocpp_message=False,
+                is_important=True,
             )
             self.on_registration_accepted.emit()
         else:
-            self._log(message=f"Registration status: {response.status}")
+            self._log(
+                f"Registration status: {response.status}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
 
         return response
 
     async def send_heartbeat(self) -> call_result.Heartbeat:
         request = call.Heartbeat()
-        self._log(message="Sending Heartbeat")
+        self._log("Heartbeat", is_ocpp_message=True, is_important=True)
 
         response: call_result.Heartbeat = await self.call(request)
-        self._log(message=f"Heartbeat response: current_time={response.current_time}")
+        self._log(
+            f"Heartbeat response: {response.current_time}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
         self.on_heartbeat_response.emit(current_time=response.current_time)
 
         return response
 
     async def send_authorize(self, id_tag: str) -> call_result.Authorize:
         request = call.Authorize(id_tag=id_tag)
-        self._log(message=f"Sending Authorize: id_tag={id_tag}")
+        self._log(
+            f"Authorize: id_tag={id_tag}", is_ocpp_message=True, is_important=True
+        )
 
         response: call_result.Authorize = await self.call(request)
         status = (
@@ -169,7 +254,11 @@ class Adapter(cp):
             if response.id_tag_info
             else "Unknown"
         )
-        self._log(message=f"Authorize response: status={status}")
+        self._log(
+            f"Authorize response: status={status}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
 
         return response
 
@@ -183,7 +272,9 @@ class Adapter(cp):
             timestamp=timestamp,
         )
         self._log(
-            message=f"Sending StartTransaction: connector_id={connector_id}, id_tag={id_tag}"
+            f"StartTransaction: connector={connector_id}, id_tag={id_tag}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         response: call_result.StartTransaction = await self.call(request)
@@ -193,7 +284,9 @@ class Adapter(cp):
             else "Unknown"
         )
         self._log(
-            message=f"StartTransaction response: transaction_id={response.transaction_id}, status={id_tag_status}"
+            f"StartTransaction response: tx_id={response.transaction_id}, status={id_tag_status}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         if response.transaction_id:
@@ -215,7 +308,9 @@ class Adapter(cp):
             reason=reason,
         )
         self._log(
-            message=f"Sending StopTransaction: transaction_id={transaction_id}, meter_stop={meter_stop}"
+            f"StopTransaction: tx_id={transaction_id}, meter_stop={meter_stop}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         response: call_result.StopTransaction = await self.call(request)
@@ -224,7 +319,11 @@ class Adapter(cp):
             if response.id_tag_info
             else "No info"
         )
-        self._log(message=f"StopTransaction response: status={id_tag_status}")
+        self._log(
+            f"StopTransaction response: status={id_tag_status}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
 
         for conn_id, tx_id in list(self.active_transactions.items()):
             if tx_id == transaction_id:
@@ -254,7 +353,9 @@ class Adapter(cp):
             ],
         )
         self._log(
-            message=f"Sending MeterValues: connector_id={connector_id}, value={value}Wh"
+            f"MeterValues: connector={connector_id}, value={value}Wh",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         response: call_result.MeterValues = await self.call(request)
@@ -270,7 +371,9 @@ class Adapter(cp):
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
         self._log(
-            message=f"Sending StatusNotification: connector_id={connector_id}, status={status}"
+            f"StatusNotification: connector={connector_id}, status={status}",
+            is_ocpp_message=True,
+            is_important=True,
         )
 
         response: call_result.StatusNotification = await self.call(request)

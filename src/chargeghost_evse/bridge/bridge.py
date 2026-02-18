@@ -41,8 +41,8 @@ class AsyncRunner:
         self._shutdown_event: Optional[asyncio.Event] = None
         self._thread_shutdown = threading.Event()
 
-    def _log(self, message: str) -> None:
-        self.on_log.emit(message=message)
+    def _log(self, message: str, **kwargs) -> None:
+        self.on_log.emit(message=message, **kwargs)
 
     def run_in_thread(self) -> threading.Thread:
         thread = threading.Thread(target=self._start_loop, daemon=True)
@@ -269,8 +269,8 @@ class Bridge:
                     )
             self._shutdown_event.wait(timeout=10)
 
-    def _log(self, message: str) -> None:
-        self.on_log.emit(message=message)
+    def _log(self, message: str, **kwargs) -> None:
+        self.on_log.emit(message=message, **kwargs)
 
     def on_connector_status_change(self, connector_id: int, status) -> None:
         if self.runner.adapter and self.runner.loop:
