@@ -326,9 +326,10 @@ class Bridge:
 
         transaction_id = last_session.get("transaction_id", 0)
         meter_stop = last_session.get("meter_stop", 0)
+        reason = last_session.get("reason", "Local")
 
         self._log(
-            message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}"
+            message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
         )
 
         asyncio.run_coroutine_threadsafe(
@@ -336,7 +337,7 @@ class Bridge:
                 meter_stop=int(meter_stop),
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 transaction_id=transaction_id,
-                reason="Local",
+                reason=reason,
             ),
             self.runner.loop,
         )

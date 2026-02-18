@@ -105,10 +105,10 @@ class Engine(Subscriber):
             self.energy_meter.handle_max_charge_reached,
         )
         self.energy_meter.is_charging = True
-        self.last_update_time = time.time()
+        self.last_update_time = time.monotonic()
         self.session_started.emit(connector_id=connector_id)
 
-    def stop_session(self):
+    def stop_session(self, reason: str = "Local"):
         if self.session:
             connector_id = self.session.connector_id
             self.last_stopped_session = {
@@ -117,10 +117,11 @@ class Engine(Subscriber):
                 "energy_charged": self.session.energy_charged,
                 "id_tag": self.session.id_tag,
                 "meter_stop": self.energy_meter.get_meter_reading(),
+                "reason": reason,
             }
             self.energy_meter.unsubscribe_from(self.session.ev_max_charge_reached)
             self.session.unsubscribe_all()
-            self._log(f"Session time [s]: {time.time() - self.session.start_time}")
+            self._log(f"Session time [s]: {time.monotonic() - self.session.start_time}")
             self.session_stopped.emit(connector_id=connector_id)
             self.session = None
             self.energy_meter.is_charging = False
@@ -128,7 +129,7 @@ class Engine(Subscriber):
     def simulate(self):
         self._process_commands()
         if self.session and self.energy_meter.is_charging:
-            current_time = time.time()
+            current_time = time.monotonic()
             if self.last_update_time is None:
                 self.last_update_time = current_time
 
@@ -172,7 +173,7 @@ class Engine(Subscriber):
                 id_tag=command.get("id_tag"),
             )
         elif action == "STOP":
-            self.stop_session()
+            self.stop_session(reason=command.get("reason", "Remote"))
         elif action == "PLUG_IN":
             self.plug_in(connector_id)
         elif action == "UNPLUG":

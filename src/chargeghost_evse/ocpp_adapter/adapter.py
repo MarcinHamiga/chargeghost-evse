@@ -114,6 +114,7 @@ class Adapter(cp):
                     "action": "STOP",
                     "transaction_id": transaction_id,
                     "connector_id": matching_connector,
+                    "reason": "Remote",
                 }
             )
             return call_result.RemoteStopTransaction(

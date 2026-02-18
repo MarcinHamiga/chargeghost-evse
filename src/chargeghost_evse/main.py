@@ -1,10 +1,9 @@
-from chargeghost_evse.ui.app import ChargeGhostApp
+from chargeghost_evse.ui.app import main
 
 
-def main():
-    app = ChargeGhostApp()
-    app.run()
+def main_entry():
+    main()
 
 
 if __name__ == "__main__":
-    main()
+    main_entry()
