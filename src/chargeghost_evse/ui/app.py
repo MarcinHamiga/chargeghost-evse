@@ -568,6 +568,16 @@ class SimulatorWidget(QWidget):
                 f"[green]Connector {connector_id}:[/green] Updated to "
                 f"{voltage}V, {current}A, {phase}Ph"
             )
+            self._save_connector_config()
+
+    def _save_connector_config(self) -> None:
+        """Persist current connector configuration to disk."""
+        self.config.connectors = [
+            ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
+            for c in self.engine.connectors
+        ]
+        self.config.num_connectors = len(self.engine.connectors)
+        self.config.save()
 
     def _on_connector_remove(self, connector_id: int) -> None:
         if len(self.engine.connectors) <= 1:
@@ -588,6 +598,7 @@ class SimulatorWidget(QWidget):
         self.log_panel.log_message(
             f"[yellow]Connector:[/yellow] Removed connector {connector_id}"
         )
+        self._save_connector_config()
 
     def _on_connector_add(self) -> None:
         connector = self.engine.add_connector()
@@ -596,6 +607,7 @@ class SimulatorWidget(QWidget):
         self.log_panel.log_message(
             f"[green]Connector:[/green] Added connector {connector.id}"
         )
+        self._save_connector_config()
 
     def action_toggle_log_mode(self):
         is_detailed = self.btn_log_mode.isChecked()
@@ -901,6 +913,13 @@ class MainWindow(QMainWindow):
         self._connection_indicator.style().polish(self._connection_indicator)
 
     def closeEvent(self, event):
+        # Save connector configuration before closing
+        self.config.connectors = [
+            ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
+            for c in self.engine.connectors
+        ]
+        self.config.num_connectors = len(self.engine.connectors)
+        self.config.save()
         self.bridge.shutdown()
         event.accept()
 
