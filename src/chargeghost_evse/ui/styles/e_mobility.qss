@@ -75,6 +75,7 @@ QPushButton:disabled {
 	background-color: #161b22;
 	color: #484f58;
 	border: 1px solid #21262d;
+	opacity: 0.4;
 }
 
 /* Primary Action Button */
@@ -99,6 +100,14 @@ QPushButton#btn_plug:pressed,
 QPushButton#btn_save_config:pressed {
 	background-color: #159686;
 }
+QPushButton[primary="true"]:disabled,
+QPushButton#btn_plug:disabled,
+QPushButton#btn_save_config:disabled {
+	background-color: #1EAD98;
+	border: 1px solid #1EAD98;
+	color: #0d1117;
+	opacity: 0.4;
+}
 
 /* Success Button */
 QPushButton[success="true"],
@@ -119,6 +128,13 @@ QPushButton[success="true"]:pressed,
 QPushButton#btn_swipe:pressed {
 	background-color: #196c2e;
 }
+QPushButton[success="true"]:disabled,
+QPushButton#btn_swipe:disabled {
+	background-color: #238636;
+	border: 1px solid #238636;
+	color: #ffffff;
+	opacity: 0.4;
+}
 
 /* Danger Button */
 QPushButton[danger="true"],
@@ -138,6 +154,13 @@ QPushButton#btn_unplug:hover {
 QPushButton[danger="true"]:pressed,
 QPushButton#btn_unplug:pressed {
 	background-color: #b62324;
+}
+QPushButton[danger="true"]:disabled,
+QPushButton#btn_unplug:disabled {
+	background-color: #da3633;
+	border: 1px solid #da3633;
+	color: #ffffff;
+	opacity: 0.4;
 }
 
 /* Checkboxes */
@@ -322,47 +345,56 @@ QFrame[connectorCard="true"]:hover {
 	border: 1px solid #1EAD98;
 }
 
-/* Stacked Widget */
-QStackedWidget {
-	background-color: transparent;
+QFrame[connectorCard="true"][selected="true"] {
+	border: 2px solid #1EAD98;
+	background-color: rgba(30, 173, 152, 0.08);
 }
 
-/* Form Layout */
-QFormLayout {
-	spacing: 12px;
+/* Status Labels */
+QLabel[status="available"] {
+	color: #238636;
 }
 
-/* Mode Select Buttons */
-QPushButton#sim_btn,
-QPushButton#manual_btn {
-	min-width: 200px;
-	min-height: 48px;
-	font-size: 14px;
-	font-weight: 600;
-}
-
-/* Session Info Labels */
-QLabel[sessionLabel="true"] {
-	padding: 4px 0px;
-	border-bottom: 1px solid #21262d;
-}
-
-/* Section Headers */
-QLabel[sectionHeader="true"] {
+QLabel[status="charging"] {
 	color: #1EAD98;
-	font-size: 14px;
-	font-weight: 600;
-	padding: 8px 0px;
-	border-bottom: 2px solid #1EAD98;
-	margin-bottom: 8px;
 }
 
-/* Card Container */
-QWidget[card="true"] {
+QLabel[status="unavailable"] {
+	color: #8b949e;
+}
+
+QLabel[status="faulted"] {
+	color: #f85149;
+}
+
+/* Metric Cards */
+QFrame[card="true"] {
 	background-color: #161b22;
 	border: 1px solid #30363d;
 	border-radius: 8px;
-	padding: 16px;
+}
+
+QLabel#metricValue {
+	color: #1EAD98;
+	font-weight: 700;
+}
+
+/* Main Titles */
+QLabel#mainTitle {
+	color: #1EAD98;
+	font-weight: 800;
+}
+
+/* Group Boxes */
+QGroupBox {
+	border: 1px solid #30363d;
+	border-radius: 8px;
+	margin-top: 12px;
+	padding-top: 16px;
+	font-weight: 600;
+	color: #1EAD98;
+	text-transform: uppercase;
+	font-size: 11px;
 }
 
 /* Title Label */

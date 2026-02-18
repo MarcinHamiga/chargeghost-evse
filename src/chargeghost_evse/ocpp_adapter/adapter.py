@@ -101,7 +101,7 @@ class Adapter(cp):
             is_important=True,
         )
 
-        internal_connector_index: Optional[int] = None
+        target_connector_id: Optional[int] = None
         if connector_id is not None:
             try:
                 ocpp_connector_id = int(connector_id)
@@ -115,7 +115,7 @@ class Adapter(cp):
                     status=RemoteStartStopStatus.rejected
                 )
 
-            if ocpp_connector_id <= 0:
+            if ocpp_connector_id < 1:
                 self._log(
                     f"Out-of-range connector_id: {ocpp_connector_id}",
                     is_ocpp_message=False,
@@ -125,18 +125,18 @@ class Adapter(cp):
                     status=RemoteStartStopStatus.rejected
                 )
 
-            internal_connector_index = ocpp_connector_id - 1
+            target_connector_id = ocpp_connector_id
 
         if self.command_queue:
             self._log(
-                f"Enqueuing START for connector {internal_connector_index}",
+                f"Enqueuing START for connector {target_connector_id}",
                 is_ocpp_message=False,
                 is_important=False,
             )
             self.command_queue.put(
                 {
                     "action": "START",
-                    "connector_id": internal_connector_index,
+                    "connector_id": target_connector_id,
                     "id_tag": id_tag,
                 }
             )
@@ -290,7 +290,7 @@ class Adapter(cp):
         )
 
         if response.transaction_id:
-            self.set_active_transaction(connector_id - 1, response.transaction_id)
+            self.set_active_transaction(connector_id, response.transaction_id)
 
         return response
 

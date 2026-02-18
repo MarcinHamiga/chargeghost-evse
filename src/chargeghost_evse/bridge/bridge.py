@@ -248,7 +248,7 @@ class Bridge:
 
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_status_notification(
-                    connector_id=connector.id + 1,
+                    connector_id=connector.id,
                     error_code="NoError",
                     status=conn_status,
                 ),
@@ -261,7 +261,7 @@ class Bridge:
                 if self.runner.adapter and self.runner.loop:
                     asyncio.run_coroutine_threadsafe(
                         self.runner.adapter.send_meter_values(
-                            connector_id=self.engine.session.connector_id + 1,
+                            connector_id=self.engine.session.connector_id,
                             value=self.engine.energy_meter.get_meter_reading(),
                             transaction_id=self.engine.session.transaction_id,
                         ),
@@ -281,7 +281,7 @@ class Bridge:
             )
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_status_notification(
-                    connector_id=connector_id + 1,
+                    connector_id=connector_id,
                     error_code="NoError",
                     status=conn_status,
                 ),
@@ -304,7 +304,7 @@ class Bridge:
 
         async def send_start_tx() -> None:
             response = await adapter.send_start_transaction(
-                connector_id=connector_id + 1,
+                connector_id=connector_id,
                 id_tag=id_tag,
                 meter_start=int(self.engine.energy_meter.get_meter_reading()),
                 timestamp=datetime.now(timezone.utc).isoformat(),
