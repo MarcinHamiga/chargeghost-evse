@@ -200,7 +200,7 @@ class SimulatorWidget(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.config = SimulationConfig.load()
+        self.config = main_window.config
         self.engine = self.main_window.engine
         self.bridge = self.main_window.bridge
         self._selected_connector_id: int = 1
