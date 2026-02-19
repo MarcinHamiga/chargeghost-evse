@@ -6,11 +6,13 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.enums import (
+    ConfigurationStatus,
     DiagnosticsStatus,
     FirmwareStatus,
     RegistrationStatus,
     RemoteStartStopStatus,
 )
+from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.util.event import Event
 
@@ -42,6 +44,9 @@ class Adapter(cp):
         self.firmware_manager.on_log.subscribe(self._log_from_firmware_manager)
         self._firmware_task: Optional[asyncio.Task] = None
         self._diagnostics_task: Optional[asyncio.Task] = None
+
+        self.config_manager = ConfigurationKeyManager()
+        self.config_manager.initialize_defaults()
 
     def _log(
         self, message: str, *, is_ocpp_message: bool = False, is_important: bool = True
@@ -83,6 +88,8 @@ class Adapter(cp):
             "DiagnosticsStatusNotification",
             "UpdateFirmware",
             "FirmwareStatusNotification",
+            "GetConfiguration",
+            "ChangeConfiguration",
         }
 
         self.on_ocpp_message.emit(
@@ -211,6 +218,72 @@ class Adapter(cp):
 
         return call_result.RemoteStopTransaction(status=RemoteStartStopStatus.rejected)
 
+    @on("GetConfiguration")
+    async def on_get_configuration(
+        self, key: Optional[list[str]] = None, **kwargs
+    ) -> call_result.GetConfiguration:
+        self._log(
+            f"GetConfiguration: keys={key}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        configuration_key: list[dict] = []
+        unknown_key: list[str] = []
+
+        if key is None:
+            for config_key in self.config_manager.get_all_keys():
+                configuration_key.append(
+                    {
+                        "key": config_key.key,
+                        "readonly": config_key.readonly,
+                        "value": config_key.value,
+                    }
+                )
+        else:
+            for k in key:
+                found_key = self.config_manager.get_key(k)
+                if found_key is not None:
+                    configuration_key.append(
+                        {
+                            "key": found_key.key,
+                            "readonly": found_key.readonly,
+                            "value": found_key.value,
+                        }
+                    )
+                else:
+                    unknown_key.append(k)
+
+        return call_result.GetConfiguration(
+            configuration_key=configuration_key,
+            unknown_key=unknown_key if unknown_key else None,
+        )
+
+    @on("ChangeConfiguration")
+    async def on_change_configuration(
+        self, key: str, value: str, **kwargs
+    ) -> call_result.ChangeConfiguration:
+        self._log(
+            f"ChangeConfiguration: key={key}, value={value}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        status = self.config_manager.set_key(key, value)
+
+        if key == "HeartbeatInterval" and status == ConfigurationStatus.accepted:
+            try:
+                self.heartbeat_interval = int(value)
+                self._log(
+                    f"HeartbeatInterval updated to {value}s",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+            except (TypeError, ValueError):
+                pass
+
+        return call_result.ChangeConfiguration(status=status)
+
     @on("GetDiagnostics")
     async def on_get_diagnostics(
         self,
@@ -297,7 +370,9 @@ class Adapter(cp):
                 await self.send_firmware_status_notification(FirmwareStatus.downloading)
                 success = await self.firmware_manager.simulate_firmware_update()
                 if success:
-                    await self.send_firmware_status_notification(FirmwareStatus.installed)
+                    await self.send_firmware_status_notification(
+                        FirmwareStatus.installed
+                    )
                 else:
                     await self.send_firmware_status_notification(
                         FirmwareStatus.installation_failed

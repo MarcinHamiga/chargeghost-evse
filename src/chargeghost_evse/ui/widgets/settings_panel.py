@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 	QCheckBox,
 	QFormLayout,
 	QGroupBox,
+	QLabel,
 	QLineEdit,
 	QPushButton,
 	QScrollArea,
@@ -12,15 +13,18 @@ from PySide6.QtWidgets import (
 	QWidget,
 )
 
+from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_panel import ConnectorPanel
 
 if TYPE_CHECKING:
 	from chargeghost_evse.engine.engine import Engine
+	from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKey
 	from chargeghost_evse.util.config import SimulationConfig
 
 
 class SettingsPanel(QWidget):
 	save_config_clicked = Signal()
+	ocpp_key_changed = Signal(str, str)
 
 	def __init__(self, parent: Optional[QWidget] = None):
 		super().__init__(parent)
@@ -93,6 +97,23 @@ class SettingsPanel(QWidget):
 
 		content_layout.addWidget(connectors_group)
 
+		ocpp_config_group = QGroupBox("OCPP Configuration Keys")
+		ocpp_config_layout = QVBoxLayout(ocpp_config_group)
+		ocpp_config_layout.setContentsMargins(8, 16, 8, 8)
+		ocpp_config_layout.setSpacing(8)
+
+		ocpp_description = QLabel(
+			"Configure OCPP parameters. Read-only keys are shown for reference."
+		)
+		ocpp_description.setWordWrap(True)
+		ocpp_config_layout.addWidget(ocpp_description)
+
+		self.config_keys_panel = ConfigKeysPanel()
+		self.config_keys_panel.key_changed.connect(self._on_config_key_changed)
+		ocpp_config_layout.addWidget(self.config_keys_panel)
+
+		content_layout.addWidget(ocpp_config_group)
+
 		self.btn_save = QPushButton("Save Configuration")
 		self.btn_save.setObjectName("btnSaveConfig")
 		self.btn_save.setProperty("primary", True)
@@ -157,3 +178,12 @@ class SettingsPanel(QWidget):
 
 	def rebuild_connector_cards(self) -> None:
 		self.connector_panel.rebuild_cards()
+
+	def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
+		self.ocpp_key_changed.emit(key_name, new_value)
+
+	def set_ocpp_config_keys(self, keys: list["ConfigurationKey"]) -> None:
+		self.config_keys_panel.set_keys(keys)
+
+	def update_ocpp_config_key(self, key_name: str, new_value: str) -> None:
+		self.config_keys_panel.update_key(key_name, new_value)

@@ -212,6 +212,7 @@ class SimulatorWidget(QWidget):
 			on_add=self._on_connector_add,
 		)
 		self.settings_panel.save_config_clicked.connect(self.action_save_config)
+		self.settings_panel.ocpp_key_changed.connect(self._on_ocpp_key_changed)
 		settings_layout.addWidget(self.settings_panel)
 
 		settings_log = CollapsibleLogPanel()
@@ -365,6 +366,19 @@ class SimulatorWidget(QWidget):
 
 	def action_toggle_log_mode(self, is_detailed: bool) -> None:
 		self.main_window.signal_bridge.log_mode = "verbose" if is_detailed else "compact"
+
+	def load_ocpp_config_keys(self) -> None:
+		adapter = self.bridge.runner.adapter
+		if adapter:
+			self.settings_panel.set_ocpp_config_keys(adapter.config_manager.get_all_keys())
+
+	def _on_ocpp_key_changed(self, key_name: str, new_value: str) -> None:
+		adapter = self.bridge.runner.adapter
+		if adapter:
+			adapter.config_manager.set_key(key_name, new_value)
+			msg = f"[green]Config:[/green] OCPP key '{key_name}' set to '{new_value}'"
+			self.log_panel.log_message(msg)
+			self._settings_log_panel.log_message(msg)
 
 	def log_message(self, message: str) -> None:
 		self.log_panel.log_message(message)
@@ -597,6 +611,7 @@ class MainWindow(QMainWindow):
 		self.signal_bridge.connection_status_changed.connect(
 			self.on_connection_status_changed
 		)
+		self.signal_bridge.ocpp_config_key_changed.connect(self.on_ocpp_config_key_changed)
 
 		self.stack = QStackedWidget()
 		self.setCentralWidget(self.stack)
@@ -672,11 +687,19 @@ class MainWindow(QMainWindow):
 		if connected:
 			self._connection_indicator.setText("Connected")
 			self._connection_indicator.setProperty("connected", True)
+			adapter = self.bridge.runner.adapter
+			if adapter:
+				self.signal_bridge.subscribe_to_adapter(adapter)
+				self.simulator.load_ocpp_config_keys()
 		else:
 			self._connection_indicator.setText("Disconnected")
 			self._connection_indicator.setProperty("connected", False)
 		self._connection_indicator.style().unpolish(self._connection_indicator)
 		self._connection_indicator.style().polish(self._connection_indicator)
+
+	@Slot(str, str)
+	def on_ocpp_config_key_changed(self, key_name: str, new_value: str) -> None:
+		self.simulator.settings_panel.update_ocpp_config_key(key_name, new_value)
 
 	def closeEvent(self, event) -> None:
 		self.config.connectors = [

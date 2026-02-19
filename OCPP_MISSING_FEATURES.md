@@ -19,8 +19,8 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 ### Core Profile
 - [ ] **ChangeAvailability**: Allows CS to set a connector (or the whole CP) to `Inoperative` or `Operative`.
-- [ ] **ChangeConfiguration**: Critical for updating system settings (e.g., `HeartbeatInterval`, `ConnectionTimeout`).
-- [ ] **GetConfiguration**: Allows the CS to retrieve current configuration key values.
+- [x] **ChangeConfiguration**: Critical for updating system settings (e.g., `HeartbeatInterval`, `ConnectionTimeout`).
+- [x] **GetConfiguration**: Allows the CS to retrieve current configuration key values.
 - [ ] **Reset**: Support for `Soft` (application restart) and `Hard` (reboot) reset commands.
 - [ ] **ClearCache**: Command to clear the local authorization cache (once implemented).
 - [ ] **UnlockConnector**: Remote command to release the locking mechanism on a connector.
@@ -51,16 +51,51 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 ---
 
 ## 3. Configuration Keys
-OCPP 1.6 defines many mandatory and optional configuration keys. Currently, none are managed in a standard-compliant way.
-- [ ] **Mandatory Keys**: `HeartbeatInterval`, `ConnectionTimeout`, `ResetRetries`, `StopTransactionOnEVSideDisconnect`, etc.
-- [ ] **Optional Keys**: `AuthorizeRemoteTxRequests`, `ClockAlignedDataInterval`, `LocalAuthListEnabled`, etc.
+
+OCPP 1.6 defines mandatory and optional configuration keys. The following are implemented with GUI support:
+
+### Implemented Mandatory Keys
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `ConnectionTimeout` | 30 | Connection timeout in seconds |
+| `HeartbeatInterval` | 300 | Heartbeat interval in seconds (0 = disabled) |
+| `ResetRetries` | 0 | Number of retries for reset operation |
+| `StopTransactionOnEVSideDisconnect` | true | Stop transaction when EV side disconnects |
+
+### Implemented Optional Keys
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `AuthorizeRemoteTxRequests` | true | Whether to authorize remote transaction requests |
+| `ClockAlignedDataInterval` | 900 | Interval for clock-aligned meter value sampling (0=disabled) |
+| `ConnectorPhaseRotation` | RST.RST | Phase rotation for connectors |
+| `LocalAuthListEnabled` | false | Whether local authorization list is enabled |
+| `MeterValueSampleInterval` | 60 | Interval for meter value sampling in seconds |
+| `StopTxOnInvalidId` | true | Stop transaction on invalid ID tag |
+| `TransactionMessageAttempts` | 3 | Number of attempts to send transaction messages |
+| `TransactionMessageRetryInterval` | 30 | Retry interval for transaction messages in seconds |
+| `WebSocketPingInterval` | 10 | WebSocket ping interval in seconds |
+
+### Read-Only Keys (Device Capabilities)
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `ChargeProfileMaxStackLevel` | 5 | Maximum stack level for charging profiles |
+| `ChargingScheduleAllowedChargingRateUnit` | Current,Power | Allowed charging rate units |
+| `ChargingScheduleMaxPeriods` | 10 | Maximum periods in a charging schedule |
+| `LocalAuthListMaxLength` | 100 | Maximum entries in local authorization list |
+| `MaxChargingProfilesInstalled` | 20 | Maximum charging profiles installed |
+| `SendLocalListMaxLength` | 20 | Maximum entries in send local list |
+
+### Missing Configuration Keys
+- [ ] **GetProfileIds**: List of installed charging profile IDs
+- [ ] **ChargingRateUnit**: Default charging rate unit
+- [ ] **NumberOfConnectors**: Number of physical connectors
 
 ---
 
 ## 4. Architectural & Infrastructure Gaps
 
 ### Persistence Layer
-- [ ] **Configuration Store**: A persistent storage mechanism (JSON/SQLite) to retain OCPP configuration keys across restarts.
+- [ ] **Configuration Store**: Persistent storage (JSON/SQLite) to retain OCPP configuration keys across restarts.
 - [ ] **Transaction Persistence**: Ability to recover an ongoing transaction and its meter values if the process crashes or restarts.
 - [ ] **Log Storage**: Local buffering of events for `GetDiagnostics`.
 

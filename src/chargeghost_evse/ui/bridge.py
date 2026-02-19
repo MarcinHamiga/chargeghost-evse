@@ -15,6 +15,7 @@ class QtSignalBridge(QObject):
     session_stopped = Signal(int)
     connection_status_changed = Signal(bool)
     log_mode_changed = Signal()
+    ocpp_config_key_changed = Signal(str, str)
 
     def __init__(self, engine, bridge):
         super().__init__()
@@ -74,3 +75,9 @@ class QtSignalBridge(QObject):
 
     def _on_session_stopped(self, connector_id: int):
         self._safe_emit(self.session_stopped, connector_id)
+
+    def subscribe_to_adapter(self, adapter) -> None:
+        adapter.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
+
+    def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
+        self._safe_emit(self.ocpp_config_key_changed, key_name, new_value)
