@@ -1,10 +1,17 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
-from ocpp.v16.enums import RegistrationStatus, RemoteStartStopStatus
+from ocpp.v16.enums import (
+    DiagnosticsStatus,
+    FirmwareStatus,
+    RegistrationStatus,
+    RemoteStartStopStatus,
+)
+from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.util.event import Event
 
 
@@ -31,12 +38,20 @@ class Adapter(cp):
         self.on_registration_accepted = Event()
         self.on_heartbeat_response = Event()
 
+        self.firmware_manager = FirmwareManager()
+        self.firmware_manager.on_log.subscribe(self._log_from_firmware_manager)
+        self._firmware_task: Optional[asyncio.Task] = None
+        self._diagnostics_task: Optional[asyncio.Task] = None
+
     def _log(
         self, message: str, *, is_ocpp_message: bool = False, is_important: bool = True
     ) -> None:
         self.on_log.emit(
             message=message, is_ocpp_message=is_ocpp_message, is_important=is_important
         )
+
+    def _log_from_firmware_manager(self, message: str) -> None:
+        self._log(message, is_ocpp_message=False, is_important=True)
 
     def _log_ocpp_raw(
         self, direction: str, action: str, payload: Any, message_id: str = ""
@@ -64,6 +79,10 @@ class Adapter(cp):
             "StatusNotification",
             "MeterValues",
             "Heartbeat",
+            "GetDiagnostics",
+            "DiagnosticsStatusNotification",
+            "UpdateFirmware",
+            "FirmwareStatusNotification",
         }
 
         self.on_ocpp_message.emit(
@@ -191,6 +210,113 @@ class Adapter(cp):
             )
 
         return call_result.RemoteStopTransaction(status=RemoteStartStopStatus.rejected)
+
+    @on("GetDiagnostics")
+    async def on_get_diagnostics(
+        self,
+        location: str,
+        retries: Optional[int] = None,
+        retry_interval: Optional[int] = None,
+        start_time: Optional[str] = None,
+        stop_time: Optional[str] = None,
+        **kwargs,
+    ) -> call_result.GetDiagnostics:
+        self._log(
+            f"GetDiagnostics: location={location}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        self.firmware_manager.start_diagnostics_upload(
+            location=location,
+            retries=retries or 0,
+            retry_interval=retry_interval or 0,
+            start_time=start_time,
+            stop_time=stop_time,
+        )
+
+        if self._diagnostics_task and not self._diagnostics_task.done():
+            self._diagnostics_task.cancel()
+
+        async def run_diagnostics_upload() -> None:
+            try:
+                file_name = await self.firmware_manager.simulate_diagnostics_upload()
+                if file_name:
+                    await self.send_diagnostics_status_notification(
+                        DiagnosticsStatus.uploaded
+                    )
+                else:
+                    await self.send_diagnostics_status_notification(
+                        DiagnosticsStatus.upload_failed
+                    )
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self._log(
+                    f"Diagnostics upload error: {e}",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+                await self.send_diagnostics_status_notification(
+                    DiagnosticsStatus.upload_failed
+                )
+
+        self._diagnostics_task = asyncio.create_task(run_diagnostics_upload())
+
+        await self.send_diagnostics_status_notification(DiagnosticsStatus.uploading)
+
+        return call_result.GetDiagnostics(file_name=None)
+
+    @on("UpdateFirmware")
+    async def on_update_firmware(
+        self,
+        location: str,
+        retrieve_date: str,
+        retries: Optional[int] = None,
+        retry_interval: Optional[int] = None,
+        **kwargs,
+    ) -> call_result.UpdateFirmware:
+        self._log(
+            f"UpdateFirmware: location={location}, retrieve_date={retrieve_date}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        self.firmware_manager.start_firmware_update(
+            location=location,
+            retrieve_date=retrieve_date,
+            retries=retries or 0,
+            retry_interval=retry_interval or 0,
+        )
+
+        if self._firmware_task and not self._firmware_task.done():
+            self._firmware_task.cancel()
+
+        async def run_firmware_update() -> None:
+            try:
+                await self.send_firmware_status_notification(FirmwareStatus.downloading)
+                success = await self.firmware_manager.simulate_firmware_update()
+                if success:
+                    await self.send_firmware_status_notification(FirmwareStatus.installed)
+                else:
+                    await self.send_firmware_status_notification(
+                        FirmwareStatus.installation_failed
+                    )
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self._log(
+                    f"Firmware update error: {e}",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+                await self.send_firmware_status_notification(
+                    FirmwareStatus.installation_failed
+                )
+
+        self._firmware_task = asyncio.create_task(run_firmware_update())
+
+        return call_result.UpdateFirmware()
 
     async def send_boot_notification(self) -> call_result.BootNotification:
         request = call.BootNotification(
@@ -377,4 +503,30 @@ class Adapter(cp):
         )
 
         response: call_result.StatusNotification = await self.call(request)
+        return response
+
+    async def send_diagnostics_status_notification(
+        self, status: DiagnosticsStatus
+    ) -> call_result.DiagnosticsStatusNotification:
+        request = call.DiagnosticsStatusNotification(status=status)
+        self._log(
+            f"DiagnosticsStatusNotification: status={status.value}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        response: call_result.DiagnosticsStatusNotification = await self.call(request)
+        return response
+
+    async def send_firmware_status_notification(
+        self, status: FirmwareStatus
+    ) -> call_result.FirmwareStatusNotification:
+        request = call.FirmwareStatusNotification(status=status)
+        self._log(
+            f"FirmwareStatusNotification: status={status.value}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        response: call_result.FirmwareStatusNotification = await self.call(request)
         return response

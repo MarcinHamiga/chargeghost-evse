@@ -7,7 +7,7 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 | Profile | Status | Description |
 | :--- | :--- | :--- |
 | **Core** | Partial | Basic charging loop and heartbeat are implemented. Administrative commands are missing. |
-| **Firmware Management** | Missing | No support for diagnostics or firmware updates. |
+| **Firmware Management** | Implemented | Simulated diagnostics upload and firmware updates. |
 | **Smart Charging** | Missing | No support for charging profiles or load balancing. |
 | **Reservation** | Missing | No support for connector reservations. |
 | **Local Auth List** | Missing | No support for local authorization lists or caching. |
@@ -27,10 +27,10 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 - [ ] **DataTransfer**: Generic message for vendor-specific extensions.
 
 ### Firmware Management Profile
-- [ ] **GetDiagnostics**: Request for the CP to upload log files to a specified location.
-- [ ] **DiagnosticsStatusNotification**: Reporting the progress/status of a log upload.
-- [ ] **UpdateFirmware**: Command to download and install a firmware image from a URI.
-- [ ] **FirmwareStatusNotification**: Reporting stages: `Downloading`, `Downloaded`, `Installing`, `Installed`, `InstallationFailed`.
+- [x] **GetDiagnostics**: Request for the CP to upload log files to a specified location. (Simulated)
+- [x] **DiagnosticsStatusNotification**: Reporting the progress/status of a log upload.
+- [x] **UpdateFirmware**: Command to download and install a firmware image from a URI. (Simulated)
+- [x] **FirmwareStatusNotification**: Reporting stages: `Downloading`, `Downloaded`, `Installing`, `Installed`, `InstallationFailed`.
 
 ### Smart Charging Profile
 - [ ] **SetChargingProfile**: Receiving and enforcing complex charging schedules (Power/Current limits over time).
