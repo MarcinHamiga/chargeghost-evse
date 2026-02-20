@@ -37,4 +37,4 @@ class Session(Subscriber):
 
         if self.max_energy > 0 and self.energy_charged >= self.max_energy:
             self.energy_charged = self.max_energy
-            self.ev_max_charge_reached.emit()
+            self.ev_max_charge_reached.emit(connector_id=self.connector_id)

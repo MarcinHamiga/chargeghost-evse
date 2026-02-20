@@ -1,9 +1,15 @@
 import json
+import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+import keyring
+
+_logger = logging.getLogger(__name__)
+
 CONFIG_FILE = Path.home() / ".chargeghost" / "config.json"
+KEYRING_SERVICE = "ChargeGhost-EVSE"
 
 LogMode = Literal["verbose", "compact"]
 
@@ -61,6 +67,25 @@ class SimulationConfig:
     skip_tls_verify: bool = False
     log_mode: LogMode = field(default="compact")
 
+    @staticmethod
+    def _get_password(ocpp_id: str) -> str:
+        try:
+            password = keyring.get_password(KEYRING_SERVICE, ocpp_id)
+            return password or ""
+        except Exception as e:
+            _logger.debug(f"Keyring get_password failed: {e}")
+            return ""
+
+    @staticmethod
+    def _set_password(ocpp_id: str, password: str) -> None:
+        try:
+            if password:
+                keyring.set_password(KEYRING_SERVICE, ocpp_id, password)
+            else:
+                keyring.delete_password(KEYRING_SERVICE, ocpp_id)
+        except Exception as e:
+            _logger.debug(f"Keyring set_password failed: {e}")
+
     @classmethod
     def load(cls) -> "SimulationConfig":
         if CONFIG_FILE.exists():
@@ -75,12 +100,15 @@ class SimulationConfig:
                     num_connectors = data.get("num_connectors", 1)
                     connectors = [ConnectorConfig() for _ in range(num_connectors)]
 
+                ocpp_id = data.get("ocpp_id", "CP_1")
+                password = cls._get_password(ocpp_id)
+
                 return cls(
                     connection_url=data.get(
                         "connection_url", "wss://localhost:3000/CP_1"
                     ),
-                    ocpp_id=data.get("ocpp_id", "CP_1"),
-                    ocpp_password=data.get("ocpp_password", ""),
+                    ocpp_id=ocpp_id,
+                    ocpp_password=password,
                     charge_point_model=data.get("charge_point_model", "ChargeGhostV1"),
                     charge_point_vendor=data.get("charge_point_vendor", "ChargeGhost"),
                     num_connectors=len(connectors),
@@ -94,10 +122,10 @@ class SimulationConfig:
 
     def save(self) -> None:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._set_password(self.ocpp_id, self.ocpp_password)
         data = {
             "connection_url": self.connection_url,
             "ocpp_id": self.ocpp_id,
-            "ocpp_password": self.ocpp_password,
             "charge_point_model": self.charge_point_model,
             "charge_point_vendor": self.charge_point_vendor,
             "num_connectors": len(self.connectors),

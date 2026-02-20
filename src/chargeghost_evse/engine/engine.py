@@ -1,12 +1,15 @@
 import queue
 import time
 from collections import deque
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from chargeghost_evse.engine.connector import Connector
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
+
+if TYPE_CHECKING:
+    from chargeghost_evse.engine.connector import ConnectorState
 
 
 class Engine(Subscriber):
@@ -85,7 +88,9 @@ class Engine(Subscriber):
     def get_connector(self, connector_id: int) -> Optional[Connector]:
         return self._connectors.get(connector_id)
 
-    def handle_connector_status_change(self, connector_id, status):
+    def handle_connector_status_change(
+        self, connector_id: int, status: "ConnectorState"
+    ) -> None:
         self.connector_status_changed.emit(connector_id=connector_id, status=status)
 
     def plug_in(self, connector_id: int) -> None:
@@ -135,6 +140,10 @@ class Engine(Subscriber):
             self.session.ev_max_charge_reached,
             self.energy_meter.handle_max_charge_reached,
         )
+        connector.subscribe_to(
+            self.session.ev_max_charge_reached,
+            connector.handle_max_charge_reached,
+        )
         self.energy_meter.is_charging = True
         self.last_update_time = time.monotonic()
         self.session_started.emit(connector_id=connector_id)
@@ -142,6 +151,7 @@ class Engine(Subscriber):
     def stop_session(self, reason: str = "Local"):
         if self.session:
             connector_id = self.session.connector_id
+            connector = self._connectors.get(connector_id)
             self.last_stopped_session = {
                 "transaction_id": self.session.transaction_id,
                 "connector_id": connector_id,
@@ -151,6 +161,8 @@ class Engine(Subscriber):
                 "reason": reason,
             }
             self.energy_meter.unsubscribe_from(self.session.ev_max_charge_reached)
+            if connector:
+                connector.unsubscribe_from(self.session.ev_max_charge_reached)
             self.session.unsubscribe_all()
             self._log(f"Session time [s]: {time.monotonic() - self.session.start_time}")
             self.session_stopped.emit(connector_id=connector_id)
@@ -189,7 +201,7 @@ class Engine(Subscriber):
 
     def _process_commands(self):
         try:
-            while not self.command_queue.empty():
+            while True:
                 command = self.command_queue.get_nowait()
                 self._handle_command(command)
         except queue.Empty:

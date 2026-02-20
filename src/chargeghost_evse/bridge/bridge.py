@@ -128,8 +128,10 @@ class AsyncRunner:
                             await adapter_task
                         except asyncio.CancelledError:
                             pass
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._log(
+                                message=f"Adapter task error: {type(e).__name__}: {e}"
+                            )
 
             except websockets.ConnectionClosed as e:
                 self._log(

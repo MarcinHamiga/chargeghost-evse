@@ -51,7 +51,7 @@ class TestSession:
         session = Session(max_energy=100.0)
         event_fired = []
 
-        def on_max_reached():
+        def on_max_reached(connector_id: int):
             event_fired.append(True)
 
         session.ev_max_charge_reached.subscribe(on_max_reached)

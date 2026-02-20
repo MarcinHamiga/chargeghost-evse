@@ -586,12 +586,12 @@ class ManualWidget(QWidget):
 
 
 class MainWindow(QMainWindow):
-    _accumulator: float = 0.0
-    _last_tick_time: float = 0.0
-    _status_check_counter: int = 0
-
     def __init__(self):
         super().__init__()
+        self._accumulator: float = 0.0
+        self._last_tick_time: float = 0.0
+        self._status_check_counter: int = 0
+
         self.setWindowTitle("ChargeGhost EVSE")
         self.setMinimumSize(800, 500)
         self.resize(1100, 700)

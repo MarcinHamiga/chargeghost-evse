@@ -101,13 +101,17 @@ class StatusPanel(QWidget):
             # Technical details
             details_layout = QHBoxLayout()
             plug_icon = "🔌" if conn.is_plugged_in else "🔘"
-            plug_label = QLabel(f"{plug_icon} {'Plugged' if conn.is_plugged_in else 'Unplugged'}")
+            plug_label = QLabel(
+                f"{plug_icon} {'Plugged' if conn.is_plugged_in else 'Unplugged'}"
+            )
             plug_label.setStyleSheet("color: #8b949e; font-size: 12px;")
             details_layout.addWidget(plug_label)
             details_layout.addStretch()
-            
+
             output_label = QLabel(f"{conn.voltage}V {conn.current}A {conn.phase}Ph")
-            output_label.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 11px;")
+            output_label.setStyleSheet(
+                "color: #8b949e; font-family: monospace; font-size: 11px;"
+            )
             details_layout.addWidget(output_label)
             frame_layout.addLayout(details_layout)
 
@@ -115,14 +119,18 @@ class StatusPanel(QWidget):
             if session:
                 soc_layout = QVBoxLayout()
                 soc_layout.setSpacing(2)
-                
+
                 soc_header = QHBoxLayout()
                 soc_title = QLabel("State of Charge")
-                soc_title.setStyleSheet("color: #e6edf3; font-size: 11px; font-weight: 500;")
+                soc_title.setStyleSheet(
+                    "color: #e6edf3; font-size: 11px; font-weight: 500;"
+                )
                 soc_header.addWidget(soc_title)
                 soc_header.addStretch()
                 soc_value = QLabel(f"{session.state_of_charge:.1f}%")
-                soc_value.setStyleSheet("color: #1EAD98; font-size: 11px; font-weight: 700;")
+                soc_value.setStyleSheet(
+                    "color: #1EAD98; font-size: 11px; font-weight: 700;"
+                )
                 soc_header.addWidget(soc_value)
                 soc_layout.addLayout(soc_header)
 
@@ -133,9 +141,11 @@ class StatusPanel(QWidget):
                 soc_layout.addWidget(progress)
                 frame_layout.addLayout(soc_layout)
             elif conn.id_tag:
-                 tag_label = QLabel(f"👤 {conn.id_tag}")
-                 tag_label.setStyleSheet("color: #1EAD98; font-size: 11px; font-weight: 500;")
-                 frame_layout.addWidget(tag_label)
+                tag_label = QLabel(f"👤 {conn.id_tag}")
+                tag_label.setStyleSheet(
+                    "color: #1EAD98; font-size: 11px; font-weight: 500;"
+                )
+                frame_layout.addWidget(tag_label)
 
             frame.mousePressEvent = lambda event, cid=conn.id: self._on_frame_clicked(
                 event, cid

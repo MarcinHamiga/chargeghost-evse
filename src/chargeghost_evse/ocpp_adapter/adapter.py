@@ -11,9 +11,12 @@ from ocpp.v16.enums import (
     FirmwareStatus,
     RegistrationStatus,
     RemoteStartStopStatus,
+    UpdateStatus,
+    UpdateType,
 )
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
+from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
 from chargeghost_evse.util.event import Event
 
 
@@ -37,6 +40,7 @@ class Adapter(cp):
         self.heartbeat_interval: int = 0
         self.registration_status: Optional[RegistrationStatus] = None
         self.active_transactions: Dict[int, int] = {}
+        self._next_transaction_id: int = 0
         self.on_registration_accepted = Event()
         self.on_heartbeat_response = Event()
 
@@ -48,12 +52,48 @@ class Adapter(cp):
         self.config_manager = ConfigurationKeyManager()
         self.config_manager.initialize_defaults()
 
+        local_auth_max = self.config_manager.get_int_value(
+            "LocalAuthListMaxLength", 100
+        )
+        self.local_auth_list = LocalAuthListManager(max_entries=local_auth_max)
+        local_auth_enabled = self.config_manager.get_bool_value(
+            "LocalAuthListEnabled", False
+        )
+        self.local_auth_list.enabled = local_auth_enabled
+
+        self.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
+
     def _log(
         self, message: str, *, is_ocpp_message: bool = False, is_important: bool = True
     ) -> None:
         self.on_log.emit(
             message=message, is_ocpp_message=is_ocpp_message, is_important=is_important
         )
+
+    def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
+        if key_name == "LocalAuthListEnabled":
+            self.local_auth_list.enabled = new_value.lower() in (
+                "true",
+                "1",
+                "yes",
+                "on",
+            )
+            self._log(
+                f"LocalAuthListEnabled changed to {self.local_auth_list.enabled}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+        elif key_name == "LocalAuthListMaxLength":
+            try:
+                max_entries = int(new_value)
+                self.local_auth_list.max_entries = max_entries
+                self._log(
+                    f"LocalAuthListMaxLength changed to {max_entries}",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+            except (TypeError, ValueError):
+                pass
 
     def _log_from_firmware_manager(self, message: str) -> None:
         self._log(message, is_ocpp_message=False, is_important=True)
@@ -90,6 +130,8 @@ class Adapter(cp):
             "FirmwareStatusNotification",
             "GetConfiguration",
             "ChangeConfiguration",
+            "SendLocalList",
+            "GetLocalListVersion",
         }
 
         self.on_ocpp_message.emit(
@@ -97,9 +139,9 @@ class Adapter(cp):
         )
         self._log(raw_msg, is_ocpp_message=True, is_important=is_important)
 
-    async def _send_call(self, call):
-        self._log_ocpp_raw("TX", call.__class__.__name__, call.__dict__)
-        return await super()._send_call(call)
+    async def _send_call(self, message):
+        self._log_ocpp_raw("TX", message.__class__.__name__, message.__dict__)
+        return await super()._send_call(message)
 
     async def _handle_call(self, msg):
         if hasattr(msg, "unique_id") and hasattr(msg, "action"):
@@ -284,6 +326,58 @@ class Adapter(cp):
 
         return call_result.ChangeConfiguration(status=status)
 
+    @on("GetLocalListVersion")
+    async def on_get_local_list_version(
+        self, **kwargs
+    ) -> call_result.GetLocalListVersion:
+        version = self.local_auth_list.version
+        self._log(
+            f"GetLocalListVersion: version={version}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+        return call_result.GetLocalListVersion(list_version=version)
+
+    @on("SendLocalList")
+    async def on_send_local_list(
+        self,
+        list_version: int,
+        local_authorization_list: Optional[list] = None,
+        update_type: str = "Full",
+        **kwargs,
+    ) -> call_result.SendLocalList:
+        self._log(
+            f"SendLocalList: version={list_version}, update_type={update_type}, "
+            f"entries={len(local_authorization_list) if local_authorization_list else 0}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        try:
+            update_type_enum = UpdateType(update_type)
+        except ValueError:
+            self._log(
+                f"Invalid update_type: {update_type}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.SendLocalList(status=UpdateStatus.failed)
+
+        success, message = self.local_auth_list.update_list(
+            list_version=list_version,
+            local_authorization_list=local_authorization_list,
+            update_type=update_type_enum,
+        )
+
+        status = UpdateStatus.accepted if success else UpdateStatus.failed
+        self._log(
+            f"SendLocalList result: {status.value} - {message}",
+            is_ocpp_message=False,
+            is_important=True,
+        )
+
+        return call_result.SendLocalList(status=status)
+
     @on("GetDiagnostics")
     async def on_get_diagnostics(
         self,
@@ -444,11 +538,22 @@ class Adapter(cp):
         return response
 
     async def send_authorize(self, id_tag: str) -> call_result.Authorize:
-        request = call.Authorize(id_tag=id_tag)
         self._log(
             f"Authorize: id_tag={id_tag}", is_ocpp_message=True, is_important=True
         )
 
+        local_status = self.local_auth_list.authorize(id_tag)
+        if local_status is not None:
+            self._log(
+                f"Authorize (local): id_tag={id_tag}, status={local_status.value}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
+            id_tag_info["status"] = local_status.value
+            return call_result.Authorize(id_tag_info=id_tag_info)
+
+        request = call.Authorize(id_tag=id_tag)
         response: call_result.Authorize = await self.call(request)
         status = (
             response.id_tag_info.get("status", "Unknown")
@@ -466,16 +571,34 @@ class Adapter(cp):
     async def send_start_transaction(
         self, connector_id: int, id_tag: str, meter_start: int, timestamp: str
     ) -> call_result.StartTransaction:
+        self._log(
+            f"StartTransaction: connector={connector_id}, id_tag={id_tag}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        local_status = self.local_auth_list.authorize(id_tag)
+        if local_status is not None:
+            self._log(
+                f"StartTransaction (local auth): id_tag={id_tag}, status={local_status.value}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
+            id_tag_info["status"] = local_status.value
+            self._next_transaction_id += 1
+            transaction_id = self._next_transaction_id
+            self.set_active_transaction(connector_id, transaction_id)
+            return call_result.StartTransaction(
+                id_tag_info=id_tag_info,
+                transaction_id=transaction_id,
+            )
+
         request = call.StartTransaction(
             connector_id=connector_id,
             id_tag=id_tag,
             meter_start=meter_start,
             timestamp=timestamp,
-        )
-        self._log(
-            f"StartTransaction: connector={connector_id}, id_tag={id_tag}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.StartTransaction = await self.call(request)
