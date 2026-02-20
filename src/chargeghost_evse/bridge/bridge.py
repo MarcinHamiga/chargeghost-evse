@@ -259,7 +259,13 @@ class Bridge:
 
     def _meter_values_loop(self) -> None:
         while not self._shutdown_event.is_set():
-            if self.engine.session and self.engine.energy_meter.is_charging:
+            interval = 60  # Default
+            if self.runner.adapter:
+                interval = self.runner.adapter.config_manager.get_int_value(
+                    "MeterValueSampleInterval", 60
+                )
+
+            if interval > 0 and self.engine.session and self.engine.energy_meter.is_charging:
                 if self.runner.adapter and self.runner.loop:
                     asyncio.run_coroutine_threadsafe(
                         self.runner.adapter.send_meter_values(
@@ -269,7 +275,11 @@ class Bridge:
                         ),
                         self.runner.loop,
                     )
-            self._shutdown_event.wait(timeout=10)
+            
+            # Wait for the interval or until shutdown. 
+            # If interval is 0, we still need to wait to avoid busy loop.
+            sleep_time = interval if interval > 0 else 60
+            self._shutdown_event.wait(timeout=sleep_time)
 
     def _log(self, message: str, **kwargs) -> None:
         self.on_log.emit(message=message, **kwargs)

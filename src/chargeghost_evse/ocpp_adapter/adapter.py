@@ -94,6 +94,32 @@ class Adapter(cp):
                 )
             except (TypeError, ValueError):
                 pass
+        elif key_name == "HeartbeatInterval":
+            try:
+                self.heartbeat_interval = int(new_value)
+                self._log(
+                    f"HeartbeatInterval updated to {new_value}s",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+            except (TypeError, ValueError):
+                pass
+        elif key_name == "MeterValueSampleInterval":
+            self._log(
+                f"MeterValueSampleInterval updated to {new_value}s",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+        elif key_name == "ConnectionTimeout":
+            try:
+                self.response_timeout = int(new_value)
+                self._log(
+                    f"Response timeout updated to {new_value}s",
+                    is_ocpp_message=False,
+                    is_important=True,
+                )
+            except (TypeError, ValueError):
+                pass
 
     def _log_from_firmware_manager(self, message: str) -> None:
         self._log(message, is_ocpp_message=False, is_important=True)
@@ -312,18 +338,6 @@ class Adapter(cp):
         )
 
         status = self.config_manager.set_key(key, value)
-
-        if key == "HeartbeatInterval" and status == ConfigurationStatus.accepted:
-            try:
-                self.heartbeat_interval = int(value)
-                self._log(
-                    f"HeartbeatInterval updated to {value}s",
-                    is_ocpp_message=False,
-                    is_important=True,
-                )
-            except (TypeError, ValueError):
-                pass
-
         return call_result.ChangeConfiguration(status=status)
 
     @on("GetLocalListVersion")

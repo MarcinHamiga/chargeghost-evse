@@ -1,46 +1,50 @@
 # ChargeGhost EVSE
 
-A Python-based Electric Vehicle Supply Equipment (EVSE) simulator featuring a modern graphical user interface built with PySide6 (Qt). ChargeGhost simulates EV charging sessions and communicates with Central Systems via the OCPP 1.6 protocol over WebSocket.
+<p align="center">
+  <img src="assets/ChargeGhost.png" alt="ChargeGhost Logo" width="200">
+</p>
+
+A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator featuring a modern graphical user interface built with PySide6 (Qt). ChargeGhost simulates complex EV charging sessions and communicates with Central Systems (CSMS) via the OCPP 1.6 protocol over WebSocket.
 
 ## Table of Contents
 
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Quick Start](#quick-start)
 - [User Manual](#user-manual)
-  - [Running the Application](#running-the-application)
   - [Simulator Mode](#simulator-mode)
   - [Manual Mode](#manual-mode)
   - [Configuration](#configuration)
 - [Architecture](#architecture)
-- [Development](#development)
-  - [Project Structure](#project-structure)
-  - [Testing](#testing)
-  - [Linting and Type Checking](#linting-and-type-checking)
 - [OCPP 1.6 Support](#ocpp-16-support)
+- [Development](#development)
 - [Building](#building)
 - [License](#license)
 
 ## Features
 
-- Full OCPP 1.6 protocol support for CSMS communication
-- Modern Qt-based graphical user interface with dark theme
-- Two operational modes: Simulator and Manual
-- Configurable connection parameters (URL, credentials, TLS)
-- Automatic reconnection with exponential backoff
-- Periodic heartbeat and meter values reporting
-- Multi-connector support with per-connector configuration
-- Real-time session metrics dashboard (energy, SoC, power, voltage, current)
-- Activity log with detailed/compact view modes
+- **Full OCPP 1.6J Support**: Robust CSMS communication including Core, Firmware Management, and Local Auth List profiles.
+- **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
+- **Dual Operational Modes**:
+  - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
+  - **Manual**: Direct protocol interaction for debugging and testing CSMS implementations.
+- **Multi-Connector Support**: Simulate stations with multiple independent connectors, each with its own configuration.
+- **Live Metrics Dashboard**: Real-time tracking of energy (Wh), Power (kW), Voltage (V), Current (A), and State of Charge (SoC).
+- **OCPP Config Key Management**: Built-in editor for mandatory, optional, and read-only OCPP configuration keys.
+- **Firmware Management**: Simulated firmware updates and diagnostics upload with full status reporting.
+- **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
+- **Resilient Connectivity**: Automatic reconnection with exponential backoff and periodic heartbeat/meter values.
 
 ## Requirements
 
-- Python >=3.11, <3.15
-- A CSMS (Central System Management System) with OCPP 1.6 WebSocket endpoint
+- **Python**: >=3.11, <3.15
+- **OS**: Windows, macOS, or Linux
+- **Network**: Access to an OCPP 1.6 WebSocket endpoint (e.g., Steve, MaEVe, or a custom CSMS).
 
 ## Installation
 
-### From Source
+### Using Poetry (Recommended)
 
 ```bash
 git clone https://github.com/your-repo/chargeghost-evse.git
@@ -48,253 +52,140 @@ cd chargeghost-evse
 poetry install
 ```
 
+### From Source (pip)
+
+```bash
+pip install -e .
+```
+
+## Quick Start
+
+1. Start the application:
+   ```bash
+   poetry run chargeghost-evse
+   ```
+2. Select **Simulator Mode**.
+3. Go to the **Settings** tab and enter your CSMS WebSocket URL (e.g., `ws://localhost:8080/steve/websocket/CentralSystemService/CP_1`).
+4. Click **Save General Config**.
+5. Switch back to the **Dashboard** tab.
+6. Enter an **ID Tag** (e.g., `DEADBEEF`) and click **Apply**.
+7. Click **Plug In**, then **Start Charging**.
+
 ## User Manual
-
-### Running the Application
-
-After installation, start the application:
-
-```bash
-chargeghost-evse
-```
-
-Or run from source:
-
-```bash
-PYTHONPATH=src python3 -m chargeghost_evse.main
-```
-
-Upon launch, you are presented with a mode selection screen to choose between Simulator Mode and Manual Mode.
 
 ### Simulator Mode
 
-The Simulator Mode provides an interactive EVSE simulation with realistic charging behavior and full OCPP integration.
+Simulator Mode provides a high-fidelity EVSE simulation where the engine manages state transitions, energy metering, and protocol responses automatically.
 
-#### Controls
+#### Interaction Panels
 
-| Button | Action | Description |
-|--------|--------|-------------|
-| Plug In | Connect EV | Simulates connecting an EV to the selected connector |
-| Start/Stop Charging | Swipe Card | Starts or stops a charging session |
-| Unplug | Disconnect EV | Simulates disconnecting the EV |
+- **Connector Strip**: Located at the top of the dashboard. Click on connector icons (C1, C2, etc.) to switch focus between physical connectors.
+- **Session Controls**: Interactive buttons for simulation actions (Plug In, Start, Stop, Unplug).
+- **ID Tag Entry**: Field to specify the RFID tag used for authorization.
+- **Session Dashboard**: Real-time visualization of the active transaction and electrical metrics.
+- **Collapsible Activity Log**: Expandable log at the bottom showing detailed Engine and OCPP events. Toggle between **Detailed** and **Compact** modes.
 
-#### Tabs
+#### Typical Charging Workflow
 
-- **Controls**: Primary simulation controls and connector status
-- **Connectors**: Add, remove, and configure connector parameters (voltage, current, phases)
-- **Config**: Connection settings, station identity, and TLS options
-- **Session**: Real-time charging metrics dashboard
-
-#### Typical Charging Session Workflow
-
-1. **Plug In**: Connector transitions from `Available` to `Preparing`
-2. **Start Charging**: Sends authorization and starts transaction with CSMS
-3. **Charging**: Session runs, meter values are sent periodically
-4. **Stop Charging**: Ends the transaction, connector transitions to `Finishing`
-5. **Unplug**: Connector returns to `Available`
-
-#### Connector States
-
-| State | Description |
-|-------|-------------|
-| `Available` | Connector is free and ready |
-| `Preparing` | EV is plugged in, awaiting authorization |
-| `Charging` | Active charging session |
-| `SuspendedEV` | EV paused charging (battery full) |
-| `SuspendedEVSE` | EVSE paused charging |
-| `Finishing` | Session ended, EV still plugged |
-| `Unavailable` | Connector is disabled |
-| `Faulted` | Connector has a fault |
-
-#### Session Dashboard Metrics
-
-- Transaction ID
-- Session Duration
-- Energy Charged (Wh)
-- State of Charge (%)
-- Current Power (kW)
-- Total Meter Reading (Wh)
-- Voltage (V)
-- Current (A)
+1. **Setup**: Select a connector and apply an `ID Tag`.
+2. **Plug In**: The connector transitions to `Preparing`.
+3. **Authorize/Start**: Click `Start Charging`. The simulator sends `Authorize` and `StartTransaction`.
+4. **Charging**: The connector enters `Charging` state. Meter values are periodically sent to the CSMS.
+5. **Stop**: Click `Stop Charging`. The simulator sends `StopTransaction`.
+6. **Unplug**: Return the connector to `Available`.
 
 ### Manual Mode
 
-Manual Mode allows direct OCPP message control without simulation logic. Use this for testing specific CSMS interactions and protocol debugging.
+Manual Mode bypasses the simulation engine, allowing you to send raw OCPP messages directly. This is ideal for testing CSMS behavior in edge cases or during initial development.
 
-#### Available Messages
-
-| Button | OCPP Message | Description |
-|--------|--------------|-------------|
-| BootNotification | `BootNotification` | Registers the charge point with CSMS |
-| Heartbeat | `Heartbeat` | Sends a heartbeat to maintain connection |
-| StatusNotification | `StatusNotification` | Reports connector status |
-| Start | `StartTransaction` | Starts a charging session (enter ID Tag) |
-| Stop | `StopTransaction` | Stops the current transaction (enter TX ID) |
+- **OCPP Controls**: Buttons for `BootNotification`, `Heartbeat`, `StatusNotification`, `Start`, and `Stop`.
+- **Protocol Log**: Dedicated area to view raw message exchange and server responses.
 
 ### Configuration
 
-Configuration is stored in `~/.chargeghost/config.json` and can be edited via the Config tab in Simulator Mode.
+Configuration is managed via the **Settings** tab in the UI and persisted to `~/.chargeghost/config.json`.
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Connection URL | CSMS WebSocket endpoint | `wss://localhost:3000/CP_1` |
-| OCPP ID | Charge point identifier | `CP_1` |
-| OCPP Password | Basic auth password (optional) | (empty) |
-| Charge Point Model | Device model name | `ChargeGhostV1` |
-| Charge Point Vendor | Manufacturer name | `ChargeGhost` |
-| Skip TLS Verification | Disable TLS certificate checks | `false` |
+#### General & OCPP Settings
 
-#### Connector Configuration
+| Section | Description |
+|---------|-------------|
+| **Connection** | URL, Identity (Charge Point ID), and Auth credentials. |
+| **Identity** | Vendor and Model strings reported in `BootNotification`. |
+| **OCPP Keys** | Interactive editor for mandatory and optional OCPP 1.6 configuration keys. |
 
-Each connector can be configured with:
+#### Connector Hardware
 
-| Parameter | Range | Default |
-|-----------|-------|---------|
-| Voltage | 100-480V | 230V |
-| Current | 6-63A | 32A |
-| Phases | 1-3 | 1 |
-
-Configuration is automatically persisted when closing the application or when modifying connector settings.
+Each connector can be individually tuned:
+- **Voltage**: 100V - 480V
+- **Current Limit**: 6A - 63A
+- **Phases**: 1 or 3 Phase simulation.
 
 ## Architecture
 
-ChargeGhost follows an event-driven architecture with clear separation of concerns:
+ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiveness and simulation accuracy.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                         UI Layer                            │
-│  (PySide6 Qt - MainWindow, SimulatorWidget, ManualWidget)   │
+│    (PySide6 Qt: Dashboard, Settings, Manual, Log Widgets)   │
 └─────────────────────────┬───────────────────────────────────┘
-                          │
+                          │ (Qt Signals / Slots)
 ┌─────────────────────────▼───────────────────────────────────┐
 │                       Bridge Layer                          │
-│  (QtSignalBridge - Thread-safe signal emission to Qt)       │
+│  (QtSignalBridge: Thread-safe communication between layers) │
 └─────────────────────────┬───────────────────────────────────┘
-                          │
+                          │ (Domain Events)
 ┌─────────────────────────▼───────────────────────────────────┐
-│                       Bridge Core                           │
-│  (Connects Engine events to OCPP messages via AsyncRunner)  │
+│                     Simulation Core                         │
+│  (Engine, Connector, Session, EnergyMeter, LocalAuthList)   │
 └───────────┬─────────────────────────────────────┬───────────┘
             │                                     │
-┌───────────▼───────────┐           ┌─────────────▼───────────┐
-│    Engine (Core)      │           │    OCPP Adapter         │
-│  - Session            │           │  - Message handlers     │
-│  - Connector          │           │  - Message senders      │
-│  - EnergyMeter        │           │  - WebSocket client     │
-│  - Event system       │           │                         │
-└───────────────────────┘           └─────────────────────────┘
+┌───────────▼─────────────────────────────────────▼───────────┐
+│                       OCPP Adapter                          │
+│  (AsyncRunner, Message Handlers, ConfigurationKeyManager)   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Key Components
-
-- **Engine**: Core simulation logic handling sessions, connectors, and energy metering
-- **OCPP Adapter**: Implements OCPP 1.6 protocol with incoming message handlers and outgoing message senders
-- **Bridge**: Connects engine events to OCPP messages, runs async OCPP in a daemon thread
-- **AsyncRunner**: Manages WebSocket connection with automatic reconnection and heartbeat loop
-- **UI**: PySide6-based graphical interface with mode selection, controls, and real-time metrics
-
-### Event System
-
-The application uses an observer pattern for component communication:
-
-- `Event`: Observable that emits to subscribers
-- `Subscriber`: Base class providing subscribe/unsubscribe functionality
-- Events: `session_started`, `session_stopped`, `connector_status_changed`, `on_log`, etc.
-
-### Threading Model
-
-- **Main Thread**: Qt UI event loop
-- **OCPP Thread**: Daemon thread running asyncio event loop for WebSocket communication
-- **Meter Values Thread**: Daemon thread for periodic meter value transmission
-
-## Development
-
-### Project Structure
-
-```
-src/chargeghost_evse/
-├── main.py              # Application entry point
-├── engine/
-│   ├── engine.py        # Core simulation engine
-│   ├── connector.py     # Connector state management
-│   ├── session.py       # Charging session logic
-│   └── energy_meter.py  # Energy consumption simulation
-├── ocpp_adapter/
-│   └── adapter.py       # OCPP 1.6 protocol implementation
-├── bridge/
-│   └── bridge.py        # Engine-to-OCPP connection (AsyncRunner, Bridge)
-├── ui/
-│   ├── app.py           # Qt main window and widgets
-│   ├── bridge.py        # Qt signal bridge for thread-safe UI updates
-│   ├── widgets/         # UI components
-│   │   ├── log_panel.py
-│   │   ├── status_panel.py
-│   │   └── connector_panel.py
-│   └── styles/          # QSS stylesheets
-├── build_tools/
-│   ├── binary.py        # PyInstaller binary builder
-│   └── icons.py         # Icon generation
-└── util/
-    ├── config.py        # Configuration management (SimulationConfig)
-    ├── event.py         # Event system for observer pattern
-    └── subscriber.py    # Base class for event subscribers
-```
-
-### Testing
-
-```bash
-poetry run pytest                              # Run all tests
-poetry run pytest tests/test_engine.py         # Run specific test file
-poetry run pytest tests/test_engine.py::TestEngine::test_session_start -v  # Run single test
-poetry run pytest -x                           # Stop on first failure
-```
-
-Test files are located in the `tests/` directory:
-- `test_engine.py` - Engine and session management tests
-- `test_connector.py` - Connector state machine tests
-- `test_session.py` - Charging session tests
-- `test_energy_meter.py` - Energy metering tests
-- `test_event.py` - Event system tests
-
-### Linting and Type Checking
-
-```bash
-poetry run mypy src/           # Type checking
-poetry run ruff check src/     # Linting
-poetry run ruff format src/    # Format code
-poetry run ruff check src/ --fix  # Auto-fix lint issues
-```
+- **Engine**: The heart of the simulation; manages state machines and hardware constraints.
+- **OCPP Adapter**: Runs in a dedicated background thread to handle asynchronous network I/O without blocking the UI.
+- **LocalAuthList**: Handles offline authorization and CSMS list synchronization.
 
 ## OCPP 1.6 Support
 
-### Outgoing Messages (Charge Point → CSMS)
+| Profile | Status | Implemented Messages |
+| :--- | :--- | :--- |
+| **Core** | Partial | `BootNotification`, `Heartbeat`, `Authorize`, `StartTransaction`, `StopTransaction`, `StatusNotification`, `ChangeConfiguration`, `GetConfiguration` |
+| **Firmware** | Full | `GetDiagnostics`, `DiagnosticsStatusNotification`, `UpdateFirmware`, `FirmwareStatusNotification` |
+| **Local Auth** | Full | `SendLocalList`, `GetLocalListVersion` |
+| **Smart Charging** | Missing | - |
 
-| Message | Description |
-|---------|-------------|
-| `BootNotification` | Sent on connection to register with CSMS |
-| `Heartbeat` | Periodic connection health check |
-| `Authorize` | Validates an ID tag with CSMS |
-| `StartTransaction` | Initiates a charging session |
-| `StopTransaction` | Ends a charging session |
-| `StatusNotification` | Reports connector status changes |
-| `MeterValues` | Periodic energy meter readings |
+For a detailed roadmap and missing features, see [OCPP_MISSING_FEATURES.md](OCPP_MISSING_FEATURES.md).
 
-### Incoming Messages (CSMS → Charge Point)
+## Development
 
-| Message | Description |
-|---------|-------------|
-| `RemoteStartTransaction` | CSMS requests session start |
-| `RemoteStopTransaction` | CSMS requests session stop |
+### Testing
+
+Run the comprehensive test suite:
+```bash
+poetry run pytest
+```
+
+### Linting & Formatting
+
+```bash
+poetry run ruff check .
+poetry run ruff format .
+poetry run mypy src/
+```
 
 ## Building
 
-Build standalone executables using PyInstaller:
+Generate standalone executables for your platform using PyInstaller:
 
 ```bash
-poetry run build              # Build binary for current platform
-poetry run build-icons        # Generate application icons
+poetry run build
 ```
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3 (AGPLv3). See [LICENSE](LICENSE) for details.
+Licensed under the **GNU Affero General Public License v3 (AGPLv3)**. See [LICENSE](LICENSE) for full details.
