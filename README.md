@@ -44,14 +44,23 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Installation
 
-### Using Poetry (Recommended)
+### Using Poetry (Development purposes only)
 
 ```bash
 git clone https://github.com/your-repo/chargeghost-evse.git
 cd chargeghost-evse
 poetry install
 ```
-
+### MacOS
+1. Download the .zip file labled as a MacOS release
+2. Unzip the file
+3. Move the .application file to the Applications directory
+4. Run the app
+5. Close the Gatekeeper popup
+6. Go to Settings -> Gatekeeper -> Open anyway
+7. Click on Open Anyway
+8. ChargeGhost is installed
+   
 ### From Source (pip)
 
 ```bash
