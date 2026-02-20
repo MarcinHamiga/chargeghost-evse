@@ -40,6 +40,24 @@ class TestConnector:
 		assert connector.is_plugged_in is False
 		assert connector.status == ConnectorState.AVAILABLE
 
+	def test_unplug_persistent_status(self):
+		connector = Connector(id=1)
+		connector.status = ConnectorState.UNAVAILABLE
+		connector.plug_in()
+		# Should remain Unavailable because plug_in only changes from Available
+		assert connector.status == ConnectorState.UNAVAILABLE
+		connector.unplug()
+		assert connector.is_plugged_in is False
+		assert connector.status == ConnectorState.UNAVAILABLE
+
+		connector.status = ConnectorState.FAULTED
+		connector.plug_in()
+		# Should remain Faulted
+		assert connector.status == ConnectorState.FAULTED
+		connector.unplug()
+		assert connector.is_plugged_in is False
+		assert connector.status == ConnectorState.FAULTED
+
 	def test_authorize(self):
 		connector = Connector(id=1)
 		connector.authorize(id_tag="TEST_TAG")

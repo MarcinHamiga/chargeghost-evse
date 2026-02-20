@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from chargeghost_evse.ui.widgets.icons import get_icon_html
+
 
 class StatusPanel(QWidget):
     on_connector_selected = Signal(int)
@@ -27,7 +29,7 @@ class StatusPanel(QWidget):
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(8, 0, 8, 0)
 
-        title = QLabel("⚡ EVSE Status")
+        title = QLabel("EVSE Status")
         title.setObjectName("sectionHeader")
         title_layout.addWidget(title)
         title_layout.addStretch()
@@ -73,64 +75,62 @@ class StatusPanel(QWidget):
             frame_layout.setSpacing(6)
             frame_layout.setContentsMargins(12, 12, 12, 12)
 
-            # Header row: Connector ID and Status
             header_layout = QHBoxLayout()
             conn_header = QLabel(f"Connector {conn.id}")
-            conn_header.setStyleSheet(
-                "font-weight: 700; color: #1EAD98; font-size: 14px;"
-            )
+            conn_header.setProperty("connectorTitle", True)
             header_layout.addWidget(conn_header)
             header_layout.addStretch()
 
-            status_icon = "🟢" if conn.status.value == "Available" else "⚡"
-            if conn.status.value == "Unavailable":
-                status_icon = "🔴"
-            elif conn.status.value == "Faulted":
-                status_icon = "⚠️"
-
-            status_label = QLabel(f"{status_icon} {conn.status.value}")
-            status_label.setProperty(
-                "status", conn.status.value.lower()
-            )  # For QSS targeting
-            status_label.setStyleSheet(
-                "font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 4px; background-color: rgba(255, 255, 255, 0.05);"
+            status_icon_map = {
+                "Available": ("circle_green", "#238636"),
+                "Preparing": ("circle_yellow", "#f59e0b"),
+                "Charging": ("zap", "#1EAD98"),
+                "SuspendedEV": ("pause", "#f59e0b"),
+                "SuspendedEVSE": ("pause", "#f59e0b"),
+                "Finishing": ("circle_blue", "#3b82f6"),
+                "Reserved": ("lock", "#8b949e"),
+                "Unavailable": ("circle_red", "#da3633"),
+                "Faulted": ("alert_triangle", "#f85149"),
+            }
+            icon_name, icon_color = status_icon_map.get(
+                conn.status.value, ("circle_gray", "#6e7681")
             )
+
+            status_label = QLabel(
+                f"{get_icon_html(icon_name, icon_color, 14)} {conn.status.value}"
+            )
+            status_label.setProperty("statusBadge", True)
+            status_label.setProperty("status", conn.status.value.lower())
             header_layout.addWidget(status_label)
             frame_layout.addLayout(header_layout)
 
-            # Technical details
             details_layout = QHBoxLayout()
-            plug_icon = "🔌" if conn.is_plugged_in else "🔘"
+            plug_icon_name = "plug"
+            plug_icon_color = "#1EAD98" if conn.is_plugged_in else "#6e7681"
             plug_label = QLabel(
-                f"{plug_icon} {'Plugged' if conn.is_plugged_in else 'Unplugged'}"
+                f"{get_icon_html(plug_icon_name, plug_icon_color, 14)} "
+                f"{'Plugged' if conn.is_plugged_in else 'Unplugged'}"
             )
-            plug_label.setStyleSheet("color: #8b949e; font-size: 12px;")
+            plug_label.setProperty("plugStatus", True)
             details_layout.addWidget(plug_label)
             details_layout.addStretch()
 
             output_label = QLabel(f"{conn.voltage}V {conn.current}A {conn.phase}Ph")
-            output_label.setStyleSheet(
-                "color: #8b949e; font-family: monospace; font-size: 11px;"
-            )
+            output_label.setProperty("outputInfo", True)
             details_layout.addWidget(output_label)
             frame_layout.addLayout(details_layout)
 
-            # SoC Progress Bar if session active
             if session:
                 soc_layout = QVBoxLayout()
                 soc_layout.setSpacing(2)
 
                 soc_header = QHBoxLayout()
                 soc_title = QLabel("State of Charge")
-                soc_title.setStyleSheet(
-                    "color: #e6edf3; font-size: 11px; font-weight: 500;"
-                )
+                soc_title.setProperty("socTitle", True)
                 soc_header.addWidget(soc_title)
                 soc_header.addStretch()
                 soc_value = QLabel(f"{session.state_of_charge:.1f}%")
-                soc_value.setStyleSheet(
-                    "color: #1EAD98; font-size: 11px; font-weight: 700;"
-                )
+                soc_value.setProperty("socValue", True)
                 soc_header.addWidget(soc_value)
                 soc_layout.addLayout(soc_header)
 
@@ -141,10 +141,8 @@ class StatusPanel(QWidget):
                 soc_layout.addWidget(progress)
                 frame_layout.addLayout(soc_layout)
             elif conn.id_tag:
-                tag_label = QLabel(f"👤 {conn.id_tag}")
-                tag_label.setStyleSheet(
-                    "color: #1EAD98; font-size: 11px; font-weight: 500;"
-                )
+                tag_label = QLabel(f"user {conn.id_tag}")
+                tag_label.setProperty("tagLabel", True)
                 frame_layout.addWidget(tag_label)
 
             frame.mousePressEvent = lambda event, cid=conn.id: self._on_frame_clicked(

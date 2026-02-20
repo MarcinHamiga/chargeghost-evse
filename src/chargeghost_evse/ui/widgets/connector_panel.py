@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -14,12 +14,12 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.util.config import (
-    VOLTAGE_MIN,
-    VOLTAGE_MAX,
-    CURRENT_MIN,
     CURRENT_MAX,
-    PHASE_MIN,
+    CURRENT_MIN,
     PHASE_MAX,
+    PHASE_MIN,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
 )
 
 if TYPE_CHECKING:
@@ -45,9 +45,7 @@ class ConnectorEditorCard(QFrame):
 
         header = QHBoxLayout()
         self.title_label = QLabel(f"Connector {self.connector_id}")
-        self.title_label.setStyleSheet(
-            "font-weight: 600; color: #1EAD98; font-size: 13px;"
-        )
+        self.title_label.setProperty("connectorTitle", True)
         header.addWidget(self.title_label)
         header.addStretch()
         layout.addLayout(header)
@@ -99,7 +97,7 @@ class ConnectorEditorCard(QFrame):
         layout.addLayout(buttons)
 
         self.power_label = QLabel("Power: 7.36 kW")
-        self.power_label.setStyleSheet("color: #8b949e; font-family: monospace;")
+        self.power_label.setProperty("powerLabel", True)
         layout.addWidget(self.power_label)
 
     def set_values(self, voltage: float, current: float, phase: int) -> None:
@@ -152,11 +150,31 @@ class ConnectorPanel(QWidget):
         layout.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel("🔌 Connector Management")
+        title = QLabel("Connector Management")
         title.setObjectName("sectionHeader")
         header.addWidget(title)
         header.addStretch()
         layout.addLayout(header)
+
+        self._empty_state = QWidget()
+        self._empty_state.setObjectName("emptyStateWidget")
+        empty_layout = QVBoxLayout(self._empty_state)
+        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.setSpacing(12)
+        empty_layout.setContentsMargins(0, 40, 0, 40)
+
+        empty_title = QLabel("No Connectors Configured")
+        empty_title.setObjectName("emptyStateTitle")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_title)
+
+        empty_desc = QLabel("Add a connector to start simulation.")
+        empty_desc.setObjectName("emptyStateDescription")
+        empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_desc)
+
+        layout.addWidget(self._empty_state)
+        self._empty_state.hide()
 
         self.cards_container = QVBoxLayout()
         self.cards_container.setSpacing(12)
@@ -187,7 +205,13 @@ class ConnectorPanel(QWidget):
         self._clear_cards()
 
         if self._engine is None:
+            self._empty_state.show()
             return
+
+        if not self._engine.connectors:
+            self._empty_state.show()
+        else:
+            self._empty_state.hide()
 
         for connector in self._engine.connectors:
             card = ConnectorEditorCard(connector.id)

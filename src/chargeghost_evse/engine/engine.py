@@ -2,7 +2,7 @@ import queue
 import time
 from collections import deque
 from typing import TYPE_CHECKING, Optional
-from chargeghost_evse.engine.connector import Connector
+from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
@@ -121,6 +121,13 @@ class Engine(Subscriber):
             self._log(f"Error: Connector {connector_id} is not plugged in.")
             return
 
+        if connector.status not in (ConnectorState.AVAILABLE, ConnectorState.PREPARING):
+            self._log(
+                f"Error: Connector {connector_id} is in status {connector.status.value} "
+                "and cannot start a session."
+            )
+            return
+
         if self.session:
             self._log(
                 f"Error: Session already active on connector {self.session.connector_id}."
@@ -169,34 +176,19 @@ class Engine(Subscriber):
             self.session = None
             self.energy_meter.is_charging = False
 
-    def simulate(self):
+    def simulate(self, interval_seconds: float):
         self._process_commands()
         if self.session and self.energy_meter.is_charging:
-            current_time = time.monotonic()
-            if self.last_update_time is None:
-                self.last_update_time = current_time
-
-            if self.last_display_time is None:
-                self.last_display_time = current_time
-
-            interval = current_time - self.last_update_time
-            display_interval = current_time - self.last_display_time
-            if interval < self.simulation_time_step:
-                return
-            self.last_update_time = current_time
-
             connector = self._connectors.get(self.session.connector_id)
             if connector is None:
                 return
+
             self.energy_meter.update(
                 connector.voltage,
                 connector.current,
                 connector.phase,
-                interval_seconds=interval,
+                interval_seconds=interval_seconds,
             )
-            if display_interval >= self.display_time_step:
-                self.last_display_time = current_time
-
             self.event_queue.append(self.energy_meter.get_meter_reading())
 
     def _process_commands(self):
@@ -209,8 +201,19 @@ class Engine(Subscriber):
 
     def _handle_command(self, command):
         action = command.get("action")
-        connector_id = command.get("connector_id", 1)
+        connector_id = command.get("connector_id")
+
         if action == "START":
+            # If connector_id is not provided or 0, try to find an available connector
+            if not connector_id:
+                for conn in self.connectors:
+                    if conn.status == ConnectorState.AVAILABLE:
+                        connector_id = conn.id
+                        break
+                else:
+                    self._log("RemoteStartTransaction failed: No available connectors.")
+                    return
+
             self.start_session(
                 connector_id=connector_id,
                 transaction_id=command.get("transaction_id", 0),

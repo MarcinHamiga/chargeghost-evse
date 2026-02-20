@@ -1,6 +1,6 @@
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Property, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -9,6 +9,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from chargeghost_evse.ui.styles import colors
+from chargeghost_evse.ui.widgets.icons import get_icon_html
 
 
 class ConnectorIndicator(QFrame):
@@ -21,6 +24,8 @@ class ConnectorIndicator(QFrame):
         self._status = "Available"
         self._is_plugged = False
         self._soc: Optional[float] = None
+        self._pulse_animation: Optional[QPropertyAnimation] = None
+        self._pulse_value: float = 0.0
 
         self._setup_ui()
 
@@ -41,7 +46,9 @@ class ConnectorIndicator(QFrame):
         header.addWidget(self._id_label)
         header.addStretch()
 
-        self._status_icon = QLabel("🟢")
+        self._status_icon = QLabel()
+        self._status_icon.setFixedSize(16, 16)
+        self._set_status_icon("Available")
         header.addWidget(self._status_icon)
         layout.addLayout(header)
 
@@ -53,6 +60,21 @@ class ConnectorIndicator(QFrame):
         self._soc_label.setObjectName("connectorSocLabel")
         self._soc_label.hide()
         layout.addWidget(self._soc_label)
+
+    def _set_status_icon(self, status: str) -> None:
+        icon_map = {
+            "Available": ("circle_green", colors.SUCCESS),
+            "Preparing": ("circle_yellow", colors.WARNING),
+            "Charging": ("zap", colors.ACCENT_TEAL),
+            "SuspendedEV": ("pause", colors.WARNING),
+            "SuspendedEVSE": ("pause", colors.WARNING),
+            "Finishing": ("circle_blue", colors.INFO),
+            "Reserved": ("lock", colors.TEXT_SECONDARY),
+            "Unavailable": ("circle_red", colors.DANGER),
+            "Faulted": ("alert_triangle", colors.DANGER),
+        }
+        icon_name, icon_color = icon_map.get(status, ("circle_gray", colors.TEXT_MUTED))
+        self._status_icon.setText(get_icon_html(icon_name, icon_color, 16))
 
     def connector_id(self) -> int:
         return self._connector_id
@@ -75,34 +97,57 @@ class ConnectorIndicator(QFrame):
         self._is_plugged = is_plugged
         self._soc = soc
 
-        status_icons = {
-            "Available": "🟢",
-            "Preparing": "🟡",
-            "Charging": "⚡",
-            "SuspendedEV": "⏸️",
-            "SuspendedEVSE": "⏸️",
-            "Finishing": "🔵",
-            "Reserved": "🔒",
-            "Unavailable": "🔴",
-            "Faulted": "⚠️",
-        }
-        icon = status_icons.get(status, "⚪")
-        self._status_icon.setText(icon)
+        self._set_status_icon(status)
 
         if status == "Charging" and soc is not None:
             self._status_label.setText("Charging")
             self._soc_label.setText(f"{soc:.0f}%")
             self._soc_label.show()
+            self._start_pulse_animation()
         elif is_plugged:
             self._status_label.setText("Plugged")
             self._soc_label.hide()
+            self._stop_pulse_animation()
         else:
             self._status_label.setText(status)
             self._soc_label.hide()
+            self._stop_pulse_animation()
 
         self.setProperty("charging", status == "Charging")
         self.style().unpolish(self)
         self.style().polish(self)
+
+    def _start_pulse_animation(self) -> None:
+        if self._pulse_animation is not None:
+            return
+
+        self._pulse_animation = QPropertyAnimation(self, b"pulseOpacity")
+        assert self._pulse_animation is not None
+        self._pulse_animation.setDuration(1000)
+        self._pulse_animation.setStartValue(0.0)
+        self._pulse_animation.setEndValue(1.0)
+        self._pulse_animation.setLoopCount(-1)
+        self._pulse_animation.start()
+
+    def _stop_pulse_animation(self) -> None:
+        if self._pulse_animation is not None:
+            self._pulse_animation.stop()
+            self._pulse_animation.deleteLater()
+            self._pulse_animation = None
+
+    def get_pulse_opacity(self) -> float:
+        return self._pulse_value
+
+    def set_pulse_opacity(self, value: float) -> None:
+        self._pulse_value = value
+        if self._status == "Charging":
+            opacity = 0.08 + (value * 0.08)
+            self.setStyleSheet(
+                f"QFrame[connectorIndicator='true'][charging='true'] "
+                f"{{ background-color: rgba(35, 134, 54, {opacity:.2f}); }}"
+            )
+
+    pulseOpacity = Property(float, get_pulse_opacity, set_pulse_opacity)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -137,8 +182,19 @@ class ConnectorStrip(QWidget):
             indicator.set_selected(indicator.connector_id() == connector_id)
 
     def update_connectors(self, engine) -> None:
-        self._clear_indicators()
+        # Get set of current connector IDs
+        engine_connector_ids = {conn.id for conn in engine.connectors}
+        
+        # Remove indicators for connectors that no longer exist
+        for indicator in self._indicators[:]:
+            if indicator.connector_id() not in engine_connector_ids:
+                indicator._stop_pulse_animation()
+                self._indicators_layout.removeWidget(indicator)
+                indicator.setParent(None)
+                indicator.deleteLater()
+                self._indicators.remove(indicator)
 
+        # Update or add indicators
         for conn in engine.connectors:
             session = (
                 engine.session
@@ -146,7 +202,17 @@ class ConnectorStrip(QWidget):
                 else None
             )
 
-            indicator = ConnectorIndicator(conn.id)
+            # Find existing indicator
+            indicator = next((i for i in self._indicators if i.connector_id() == conn.id), None)
+            
+            if not indicator:
+                # Add new
+                indicator = ConnectorIndicator(conn.id)
+                indicator.clicked.connect(self._on_indicator_clicked)
+                self._indicators_layout.insertWidget(len(self._indicators), indicator)
+                self._indicators.append(indicator)
+
+            # Update existing or new
             indicator.update_status(
                 status=conn.status.value,
                 is_plugged=conn.is_plugged_in,
@@ -154,10 +220,6 @@ class ConnectorStrip(QWidget):
                 id_tag=conn.id_tag,
             )
             indicator.set_selected(conn.id == self._selected_id)
-            indicator.clicked.connect(self._on_indicator_clicked)
-
-            self._indicators_layout.addWidget(indicator)
-            self._indicators.append(indicator)
 
         if self._selected_id is None and self._indicators:
             self._selected_id = self._indicators[0].connector_id()
@@ -181,6 +243,7 @@ class ConnectorStrip(QWidget):
 
     def _clear_indicators(self) -> None:
         for indicator in self._indicators:
+            indicator._stop_pulse_animation()
             indicator.setParent(None)
             indicator.deleteLater()
         self._indicators.clear()

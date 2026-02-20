@@ -1,7 +1,10 @@
 import re
+from typing import Optional
 
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QTextEdit
+
+from chargeghost_evse.ui.styles import colors
 
 
 class LogPanel(QTextEdit):
@@ -35,20 +38,26 @@ class LogPanel(QTextEdit):
             "italic": "font-style: italic",
             "u": "text-decoration: underline",
             "underline": "text-decoration: underline",
-            "dim": "opacity: 0.7",
+            "dim": f"color: {colors.TEXT_MUTED}",
         }
 
         color_map = {
-            "blue": "#1EAD98",
-            "yellow": "#d29922",
-            "green": "#238636",
-            "red": "#f85149",
-            "cyan": "#58a6ff",
+            "blue": colors.INFO,
+            "yellow": colors.WARNING,
+            "green": colors.SUCCESS,
+            "red": colors.DANGER,
+            "cyan": colors.INFO,  # Default cyan to info blue for unity
             "magenta": "#a371f7",
-            "white": "#e6edf3",
-            "black": "#0d1117",
-            "orange": "#d29922",
+            "white": colors.TEXT_PRIMARY,
+            "black": colors.BG_MAIN,
+            "orange": colors.WARNING,
             "purple": "#a371f7",
+            "teal": colors.ACCENT_TEAL,
+            "gray": colors.TEXT_SECONDARY,
+            "muted": colors.TEXT_MUTED,
+            "engine": colors.LOG_COLORS["engine"],
+            "ocpp": colors.LOG_COLORS["ocpp"],
+            "ui": colors.LOG_COLORS["ui"],
         }
 
         tag_pattern = re.compile(r"\[([^\]]+)\]")

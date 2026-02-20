@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
+from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
     ConfigurationStatus,
     DiagnosticsStatus,
@@ -196,7 +197,7 @@ class Adapter(cp):
         )
 
         target_connector_id: Optional[int] = None
-        if connector_id is not None:
+        if connector_id is not None and connector_id != 0:
             try:
                 ocpp_connector_id = int(connector_id)
             except (TypeError, ValueError):
@@ -209,7 +210,7 @@ class Adapter(cp):
                     status=RemoteStartStopStatus.rejected
                 )
 
-            if ocpp_connector_id < 1:
+            if ocpp_connector_id < 0:
                 self._log(
                     f"Out-of-range connector_id: {ocpp_connector_id}",
                     is_ocpp_message=False,
@@ -222,8 +223,9 @@ class Adapter(cp):
             target_connector_id = ocpp_connector_id
 
         if self.command_queue:
+            target_desc = f"connector {target_connector_id}" if target_connector_id else "any connector"
             self._log(
-                f"Enqueuing START for connector {target_connector_id}",
+                f"Enqueuing START for {target_desc}",
                 is_ocpp_message=False,
                 is_important=False,
             )
@@ -296,28 +298,28 @@ class Adapter(cp):
             is_important=True,
         )
 
-        configuration_key: list[dict] = []
+        configuration_key: list[KeyValue] = []
         unknown_key: list[str] = []
 
-        if key is None:
+        if not key:
             for config_key in self.config_manager.get_all_keys():
                 configuration_key.append(
-                    {
-                        "key": config_key.key,
-                        "readonly": config_key.readonly,
-                        "value": config_key.value,
-                    }
+                    KeyValue(
+                        key=config_key.key,
+                        readonly=config_key.readonly,
+                        value=config_key.value,
+                    )
                 )
         else:
             for k in key:
                 found_key = self.config_manager.get_key(k)
                 if found_key is not None:
                     configuration_key.append(
-                        {
-                            "key": found_key.key,
-                            "readonly": found_key.readonly,
-                            "value": found_key.value,
-                        }
+                        KeyValue(
+                            key=found_key.key,
+                            readonly=found_key.readonly,
+                            value=found_key.value,
+                        )
                     )
                 else:
                     unknown_key.append(k)

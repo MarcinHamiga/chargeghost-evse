@@ -34,6 +34,7 @@ class Connector(Subscriber):
         self.phase: int = phase
 
         self._status: ConnectorState = ConnectorState.AVAILABLE
+        self._persistent_status: ConnectorState = ConnectorState.AVAILABLE
         self.is_plugged_in: bool = False
         self.id_tag: Optional[str] = None
 
@@ -47,6 +48,10 @@ class Connector(Subscriber):
     @status.setter
     def status(self, new_status: ConnectorState) -> None:
         if self._status != new_status:
+            # Persistent states that shouldn't be cleared by unplugging/plugging
+            if new_status in (ConnectorState.UNAVAILABLE, ConnectorState.FAULTED, ConnectorState.AVAILABLE):
+                self._persistent_status = new_status
+            
             self._status = new_status
             self.on_status_change.emit(connector_id=self.id, status=new_status)
 
@@ -93,7 +98,7 @@ class Connector(Subscriber):
         if self.is_plugged_in:
             self.is_plugged_in = False
             self.id_tag = None
-            self.status = ConnectorState.AVAILABLE
+            self.status = self._persistent_status
 
     def authorize(self, id_tag: str) -> None:
         self.id_tag = id_tag

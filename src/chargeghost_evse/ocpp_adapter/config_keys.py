@@ -14,6 +14,7 @@ class ConfigurationKey:
     default: Optional[str]
     description: str
     mandatory: bool = False
+    category: str = "Core"
 
 
 class ConfigurationKeyManager:
@@ -62,6 +63,7 @@ class ConfigurationKeyManager:
                 default="false",
                 description="Whether to allow offline transactions for unknown ID tags",
                 mandatory=True,
+                category="Core",
             ),
             "AuthorizationCacheEnabled": ConfigurationKey(
                 key="AuthorizationCacheEnabled",
@@ -70,6 +72,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Whether authorization cache is enabled",
                 mandatory=True,
+                category="Core",
             ),
             "AuthorizeRemoteTxRequests": ConfigurationKey(
                 key="AuthorizeRemoteTxRequests",
@@ -78,6 +81,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Whether to authorize remote transaction requests",
                 mandatory=True,
+                category="Core",
             ),
             "ChargeProfileMaxStackLevel": ConfigurationKey(
                 key="ChargeProfileMaxStackLevel",
@@ -86,6 +90,7 @@ class ConfigurationKeyManager:
                 default="5",
                 description="Maximum stack level for charging profiles",
                 mandatory=True,
+                category="SmartCharging",
             ),
             "ChargingScheduleAllowedChargingRateUnit": ConfigurationKey(
                 key="ChargingScheduleAllowedChargingRateUnit",
@@ -94,6 +99,7 @@ class ConfigurationKeyManager:
                 default="Current,Power",
                 description="Allowed charging rate units for charging schedules",
                 mandatory=True,
+                category="SmartCharging",
             ),
             "ChargingScheduleMaxPeriods": ConfigurationKey(
                 key="ChargingScheduleMaxPeriods",
@@ -102,6 +108,7 @@ class ConfigurationKeyManager:
                 default="10",
                 description="Maximum number of periods in a charging schedule",
                 mandatory=True,
+                category="SmartCharging",
             ),
             "ClockAlignedDataInterval": ConfigurationKey(
                 key="ClockAlignedDataInterval",
@@ -110,6 +117,7 @@ class ConfigurationKeyManager:
                 default="0",
                 description="Size of the interval in seconds for clock-aligned data (0=disabled)",
                 mandatory=True,
+                category="Core",
             ),
             "ConnectionTimeout": ConfigurationKey(
                 key="ConnectionTimeout",
@@ -118,6 +126,7 @@ class ConfigurationKeyManager:
                 default="30",
                 description="Connection timeout in seconds",
                 mandatory=True,
+                category="Core",
             ),
             "ConnectorPhaseRotation": ConfigurationKey(
                 key="ConnectorPhaseRotation",
@@ -126,6 +135,7 @@ class ConfigurationKeyManager:
                 default="0.RST",
                 description="Phase rotation for connectors (e.g. 0.RST, 1.RST, 2.RTS)",
                 mandatory=True,
+                category="Core",
             ),
             "GetConfigurationMaxKeys": ConfigurationKey(
                 key="GetConfigurationMaxKeys",
@@ -134,6 +144,7 @@ class ConfigurationKeyManager:
                 default="50",
                 description="Maximum number of configuration keys that can be retrieved in one request",
                 mandatory=True,
+                category="Core",
             ),
             "HeartbeatInterval": ConfigurationKey(
                 key="HeartbeatInterval",
@@ -142,6 +153,7 @@ class ConfigurationKeyManager:
                 default="300",
                 description="Heartbeat interval in seconds (0 = disabled)",
                 mandatory=True,
+                category="Core",
             ),
             "LightIntensity": ConfigurationKey(
                 key="LightIntensity",
@@ -150,6 +162,7 @@ class ConfigurationKeyManager:
                 default="100",
                 description="Intensity of the charge point light in percent",
                 mandatory=False,
+                category="Core",
             ),
             "LocalAuthListEnabled": ConfigurationKey(
                 key="LocalAuthListEnabled",
@@ -158,6 +171,7 @@ class ConfigurationKeyManager:
                 default="false",
                 description="Whether local authorization list is enabled",
                 mandatory=True,
+                category="LocalAuthList",
             ),
             "LocalAuthListMaxLength": ConfigurationKey(
                 key="LocalAuthListMaxLength",
@@ -166,6 +180,7 @@ class ConfigurationKeyManager:
                 default="100",
                 description="Maximum number of entries in local authorization list",
                 mandatory=True,
+                category="LocalAuthList",
             ),
             "LocalAuthorizeOffline": ConfigurationKey(
                 key="LocalAuthorizeOffline",
@@ -174,6 +189,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Whether to use local authorization list when offline",
                 mandatory=True,
+                category="LocalAuthList",
             ),
             "LocalPreAuthorize": ConfigurationKey(
                 key="LocalPreAuthorize",
@@ -182,6 +198,7 @@ class ConfigurationKeyManager:
                 default="false",
                 description="Whether to use local authorization list before CSMS authorization",
                 mandatory=True,
+                category="LocalAuthList",
             ),
             "MaxChargingProfilesInstalled": ConfigurationKey(
                 key="MaxChargingProfilesInstalled",
@@ -190,6 +207,7 @@ class ConfigurationKeyManager:
                 default="20",
                 description="Maximum number of charging profiles installed",
                 mandatory=True,
+                category="SmartCharging",
             ),
             "MeterValuesAlignedData": ConfigurationKey(
                 key="MeterValuesAlignedData",
@@ -198,6 +216,7 @@ class ConfigurationKeyManager:
                 default="Energy.Active.Import.Register",
                 description="Measurands to be included in clock-aligned meter values",
                 mandatory=True,
+                category="Core",
             ),
             "MeterValuesSampledData": ConfigurationKey(
                 key="MeterValuesSampledData",
@@ -206,6 +225,7 @@ class ConfigurationKeyManager:
                 default="Energy.Active.Import.Register",
                 description="Measurands to be included in sampled meter values",
                 mandatory=True,
+                category="Core",
             ),
             "MeterValueSampleInterval": ConfigurationKey(
                 key="MeterValueSampleInterval",
@@ -214,6 +234,7 @@ class ConfigurationKeyManager:
                 default="60",
                 description="Interval for meter value sampling in seconds (0=disabled)",
                 mandatory=True,
+                category="Core",
             ),
             "NumberOfConnectors": ConfigurationKey(
                 key="NumberOfConnectors",
@@ -222,6 +243,7 @@ class ConfigurationKeyManager:
                 default="1",
                 description="Number of connectors on this charge point",
                 mandatory=True,
+                category="Core",
             ),
             "ResetRetries": ConfigurationKey(
                 key="ResetRetries",
@@ -230,6 +252,7 @@ class ConfigurationKeyManager:
                 default="1",
                 description="Number of retries for reset operation",
                 mandatory=True,
+                category="Core",
             ),
             "StopTransactionMaxLength": ConfigurationKey(
                 key="StopTransactionMaxLength",
@@ -238,6 +261,7 @@ class ConfigurationKeyManager:
                 default="10",
                 description="Maximum number of meter values in a StopTransaction.req",
                 mandatory=True,
+                category="Core",
             ),
             "StopTransactionOnEVSideDisconnect": ConfigurationKey(
                 key="StopTransactionOnEVSideDisconnect",
@@ -246,6 +270,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Stop transaction when EV side disconnects",
                 mandatory=True,
+                category="Core",
             ),
             "StopTransactionOnInvalidId": ConfigurationKey(
                 key="StopTransactionOnInvalidId",
@@ -254,6 +279,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Stop transaction on invalid ID tag",
                 mandatory=True,
+                category="Core",
             ),
             "StopTxOnEVSideDisconnect": ConfigurationKey(
                 key="StopTxOnEVSideDisconnect",
@@ -262,6 +288,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Alias for StopTransactionOnEVSideDisconnect",
                 mandatory=False,
+                category="Core",
             ),
             "StopTxOnInvalidId": ConfigurationKey(
                 key="StopTxOnInvalidId",
@@ -270,6 +297,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Alias for StopTransactionOnInvalidId",
                 mandatory=False,
+                category="Core",
             ),
             "SupportedFeatureProfiles": ConfigurationKey(
                 key="SupportedFeatureProfiles",
@@ -278,6 +306,7 @@ class ConfigurationKeyManager:
                 default="Core,FirmwareManagement,LocalAuthListManagement,RemoteTrigger",
                 description="List of supported OCPP feature profiles",
                 mandatory=True,
+                category="Core",
             ),
             "TransactionMessageAttempts": ConfigurationKey(
                 key="TransactionMessageAttempts",
@@ -286,6 +315,7 @@ class ConfigurationKeyManager:
                 default="3",
                 description="Number of attempts to send transaction messages",
                 mandatory=True,
+                category="Core",
             ),
             "TransactionMessageRetryInterval": ConfigurationKey(
                 key="TransactionMessageRetryInterval",
@@ -294,6 +324,7 @@ class ConfigurationKeyManager:
                 default="10",
                 description="Retry interval for transaction messages in seconds",
                 mandatory=True,
+                category="Core",
             ),
             "UnlockConnectorOnEVSideDisconnect": ConfigurationKey(
                 key="UnlockConnectorOnEVSideDisconnect",
@@ -302,6 +333,7 @@ class ConfigurationKeyManager:
                 default="true",
                 description="Unlock connector when EV side disconnects",
                 mandatory=True,
+                category="Core",
             ),
             "WebSocketPingInterval": ConfigurationKey(
                 key="WebSocketPingInterval",
@@ -310,6 +342,7 @@ class ConfigurationKeyManager:
                 default="10",
                 description="WebSocket ping interval in seconds",
                 mandatory=False,
+                category="Core",
             ),
         }
 

@@ -211,6 +211,32 @@ class TestEngine:
 		assert len(changes) == 1
 		assert changes[0] == (1, 400.0, 50.0, 2)
 
+	def test_start_session_invalid_status(self):
+		engine = Engine()
+		engine.add_connector()
+		engine.plug_in(1)
+		
+		# Test FAULTED
+		engine.get_connector(1).status = ConnectorState.FAULTED
+		engine.start_session(connector_id=1, transaction_id=123)
+		assert engine.session is None
+		
+		# Test UNAVAILABLE
+		engine.get_connector(1).status = ConnectorState.UNAVAILABLE
+		engine.start_session(connector_id=1, transaction_id=123)
+		assert engine.session is None
+
+	def test_simulate_step(self):
+		engine = Engine()
+		engine.add_connector(voltage=230, current=10, phase=1) # 2300W
+		engine.plug_in(1)
+		engine.start_session(connector_id=1, transaction_id=123)
+		
+		# Simulate 1 hour (3600s)
+		# Wh = (2300 * 3600) / 3600 = 2300 Wh
+		engine.simulate(3600)
+		assert engine.energy_meter.get_meter_reading() == pytest.approx(2300.0)
+
 	def test_get_connector(self):
 		engine = Engine()
 		engine.add_connector()

@@ -1,8 +1,11 @@
 import time
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -20,6 +23,83 @@ if TYPE_CHECKING:
     from chargeghost_evse.engine.engine import Engine
 
 
+class TelemetryChart(QFrame):
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("telemetryChartFrame")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setMinimumHeight(200)
+
+        self._max_points = 100
+        self._power_data: list[QPointF] = []
+        self._current_data: list[QPointF] = []
+        self._start_time = time.monotonic()
+
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.chart = QChart()
+        self.chart.setBackgroundVisible(False)
+        self.chart.layout().setContentsMargins(0, 0, 0, 0)
+        self.chart.legend().hide()
+
+        self.series_power = QLineSeries()
+        power_pen = QPen(Qt.GlobalColor.cyan)
+        power_pen.setWidth(2)
+        self.series_power.setPen(power_pen)
+        self.chart.addSeries(self.series_power)
+
+        self.axis_x = QValueAxis()
+        self.axis_x.setRange(0, 60)  # 60 seconds window
+        self.axis_x.setLabelFormat("%.0f s")
+        self.axis_x.setGridLineVisible(True)
+        self.axis_x.setGridLineColor(Qt.GlobalColor.darkGray)
+        self.chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
+        self.series_power.attachAxis(self.axis_x)
+
+        self.axis_y = QValueAxis()
+        self.axis_y.setRange(0, 25)  # 22kW is common max
+        self.axis_y.setLabelFormat("%.1f kW")
+        self.axis_y.setGridLineVisible(True)
+        self.axis_y.setGridLineColor(Qt.GlobalColor.darkGray)
+        self.chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
+        self.series_power.attachAxis(self.axis_y)
+
+        self.chart_view = QChartView(self.chart)
+        self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.chart_view.setBackgroundRole(self.backgroundRole())
+        layout.addWidget(self.chart_view)
+
+    def add_point(self, power_kw: float) -> None:
+        current_time = time.monotonic() - self._start_time
+        self._power_data.append(QPointF(current_time, power_kw))
+
+        if len(self._power_data) > self._max_points:
+            self._power_data.pop(0)
+
+        self.series_power.replace(self._power_data)
+
+        # Shift X axis
+        if current_time > self.axis_x.max():
+            self.axis_x.setRange(current_time - 60, current_time)
+        
+        # Auto-scale Y axis
+        max_power = max((p.y() for p in self._power_data), default=25)
+        if max_power > self.axis_y.max():
+            self.axis_y.setRange(0, max_power * 1.2)
+        elif max_power < self.axis_y.max() * 0.5 and self.axis_y.max() > 25:
+             self.axis_y.setRange(0, max(25, max_power * 1.5))
+
+    def clear(self) -> None:
+        self._power_data.clear()
+        self.series_power.clear()
+        self._start_time = time.monotonic()
+        self.axis_x.setRange(0, 60)
+
+
 class MetricCard(QFrame):
     def __init__(self, title: str, unit: str = "", parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -28,8 +108,8 @@ class MetricCard(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(4)
-        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(2)
+        layout.setContentsMargins(12, 8, 12, 8)
 
         self._title_label = QLabel(title)
         self._title_label.setObjectName("metricTitle")
@@ -37,6 +117,7 @@ class MetricCard(QFrame):
 
         value_layout = QHBoxLayout()
         value_layout.setSpacing(4)
+        value_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self._value_label = QLabel("--")
         self._value_label.setObjectName("metricValue")
@@ -72,7 +153,7 @@ class CollapsibleDetails(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._toggle_btn = QPushButton("▶ Details")
+        self._toggle_btn = QPushButton("Details")
         self._toggle_btn.setObjectName("toggleDetailsBtn")
         self._toggle_btn.setProperty("flat", True)
         self._toggle_btn.clicked.connect(self._toggle)
@@ -99,11 +180,10 @@ class CollapsibleDetails(QWidget):
 
     def _toggle(self) -> None:
         self._is_expanded = not self._is_expanded
+        self._toggle_btn.setText("Hide Details" if self._is_expanded else "Show Details")
         if self._is_expanded:
-            self._toggle_btn.setText("▼ Details")
             self._content.show()
         else:
-            self._toggle_btn.setText("▶ Details")
             self._content.hide()
         self.toggled.emit(self._is_expanded)
 
@@ -132,6 +212,67 @@ class CollapsibleDetails(QWidget):
             metric.clear()
 
 
+class IdTagInput(QWidget):
+    tag_applied = Signal(str)
+    recent_tags_changed = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._recent_tags: list[str] = []
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        id_tag_label = QLabel("ID Tag")
+        id_tag_label.setObjectName("idTagLabel")
+        layout.addWidget(id_tag_label)
+
+        self._recent_combo = QComboBox()
+        self._recent_combo.setObjectName("recentTagsCombo")
+        self._recent_combo.setPlaceholderText("Recent tags...")
+        self._recent_combo.setMinimumWidth(100)
+        self._recent_combo.currentTextChanged.connect(self._on_recent_selected)
+        self._recent_combo.hide()
+        layout.addWidget(self._recent_combo)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Enter RFID tag (e.g., RFID-001)")
+        self._input.returnPressed.connect(self._on_apply)
+        layout.addWidget(self._input, 1)
+
+        self._apply_btn = QPushButton("Apply")
+        self._apply_btn.setObjectName("btnApplyTag")
+        self._apply_btn.clicked.connect(self._on_apply)
+        layout.addWidget(self._apply_btn)
+
+    def _on_recent_selected(self, tag: str) -> None:
+        if tag:
+            self._input.setText(tag)
+
+    def _on_apply(self) -> None:
+        tag = self._input.text().strip()
+        if tag:
+            self.tag_applied.emit(tag)
+
+    def set_recent_tags(self, tags: list[str]) -> None:
+        self._recent_tags = tags[:10]
+        self._recent_combo.clear()
+        if self._recent_tags:
+            self._recent_combo.addItems(self._recent_tags)
+            self._recent_combo.show()
+        else:
+            self._recent_combo.hide()
+
+    def get_tag(self) -> str:
+        return self._input.text().strip()
+
+    def set_tag(self, tag: str) -> None:
+        self._input.setText(tag)
+
+
 class SessionDashboard(QWidget):
     connector_selected = Signal(int)
     plug_in_clicked = Signal()
@@ -155,7 +296,8 @@ class SessionDashboard(QWidget):
         layout.addWidget(self.connector_strip)
 
         primary_metrics = QGridLayout()
-        primary_metrics.setSpacing(12)
+        primary_metrics.setSpacing(8)
+        primary_metrics.setContentsMargins(0, 0, 0, 0)
 
         self.metric_energy = MetricCard("Energy Charged", "Wh")
         self.metric_power = MetricCard("Current Power", "kW")
@@ -164,9 +306,12 @@ class SessionDashboard(QWidget):
 
         primary_metrics.addWidget(self.metric_energy, 0, 0)
         primary_metrics.addWidget(self.metric_power, 0, 1)
-        primary_metrics.addWidget(self.metric_duration, 1, 0)
-        primary_metrics.addWidget(self.metric_soc, 1, 1)
+        primary_metrics.addWidget(self.metric_duration, 0, 2)
+        primary_metrics.addWidget(self.metric_soc, 0, 3)
         layout.addLayout(primary_metrics)
+
+        self.telemetry_chart = TelemetryChart()
+        layout.addWidget(self.telemetry_chart, 1)
 
         soc_section = QFrame()
         soc_section.setObjectName("socSection")
@@ -202,19 +347,9 @@ class SessionDashboard(QWidget):
         id_tag_layout.setContentsMargins(12, 8, 12, 8)
         id_tag_layout.setSpacing(12)
 
-        id_tag_label = QLabel("ID Tag")
-        id_tag_label.setObjectName("idTagLabel")
-        id_tag_layout.addWidget(id_tag_label)
-
-        self.input_id_tag = QLineEdit()
-        self.input_id_tag.setPlaceholderText("Enter RFID tag (e.g., RFID-001)")
-        self.input_id_tag.returnPressed.connect(self._on_apply_id_tag)
-        id_tag_layout.addWidget(self.input_id_tag, 1)
-
-        self.btn_apply_tag = QPushButton("Apply")
-        self.btn_apply_tag.setObjectName("btnApplyTag")
-        self.btn_apply_tag.clicked.connect(self._on_apply_id_tag)
-        id_tag_layout.addWidget(self.btn_apply_tag)
+        self.id_tag_input = IdTagInput()
+        self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)
+        id_tag_layout.addWidget(self.id_tag_input)
 
         layout.addWidget(id_tag_section)
 
@@ -255,17 +390,20 @@ class SessionDashboard(QWidget):
         else:
             self.stop_charging_clicked.emit()
 
-    def _on_apply_id_tag(self) -> None:
-        tag = self.input_id_tag.text().strip()
-        if tag:
-            self.apply_id_tag_clicked.emit(tag)
+    def _on_apply_id_tag(self, tag: str) -> None:
+        self.apply_id_tag_clicked.emit(tag)
 
     def get_selected_connector_id(self) -> int:
         return self._selected_connector_id
 
     def set_selected_connector(self, connector_id: int) -> None:
+        if self._selected_connector_id != connector_id:
+            self.telemetry_chart.clear()
         self._selected_connector_id = connector_id
         self.connector_strip.set_selected_connector(connector_id)
+
+    def set_recent_tags(self, tags: list[str]) -> None:
+        self.id_tag_input.set_recent_tags(tags)
 
     def update_from_engine(self, engine: "Engine") -> None:
         self.connector_strip.update_connectors(engine)
@@ -280,6 +418,7 @@ class SessionDashboard(QWidget):
 
         power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
         self.metric_power.set_value(f"{power_kw:.2f}")
+        self.telemetry_chart.add_point(power_kw)
 
         session = engine.session
         if session and session.connector_id == self._selected_connector_id:
@@ -318,4 +457,4 @@ class SessionDashboard(QWidget):
         widget.style().polish(widget)
 
     def set_id_tag(self, tag: str) -> None:
-        self.input_id_tag.setText(tag)
+        self.id_tag_input.set_tag(tag)

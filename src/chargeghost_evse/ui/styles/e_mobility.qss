@@ -2,7 +2,7 @@
 /* Primary Accent: #1EAD98 (Electric Teal) */
 
 * {
-	font-family: "Segoe UI", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+	font-family: "SF Pro Display", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 	font-size: 13px;
 }
 
@@ -872,3 +872,268 @@ QSplitter::handle {
 QSplitter::handle:hover {
 	background-color: #1EAD98;
 }
+
+/* ============================================
+   SIDEBAR NAVIGATION
+   ============================================ */
+
+#sidebar {
+	background-color: #161b22;
+	border-right: 1px solid #30363d;
+}
+
+#sidebarNavBtn {
+	background-color: transparent;
+	border: none;
+	border-radius: 6px;
+	padding: 10px 16px;
+	color: #8b949e;
+	text-align: left;
+	font-weight: 500;
+	font-size: 13px;
+}
+
+#sidebarNavBtn:hover {
+	background-color: rgba(48, 54, 61, 0.5);
+	color: #e6edf3;
+}
+
+#sidebarNavBtn:checked {
+	background-color: rgba(30, 173, 152, 0.1);
+	color: #1EAD98;
+	font-weight: 600;
+}
+
+#sidebarNavBtn::icon {
+	margin-right: 8px;
+}
+
+/* ============================================
+   NAVIGATION HEADER
+   ============================================ */
+
+#navHeader {
+	background-color: #161b22;
+	border-bottom: 1px solid #30363d;
+}
+
+#btnHome {
+	background-color: transparent;
+	border: none;
+	border-radius: 6px;
+	padding: 4px;
+	color: #8b949e;
+}
+
+#btnHome:hover {
+	background-color: rgba(48, 54, 61, 0.5);
+}
+
+#btnHome::icon {
+	color: #8b949e;
+}
+
+#btnHome:hover::icon {
+	color: #1EAD98;
+}
+
+#navTitle {
+	color: #e6edf3;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+/* ============================================
+   TOAST NOTIFICATIONS
+   ============================================ */
+
+#toastNotification {
+	border-radius: 8px;
+	padding: 8px 16px;
+}
+
+#toastNotification[toastType="success"] {
+	background-color: rgba(35, 134, 54, 0.95);
+	border: 1px solid #238636;
+}
+
+#toastNotification[toastType="error"] {
+	background-color: rgba(218, 54, 51, 0.95);
+	border: 1px solid #da3633;
+}
+
+#toastNotification[toastType="warning"] {
+	background-color: rgba(245, 158, 11, 0.95);
+	border: 1px solid #f59e0b;
+}
+
+#toastNotification[toastType="info"] {
+	background-color: rgba(59, 130, 246, 0.95);
+	border: 1px solid #3b82f6;
+}
+
+#toastMessage {
+	color: #ffffff;
+	font-size: 13px;
+	font-weight: 500;
+}
+
+#toastCloseBtn {
+	background-color: transparent;
+	border: none;
+	color: rgba(255, 255, 255, 0.7);
+	padding: 0;
+	min-width: 24px;
+	min-height: 24px;
+}
+
+#toastCloseBtn:hover {
+	color: #ffffff;
+}
+
+/* ============================================
+   TOGGLE LOG BUTTON (Status Bar)
+   ============================================ */
+
+#btnToggleLog {
+	background-color: transparent;
+	border: 1px solid #30363d;
+	border-radius: 4px;
+	color: #8b949e;
+	font-size: 11px;
+	padding: 2px 12px;
+	min-height: 20px;
+}
+
+#btnToggleLog:hover {
+	border-color: #1EAD98;
+	color: #1EAD98;
+}
+
+#btnToggleLog:checked {
+	background-color: rgba(30, 173, 152, 0.2);
+	border-color: #1EAD98;
+	color: #1EAD98;
+}
+
+/* ============================================
+   CONNECTOR STATUS CARD (StatusPanel)
+   ============================================ */
+
+#connectorStatusCard QLabel[connectorTitle="true"] {
+	font-weight: 700;
+	color: #1EAD98;
+	font-size: 14px;
+}
+
+#connectorStatusCard QLabel[statusBadge="true"] {
+	font-weight: 600;
+	font-size: 11px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	background-color: rgba(255, 255, 255, 0.05);
+}
+
+#connectorStatusCard QLabel[plugStatus="true"] {
+	color: #8b949e;
+	font-size: 12px;
+}
+
+#connectorStatusCard QLabel[outputInfo="true"] {
+	color: #8b949e;
+	font-family: monospace;
+	font-size: 11px;
+}
+
+#connectorStatusCard QLabel[socTitle="true"] {
+	color: #e6edf3;
+	font-size: 11px;
+	font-weight: 500;
+}
+
+#connectorStatusCard QLabel[socValue="true"] {
+	color: #1EAD98;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+#connectorStatusCard QLabel[tagLabel="true"] {
+	color: #1EAD98;
+	font-size: 11px;
+	font-weight: 500;
+}
+
+/* ============================================
+   CONNECTOR EDITOR CARD (ConnectorPanel)
+   ============================================ */
+
+QFrame[connectorCard="true"] QLabel[connectorTitle="true"] {
+	font-weight: 600;
+	color: #1EAD98;
+	font-size: 13px;
+}
+
+QFrame[connectorCard="true"] QLabel[powerLabel="true"] {
+	color: #8b949e;
+	font-family: monospace;
+}
+
+/* ============================================
+   VALIDATION ERROR STATE
+   ============================================ */
+
+QLineEdit[validationError="true"] {
+	border: 2px solid #da3633;
+	background-color: rgba(218, 54, 51, 0.05);
+}
+
+QLineEdit[validationError="true"]:focus {
+	border: 2px solid #f85149;
+}
+
+QLabel[validationError="true"] {
+	color: #f85149;
+	font-size: 11px;
+}
+
+/* ============================================
+   EMPTY STATE
+   ============================================ */
+
+#emptyStateWidget {
+	background-color: transparent;
+}
+
+#emptyStateIcon {
+	color: #6e7681;
+	font-size: 48px;
+}
+
+#emptyStateTitle {
+	color: #8b949e;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+#emptyStateDescription {
+	color: #6e7681;
+	font-size: 12px;
+}
+
+/* ============================================
+   RECENT TAGS COMBOBOX
+   ============================================ */
+
+QComboBox#recentTagsCombo {
+	background-color: #161b22;
+	border: 1px solid #30363d;
+	border-radius: 6px;
+	padding: 8px 12px;
+	padding-right: 30px;
+	color: #e6edf3;
+}
+
+QComboBox#recentTagsCombo:hover {
+	border: 1px solid #1EAD98;
+}
+

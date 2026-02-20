@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Callable, Optional
+from urllib.parse import urlparse
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -20,6 +21,91 @@ if TYPE_CHECKING:
     from chargeghost_evse.engine.engine import Engine
     from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKey
     from chargeghost_evse.util.config import SimulationConfig
+
+
+class ValidatedLineEdit(QWidget):
+    validation_changed = Signal(bool)
+
+    def __init__(self, placeholder: str = "", parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._is_valid = True
+        self._validator: Optional[Callable[[str], Optional[str]]] = None
+        self._setup_ui(placeholder)
+
+    def _setup_ui(self, placeholder: str) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(placeholder)
+        self._input.textChanged.connect(self._on_text_changed)
+        layout.addWidget(self._input)
+
+        self._error_label = QLabel()
+        self._error_label.setProperty("validationError", True)
+        self._error_label.hide()
+        layout.addWidget(self._error_label)
+
+    def set_validator(self, validator: Callable[[str], Optional[str]]) -> None:
+        self._validator = validator
+
+    def _on_text_changed(self, text: str) -> None:
+        if self._validator:
+            error = self._validator(text)
+            if error:
+                self._show_error(error)
+            else:
+                self._clear_error()
+
+    def _show_error(self, message: str) -> None:
+        self._is_valid = False
+        self._input.setProperty("validationError", True)
+        self._input.style().unpolish(self._input)
+        self._input.style().polish(self._input)
+        self._error_label.setText(message)
+        self._error_label.show()
+        self.validation_changed.emit(False)
+
+    def _clear_error(self) -> None:
+        self._is_valid = True
+        self._input.setProperty("validationError", False)
+        self._input.style().unpolish(self._input)
+        self._input.style().polish(self._input)
+        self._error_label.hide()
+        self.validation_changed.emit(True)
+
+    def text(self) -> str:
+        return self._input.text()
+
+    def setText(self, text: str) -> None:
+        self._input.setText(text)
+
+    def setEchoMode(self, mode: QLineEdit.EchoMode) -> None:
+        self._input.setEchoMode(mode)
+
+    def setPlaceholderText(self, text: str) -> None:
+        self._input.setPlaceholderText(text)
+
+    def is_valid(self) -> bool:
+        return self._is_valid
+
+    def setEnabled(self, enabled: bool) -> None:
+        self._input.setEnabled(enabled)
+
+
+def validate_url(text: str) -> Optional[str]:
+    if not text:
+        return None
+    try:
+        parsed = urlparse(text)
+        if parsed.scheme not in ("ws", "wss"):
+            return "URL must start with ws:// or wss://"
+        if not parsed.netloc:
+            return "Invalid URL format"
+    except Exception:
+        return "Invalid URL format"
+    return None
 
 
 class SettingsPanel(QWidget):
@@ -56,8 +142,8 @@ class SettingsPanel(QWidget):
         )
         conn_form.setSpacing(12)
 
-        self.input_url = QLineEdit()
-        self.input_url.setPlaceholderText("ws://example.com/ocpp")
+        self.input_url = ValidatedLineEdit("ws://example.com/ocpp")
+        self.input_url.set_validator(validate_url)
         conn_form.addRow("WebSocket URL:", self.input_url)
 
         self.input_ocpp_id = QLineEdit()
@@ -100,23 +186,6 @@ class SettingsPanel(QWidget):
         conn_group_layout.addWidget(self.connector_panel)
 
         content_layout.addWidget(connectors_group)
-
-        ocpp_config_group = QGroupBox("OCPP Configuration Keys")
-        ocpp_config_layout = QVBoxLayout(ocpp_config_group)
-        ocpp_config_layout.setContentsMargins(8, 16, 8, 8)
-        ocpp_config_layout.setSpacing(8)
-
-        ocpp_description = QLabel(
-            "Configure OCPP parameters. Read-only keys are shown for reference."
-        )
-        ocpp_description.setWordWrap(True)
-        ocpp_config_layout.addWidget(ocpp_description)
-
-        self.config_keys_panel = ConfigKeysPanel()
-        self.config_keys_panel.key_changed.connect(self._on_config_key_changed)
-        ocpp_config_layout.addWidget(self.config_keys_panel)
-
-        content_layout.addWidget(ocpp_config_group)
 
         self.btn_save = QPushButton("Save Configuration")
         self.btn_save.setObjectName("btnSaveConfig")
@@ -168,6 +237,9 @@ class SettingsPanel(QWidget):
         if not self._config:
             return
 
+        if not self.input_url.is_valid():
+            return
+
         self._config.connection_url = self.input_url.text().strip()
         self._config.ocpp_id = self.input_ocpp_id.text().strip()
         self._config.ocpp_password = self.input_password.text()
@@ -186,12 +258,3 @@ class SettingsPanel(QWidget):
 
     def rebuild_connector_cards(self) -> None:
         self.connector_panel.rebuild_cards()
-
-    def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
-        self.ocpp_key_changed.emit(key_name, new_value)
-
-    def set_ocpp_config_keys(self, keys: list["ConfigurationKey"]) -> None:
-        self.config_keys_panel.set_keys(keys)
-
-    def update_ocpp_config_key(self, key_name: str, new_value: str) -> None:
-        self.config_keys_panel.update_key(key_name, new_value)

@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QScrollArea,
@@ -21,12 +22,22 @@ class ConfigKeysPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._key_inputs: dict[str, QLineEdit] = {}
+        self._category_groups: dict[str, QGroupBox] = {}
+        self._category_forms: dict[str, QFormLayout] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(12)
+
+        search_layout = QHBoxLayout()
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("Search configuration keys...")
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.textChanged.connect(self._on_search_changed)
+        search_layout.addWidget(self._search_input)
+        layout.addLayout(search_layout)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -37,120 +48,75 @@ class ConfigKeysPanel(QWidget):
         self._content_layout.setSpacing(20)
         self._content_layout.setContentsMargins(0, 0, 8, 0)
 
-        self._mandatory_group = QGroupBox("Mandatory Configuration")
-        mandatory_desc = QLabel(
-            "Required OCPP 1.6 configuration keys with recommended defaults."
-        )
-        mandatory_desc.setWordWrap(True)
-        mandatory_desc.setObjectName("configGroupDescription")
-        self._mandatory_layout = QVBoxLayout(self._mandatory_group)
-        self._mandatory_layout.setContentsMargins(8, 16, 8, 8)
-        self._mandatory_layout.setSpacing(8)
-        self._mandatory_layout.addWidget(mandatory_desc)
-
-        self._mandatory_form = QFormLayout()
-        self._mandatory_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        self._mandatory_form.setSpacing(12)
-        self._mandatory_layout.addLayout(self._mandatory_form)
-        self._content_layout.addWidget(self._mandatory_group)
-
-        self._optional_group = QGroupBox("Optional Configuration")
-        optional_desc = QLabel(
-            "Additional configuration keys for extended functionality."
-        )
-        optional_desc.setWordWrap(True)
-        optional_desc.setObjectName("configGroupDescription")
-        self._optional_layout = QVBoxLayout(self._optional_group)
-        self._optional_layout.setContentsMargins(8, 16, 8, 8)
-        self._optional_layout.setSpacing(8)
-        self._optional_layout.addWidget(optional_desc)
-
-        self._optional_form = QFormLayout()
-        self._optional_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        self._optional_form.setSpacing(12)
-        self._optional_layout.addLayout(self._optional_form)
-        self._content_layout.addWidget(self._optional_group)
-
-        self._readonly_group = QGroupBox("Read-Only Configuration")
-        readonly_desc = QLabel(
-            "Device capabilities and limits reported to the Central System."
-        )
-        readonly_desc.setWordWrap(True)
-        readonly_desc.setObjectName("configGroupDescription")
-        self._readonly_layout = QVBoxLayout(self._readonly_group)
-        self._readonly_layout.setContentsMargins(8, 16, 8, 8)
-        self._readonly_layout.setSpacing(8)
-        self._readonly_layout.addWidget(readonly_desc)
-
-        self._readonly_form = QFormLayout()
-        self._readonly_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        self._readonly_form.setSpacing(12)
-        self._readonly_layout.addLayout(self._readonly_form)
-        self._content_layout.addWidget(self._readonly_group)
-
-        self._content_layout.addStretch()
-
         scroll.setWidget(self._content)
         layout.addWidget(scroll)
 
     def set_keys(self, keys: list["ConfigurationKey"]) -> None:
         self._clear_forms()
 
-        mandatory_editable = [k for k in keys if k.mandatory and not k.readonly]
-        optional_editable = [k for k in keys if not k.mandatory and not k.readonly]
-        readonly_keys = [k for k in keys if k.readonly]
+        # Sort keys by category then by name
+        sorted_keys = sorted(keys, key=lambda k: (k.category, k.key))
 
-        for key in mandatory_editable:
-            self._add_key_row(key, self._mandatory_form)
+        for key in sorted_keys:
+            if key.category not in self._category_groups:
+                self._create_category_group(key.category)
+            
+            form = self._category_forms[key.category]
+            self._add_key_row(key, form)
 
-        for key in optional_editable:
-            self._add_key_row(key, self._optional_form)
+        self._content_layout.addStretch()
 
-        for key in readonly_keys:
-            self._add_key_row(key, self._readonly_form, readonly=True)
+    def _create_category_group(self, category: str) -> None:
+        group = QGroupBox(f"{category} Configuration")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(8)
 
-        if self._mandatory_form.rowCount() == 0:
-            self._mandatory_group.hide()
-        else:
-            self._mandatory_group.show()
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setSpacing(12)
+        layout.addLayout(form)
 
-        if self._optional_form.rowCount() == 0:
-            self._optional_group.hide()
-        else:
-            self._optional_group.show()
-
-        if self._readonly_form.rowCount() == 0:
-            self._readonly_group.hide()
-        else:
-            self._readonly_group.show()
+        self._content_layout.addWidget(group)
+        self._category_groups[category] = group
+        self._category_forms[category] = form
 
     def _clear_forms(self) -> None:
-        while self._mandatory_form.rowCount() > 0:
-            self._mandatory_form.removeRow(0)
-        while self._optional_form.rowCount() > 0:
-            self._optional_form.removeRow(0)
-        while self._readonly_form.rowCount() > 0:
-            self._readonly_form.removeRow(0)
+        # Clear the content layout (except stretch if we can, but easier to just rebuild)
+        for i in reversed(range(self._content_layout.count())):
+            item = self._content_layout.itemAt(i)
+            if item.widget():
+                item.widget().setParent(None)
+                item.widget().deleteLater()
+            else:
+                self._content_layout.removeItem(item)
+
+        self._category_groups.clear()
+        self._category_forms.clear()
         self._key_inputs.clear()
 
     def _add_key_row(
-        self, key: "ConfigurationKey", form: QFormLayout, readonly: bool = False
+        self, key: "ConfigurationKey", form: QFormLayout
     ) -> None:
         line_edit = QLineEdit()
         line_edit.setText(key.value)
+        
+        label_text = key.key
+        if key.mandatory:
+            label_text += " *"
+            line_edit.setProperty("mandatory", True)
+        
         tooltip = key.description
         if key.default:
             tooltip += f"\nDefault: {key.default}"
+        if key.readonly:
+            tooltip += "\n[Read-Only]"
+        
         line_edit.setToolTip(tooltip)
         if key.default:
             line_edit.setPlaceholderText(f"Default: {key.default}")
-        if readonly or key.readonly:
+        
+        if key.readonly:
             line_edit.setEnabled(False)
 
         line_edit.textChanged.connect(
@@ -158,7 +124,33 @@ class ConfigKeysPanel(QWidget):
         )
 
         self._key_inputs[key.key] = line_edit
-        form.addRow(f"{key.key}:", line_edit)
+        form.addRow(f"{label_text}:", line_edit)
+
+    def _on_search_changed(self, text: str) -> None:
+        search_term = text.lower()
+        for category, form in self._category_forms.items():
+            has_visible_rows = False
+            for row in range(form.rowCount()):
+                label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                
+                if label_item and field_item:
+                    label_widget = label_item.widget()
+                    field_widget = field_item.widget()
+                    
+                    if label_widget and field_widget:
+                        # Check key name (from label) and description (from tooltip)
+                        visible = (
+                            search_term in label_widget.text().lower() or
+                            search_term in field_widget.toolTip().lower()
+                        )
+                        label_widget.setVisible(visible)
+                        field_widget.setVisible(visible)
+                        if visible:
+                            has_visible_rows = True
+            
+            # Hide category group if no rows are visible
+            self._category_groups[category].setVisible(has_visible_rows)
 
     def _on_text_changed(self, key_name: str, new_value: str) -> None:
         self.key_changed.emit(key_name, new_value)

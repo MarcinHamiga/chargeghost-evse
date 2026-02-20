@@ -1,6 +1,7 @@
 import asyncio
 import ssl
 import threading
+import traceback
 import websockets
 from datetime import datetime, timezone
 from typing import Optional
@@ -141,6 +142,7 @@ class AsyncRunner:
                 self._log(message="Connection refused by server")
             except Exception as e:
                 self._log(message=f"Connection error: {type(e).__name__}: {e}")
+                traceback.print_exc()
             finally:
                 self._connected = False
                 self.adapter = None
@@ -265,7 +267,12 @@ class Bridge:
                     "MeterValueSampleInterval", 60
                 )
 
-            if interval > 0 and self.engine.session and self.engine.energy_meter.is_charging:
+            if (
+                interval > 0 
+                and self.engine.session 
+                and self.engine.session.transaction_id > 0
+                and self.engine.energy_meter.is_charging
+            ):
                 if self.runner.adapter and self.runner.loop:
                     asyncio.run_coroutine_threadsafe(
                         self.runner.adapter.send_meter_values(
@@ -278,8 +285,10 @@ class Bridge:
             
             # Wait for the interval or until shutdown. 
             # If interval is 0, we still need to wait to avoid busy loop.
-            sleep_time = interval if interval > 0 else 60
-            self._shutdown_event.wait(timeout=sleep_time)
+            if interval > 0:
+                self._shutdown_event.wait(timeout=interval)
+            else:
+                self._shutdown_event.wait()
 
     def _log(self, message: str, **kwargs) -> None:
         self.on_log.emit(message=message, **kwargs)
