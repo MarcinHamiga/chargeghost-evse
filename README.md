@@ -24,7 +24,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Features
 
-- **Full OCPP 1.6J Support**: Robust CSMS communication including Core, Firmware Management, and Local Auth List profiles.
+- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication including Core (Partial), Firmware Management, and Local Auth List profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
@@ -52,12 +52,12 @@ cd chargeghost-evse
 poetry install
 ```
 ### MacOS
-1. Download the .zip file labled as a MacOS release
+1. Download the .zip file labeled as a MacOS release
 2. Unzip the file
-3. Move the .application file to the Applications directory
+3. Move the .app file to the Applications directory
 4. Run the app
 5. Close the Gatekeeper popup
-6. Go to Settings -> Gatekeeper -> Open anyway
+6. Go to Settings -> Privacy & Security -> Open Anyway
 7. Click on Open Anyway
 8. ChargeGhost is installed
    
@@ -156,6 +156,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 ```
 
 - **Engine**: The heart of the simulation; manages state machines and hardware constraints.
+- **Bridge**: Orchestrates communication between the Engine and the OCPP Adapter.
 - **OCPP Adapter**: Runs in a dedicated background thread to handle asynchronous network I/O without blocking the UI.
 - **LocalAuthList**: Handles offline authorization and CSMS list synchronization.
 

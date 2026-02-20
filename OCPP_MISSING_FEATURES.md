@@ -6,11 +6,11 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 | Profile | Status | Description |
 | :--- | :--- | :--- |
-| **Core** | Partial | Basic charging loop and heartbeat are implemented. Administrative commands are missing. |
+| **Core** | Partial | Basic charging loop and heartbeat are implemented. Administrative commands like Reset and UnlockConnector are missing. |
 | **Firmware Management** | Implemented | Simulated diagnostics upload and firmware updates. |
+| **Local Auth List** | Implemented | Full support for local authorization lists, caching, and list updates. |
 | **Smart Charging** | Missing | No support for charging profiles or load balancing. |
 | **Reservation** | Missing | No support for connector reservations. |
-| **Local Auth List** | Missing | No support for local authorization lists or caching. |
 | **Remote Trigger** | Missing | No support for Central System triggered messages. |
 
 ---
@@ -22,7 +22,7 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 - [x] **ChangeConfiguration**: Critical for updating system settings (e.g., `HeartbeatInterval`, `ConnectionTimeout`).
 - [x] **GetConfiguration**: Allows the CS to retrieve current configuration key values.
 - [ ] **Reset**: Support for `Soft` (application restart) and `Hard` (reboot) reset commands.
-- [ ] **ClearCache**: Command to clear the local authorization cache (once implemented).
+- [ ] **ClearCache**: Command to clear the local authorization cache.
 - [ ] **UnlockConnector**: Remote command to release the locking mechanism on a connector.
 - [ ] **DataTransfer**: Generic message for vendor-specific extensions.
 
@@ -42,8 +42,8 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 - [ ] **CancelReservation**: Releasing a previously held reservation.
 
 ### Local Auth List Management Profile
-- [ ] **SendLocalList**: Receiving a batch of authorized tags for offline operation.
-- [ ] **GetLocalListVersion**: Querying the version of the currently stored local list.
+- [x] **SendLocalList**: Receiving a batch of authorized tags for offline operation.
+- [x] **GetLocalListVersion**: Querying the version of the currently stored local list.
 
 ### Remote Trigger Profile
 - [ ] **TriggerMessage**: CS request for the CP to send a specific message immediately (e.g., `Heartbeat`, `StatusNotification`, `MeterValues`).

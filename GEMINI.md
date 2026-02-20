@@ -12,6 +12,7 @@ The project is organized as a Poetry-managed Python package in `src/chargeghost_
     - **`Connector`**: Models a physical charging connector.
     - **`Session`**: Tracks the active charging transaction data.
     - **`EnergyMeter`**: A global meter simulating power usage for the EVSE.
+- **`bridge/`**: Acts as a mediator between the Simulation Engine and the OCPP Adapter.
 - **`ocpp_adapter/`**: Handles OCPP 1.6 communication using `websockets`.
 - **`ui/`**: PySide6-based GUI with custom widgets and QSS styling.
 - **`util/`**: Shared utilities, specifically a custom `Event` class for observer-pattern communication.
@@ -19,7 +20,7 @@ The project is organized as a Poetry-managed Python package in `src/chargeghost_
 ## Building and Running
 
 ### Prerequisites
-- Python 3.11 - 3.15
+- Python 3.11 - 3.14
 - Poetry (Package Manager)
 
 ### Setup
@@ -42,5 +43,5 @@ poetry run python src/chargeghost_evse/main.py
 
 ## Current State & Known Issues
 - **UI:** The TUI (Textual) mentioned in early versions has been replaced by a PySide6 GUI.
-- **Dependencies:** `pydantic`, `pydantic-settings`, and `pyyaml` are listed in `pyproject.toml` but are not yet imported or used in the codebase.
+- **Dependencies:** `pydantic` and `pydantic-settings` are listed in `pyproject.toml` but the current configuration implementation uses standard `dataclasses`. `pyyaml` is also unused as configuration is persisted in JSON.
 - **Bugs:** None identified at the moment.
