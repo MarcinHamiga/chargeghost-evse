@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#2c3e50;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#000000;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="ghostGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#e0e0e0;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="boltGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#00ffcc;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#008c7a;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+
+    <!-- Background App-like Squircle -->
+    <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#bgGradient)" />
+    
+    <!-- Shadow (Manual) -->
+    <path d="M 512,230 
+             C 320,230 180,370 180,550 
+             L 180,850 
+             C 180,850 230,800 280,800 
+             C 330,800 380,850 430,850 
+             C 480,850 530,800 580,800 
+             C 630,800 680,850 730,850 
+             C 780,850 844,800 844,800 
+             L 844,550 
+             C 844,370 704,230 512,230 Z" 
+          fill="#000000" fill-opacity="0.3" />
+
+    <!-- Ghost Body -->
+    <path d="M 512,200 
+             C 320,200 180,340 180,520 
+             L 180,820 
+             C 180,820 230,770 280,770 
+             C 330,770 380,820 430,820 
+             C 480,820 530,770 580,770 
+             C 630,770 680,820 730,820 
+             C 780,820 844,770 844,770 
+             L 844,520 
+             C 844,340 704,200 512,200 Z" 
+          fill="url(#ghostGradient)" />
+    
+    <!-- Eyes -->
+    <rect x="360" y="440" width="65" height="110" rx="32.5" fill="#2c3e50" />
+    <rect x="599" y="440" width="65" height="110" rx="32.5" fill="#2c3e50" />
+    
+    <!-- Lightning Bolt -->
+    <path d="M 550,530 L 420,690 L 500,690 L 460,810 L 590,650 L 510,650 L 550,530 Z" 
+          fill="url(#boltGradient)" />
+</svg>
