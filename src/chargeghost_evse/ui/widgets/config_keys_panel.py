@@ -60,7 +60,7 @@ class ConfigKeysPanel(QWidget):
         for key in sorted_keys:
             if key.category not in self._category_groups:
                 self._create_category_group(key.category)
-            
+
             form = self._category_forms[key.category]
             self._add_key_row(key, form)
 
@@ -82,40 +82,39 @@ class ConfigKeysPanel(QWidget):
         self._category_forms[category] = form
 
     def _clear_forms(self) -> None:
-        # Clear the content layout (except stretch if we can, but easier to just rebuild)
         for i in reversed(range(self._content_layout.count())):
             item = self._content_layout.itemAt(i)
-            if item.widget():
-                item.widget().setParent(None)
-                item.widget().deleteLater()
-            else:
-                self._content_layout.removeItem(item)
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    self._content_layout.removeItem(item)
 
         self._category_groups.clear()
         self._category_forms.clear()
         self._key_inputs.clear()
 
-    def _add_key_row(
-        self, key: "ConfigurationKey", form: QFormLayout
-    ) -> None:
+    def _add_key_row(self, key: "ConfigurationKey", form: QFormLayout) -> None:
         line_edit = QLineEdit()
         line_edit.setText(key.value)
-        
+
         label_text = key.key
         if key.mandatory:
             label_text += " *"
             line_edit.setProperty("mandatory", True)
-        
+
         tooltip = key.description
         if key.default:
             tooltip += f"\nDefault: {key.default}"
         if key.readonly:
             tooltip += "\n[Read-Only]"
-        
+
         line_edit.setToolTip(tooltip)
         if key.default:
             line_edit.setPlaceholderText(f"Default: {key.default}")
-        
+
         if key.readonly:
             line_edit.setEnabled(False)
 
@@ -133,22 +132,27 @@ class ConfigKeysPanel(QWidget):
             for row in range(form.rowCount()):
                 label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
-                
+
                 if label_item and field_item:
                     label_widget = label_item.widget()
                     field_widget = field_item.widget()
-                    
+
                     if label_widget and field_widget:
                         # Check key name (from label) and description (from tooltip)
+                        label_text = (
+                            label_widget.text()
+                            if isinstance(label_widget, QLabel)
+                            else ""
+                        )
                         visible = (
-                            search_term in label_widget.text().lower() or
-                            search_term in field_widget.toolTip().lower()
+                            search_term in label_text.lower()
+                            or search_term in field_widget.toolTip().lower()
                         )
                         label_widget.setVisible(visible)
                         field_widget.setVisible(visible)
                         if visible:
                             has_visible_rows = True
-            
+
             # Hide category group if no rows are visible
             self._category_groups[category].setVisible(has_visible_rows)
 

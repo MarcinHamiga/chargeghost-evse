@@ -7,7 +7,6 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
-    ConfigurationStatus,
     DiagnosticsStatus,
     FirmwareStatus,
     RegistrationStatus,
@@ -19,6 +18,7 @@ from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
 from chargeghost_evse.util.event import Event
+from chargeghost_evse.util.helpers import parse_bool_string
 
 
 class Adapter(cp):
@@ -73,12 +73,7 @@ class Adapter(cp):
 
     def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
         if key_name == "LocalAuthListEnabled":
-            self.local_auth_list.enabled = new_value.lower() in (
-                "true",
-                "1",
-                "yes",
-                "on",
-            )
+            self.local_auth_list.enabled = parse_bool_string(new_value)
             self._log(
                 f"LocalAuthListEnabled changed to {self.local_auth_list.enabled}",
                 is_ocpp_message=False,
@@ -223,7 +218,11 @@ class Adapter(cp):
             target_connector_id = ocpp_connector_id
 
         if self.command_queue:
-            target_desc = f"connector {target_connector_id}" if target_connector_id else "any connector"
+            target_desc = (
+                f"connector {target_connector_id}"
+                if target_connector_id
+                else "any connector"
+            )
             self._log(
                 f"Enqueuing START for {target_desc}",
                 is_ocpp_message=False,

@@ -59,7 +59,12 @@ class AppSettings:
     @property
     def last_connector_id(self) -> int:
         val = self._settings.value(self.SETTING_LAST_CONNECTOR_ID, 1)
-        return int(val) if val is not None else 1
+        if val is None:
+            return 1
+        try:
+            return int(val)  # type: ignore[call-overload]
+        except (TypeError, ValueError):
+            return 1
 
     @last_connector_id.setter
     def last_connector_id(self, connector_id: int) -> None:

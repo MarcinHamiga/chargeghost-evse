@@ -184,7 +184,7 @@ class ConnectorStrip(QWidget):
     def update_connectors(self, engine) -> None:
         # Get set of current connector IDs
         engine_connector_ids = {conn.id for conn in engine.connectors}
-        
+
         # Remove indicators for connectors that no longer exist
         for indicator in self._indicators[:]:
             if indicator.connector_id() not in engine_connector_ids:
@@ -203,14 +203,18 @@ class ConnectorStrip(QWidget):
             )
 
             # Find existing indicator
-            indicator = next((i for i in self._indicators if i.connector_id() == conn.id), None)
-            
-            if not indicator:
+            found_indicator = next(
+                (i for i in self._indicators if i.connector_id() == conn.id), None
+            )
+
+            if found_indicator is None:
                 # Add new
                 indicator = ConnectorIndicator(conn.id)
                 indicator.clicked.connect(self._on_indicator_clicked)
                 self._indicators_layout.insertWidget(len(self._indicators), indicator)
                 self._indicators.append(indicator)
+            else:
+                indicator = found_indicator
 
             # Update existing or new
             indicator.update_status(

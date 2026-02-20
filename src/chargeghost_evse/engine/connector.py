@@ -49,9 +49,13 @@ class Connector(Subscriber):
     def status(self, new_status: ConnectorState) -> None:
         if self._status != new_status:
             # Persistent states that shouldn't be cleared by unplugging/plugging
-            if new_status in (ConnectorState.UNAVAILABLE, ConnectorState.FAULTED, ConnectorState.AVAILABLE):
+            if new_status in (
+                ConnectorState.UNAVAILABLE,
+                ConnectorState.FAULTED,
+                ConnectorState.AVAILABLE,
+            ):
                 self._persistent_status = new_status
-            
+
             self._status = new_status
             self.on_status_change.emit(connector_id=self.id, status=new_status)
 

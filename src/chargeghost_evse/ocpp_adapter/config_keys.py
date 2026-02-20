@@ -4,6 +4,7 @@ from typing import Optional
 from ocpp.v16.enums import ConfigurationStatus
 
 from chargeghost_evse.util.event import Event
+from chargeghost_evse.util.helpers import parse_bool_string
 
 
 @dataclass
@@ -51,8 +52,7 @@ class ConfigurationKeyManager:
         config_key = self._keys.get(key)
         if config_key is None:
             return default
-        value = config_key.value.lower()
-        return value in ("true", "1", "yes", "on")
+        return parse_bool_string(config_key.value)
 
     def initialize_defaults(self) -> None:
         self._keys = {
@@ -345,4 +345,3 @@ class ConfigurationKeyManager:
                 category="Core",
             ),
         }
-

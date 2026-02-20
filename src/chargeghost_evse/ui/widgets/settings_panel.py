@@ -14,12 +14,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_panel import ConnectorPanel
 
 if TYPE_CHECKING:
     from chargeghost_evse.engine.engine import Engine
-    from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKey
     from chargeghost_evse.util.config import SimulationConfig
 
 

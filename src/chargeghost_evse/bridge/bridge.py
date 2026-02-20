@@ -268,8 +268,8 @@ class Bridge:
                 )
 
             if (
-                interval > 0 
-                and self.engine.session 
+                interval > 0
+                and self.engine.session
                 and self.engine.session.transaction_id > 0
                 and self.engine.energy_meter.is_charging
             ):
@@ -282,13 +282,11 @@ class Bridge:
                         ),
                         self.runner.loop,
                     )
-            
-            # Wait for the interval or until shutdown. 
-            # If interval is 0, we still need to wait to avoid busy loop.
-            if interval > 0:
-                self._shutdown_event.wait(timeout=interval)
-            else:
-                self._shutdown_event.wait()
+
+            # Wait for the interval or until shutdown.
+            # If interval is 0 or less, use a small default to avoid busy loop.
+            wait_interval = max(interval, 1) if interval > 0 else 1
+            self._shutdown_event.wait(timeout=wait_interval)
 
     def _log(self, message: str, **kwargs) -> None:
         self.on_log.emit(message=message, **kwargs)

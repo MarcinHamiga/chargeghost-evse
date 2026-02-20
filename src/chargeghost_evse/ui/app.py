@@ -9,21 +9,20 @@ from urllib.parse import urlparse
 from PySide6.QtCore import Qt, QTimer, Slot, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-	QApplication,
-	QFrame,
-	QGraphicsOpacityEffect,
-	QHBoxLayout,
-	QLabel,
-	QLineEdit,
-	QMainWindow,
-	QPushButton,
-	QSplitter,
-	QStackedWidget,
-	QStatusBar,
-	QTabWidget,
-	QToolButton,
-	QVBoxLayout,
-	QWidget,
+    QApplication,
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QStatusBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
@@ -302,27 +301,40 @@ class SimulatorWidget(QWidget):
 
     def _on_nav_clicked(self, index: int) -> None:
         target_widget = self.stack.widget(index)
-        if self.stack.currentWidget() == target_widget:
+        if self.stack.currentWidget() == target_widget or target_widget is None:
             return
 
         # Update icons to reflect active state
-        self._btn_dashboard.setIcon(get_icon("dashboard", colors.ACCENT_TEAL if index == 0 else colors.TEXT_SECONDARY))
-        self._btn_settings.setIcon(get_icon("settings", colors.ACCENT_TEAL if index == 1 else colors.TEXT_SECONDARY))
-        self._btn_ocpp_keys.setIcon(get_icon("key", colors.ACCENT_TEAL if index == 2 else colors.TEXT_SECONDARY))
+        self._btn_dashboard.setIcon(
+            get_icon(
+                "dashboard", colors.ACCENT_TEAL if index == 0 else colors.TEXT_SECONDARY
+            )
+        )
+        self._btn_settings.setIcon(
+            get_icon(
+                "settings", colors.ACCENT_TEAL if index == 1 else colors.TEXT_SECONDARY
+            )
+        )
+        self._btn_ocpp_keys.setIcon(
+            get_icon("key", colors.ACCENT_TEAL if index == 2 else colors.TEXT_SECONDARY)
+        )
 
         # Fade animation
         effect = QGraphicsOpacityEffect(target_widget)
         target_widget.setGraphicsEffect(effect)
-        
+
         self.stack.setCurrentIndex(index)
-        
+
         self._anim = QPropertyAnimation(effect, b"opacity")
         self._anim.setDuration(200)
         self._anim.setStartValue(0.0)
         self._anim.setEndValue(1.0)
         self._anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        self._anim.finished.connect(lambda: target_widget.setGraphicsEffect(None))
+        self._anim.finished.connect(lambda: self._clear_graphics_effect(target_widget))
         self._anim.start()
+
+    def _clear_graphics_effect(self, widget: QWidget) -> None:
+        widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
     def _on_connector_selected(self, connector_id: int) -> None:
         self._selected_connector_id = connector_id
@@ -469,9 +481,7 @@ class SimulatorWidget(QWidget):
     def load_ocpp_config_keys(self) -> None:
         adapter = self.bridge.runner.adapter
         if adapter:
-            self.config_keys_panel.set_keys(
-                adapter.config_manager.get_all_keys()
-            )
+            self.config_keys_panel.set_keys(adapter.config_manager.get_all_keys())
 
     def _on_ocpp_key_changed(self, key_name: str, new_value: str) -> None:
         adapter = self.bridge.runner.adapter
@@ -866,18 +876,21 @@ class MainWindow(QMainWindow):
         # Create opacity effect
         effect = QGraphicsOpacityEffect(widget)
         widget.setGraphicsEffect(effect)
-        
+
         # Set target widget as current
         self.stack.setCurrentWidget(widget)
-        
+
         # Animate opacity
         self._anim = QPropertyAnimation(effect, b"opacity")
         self._anim.setDuration(250)
         self._anim.setStartValue(0.0)
         self._anim.setEndValue(1.0)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self._anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+        self._anim.finished.connect(lambda: self._clear_graphics_effect(widget))
         self._anim.start()
+
+    def _clear_graphics_effect(self, widget: QWidget) -> None:
+        widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
     def _toggle_global_log(self) -> None:
         if self.stack.currentWidget() == self.mode_select:

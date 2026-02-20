@@ -95,7 +95,16 @@ class SimulationConfig:
 
                 connectors_data = data.get("connectors", [])
                 if connectors_data:
-                    connectors = [ConnectorConfig.from_dict(c) for c in connectors_data]
+                    connectors = []
+                    for c in connectors_data:
+                        conn_config = ConnectorConfig.from_dict(c)
+                        validation_error = conn_config.validate()
+                        if validation_error:
+                            _logger.warning(
+                                f"Invalid connector config: {validation_error}, using defaults"
+                            )
+                            conn_config = ConnectorConfig()
+                        connectors.append(conn_config)
                 else:
                     num_connectors = data.get("num_connectors", 1)
                     connectors = [ConnectorConfig() for _ in range(num_connectors)]

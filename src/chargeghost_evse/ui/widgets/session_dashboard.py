@@ -85,13 +85,13 @@ class TelemetryChart(QFrame):
         # Shift X axis
         if current_time > self.axis_x.max():
             self.axis_x.setRange(current_time - 60, current_time)
-        
+
         # Auto-scale Y axis
         max_power = max((p.y() for p in self._power_data), default=25)
         if max_power > self.axis_y.max():
             self.axis_y.setRange(0, max_power * 1.2)
         elif max_power < self.axis_y.max() * 0.5 and self.axis_y.max() > 25:
-             self.axis_y.setRange(0, max(25, max_power * 1.5))
+            self.axis_y.setRange(0, max(25, max_power * 1.5))
 
     def clear(self) -> None:
         self._power_data.clear()
@@ -117,7 +117,9 @@ class MetricCard(QFrame):
 
         value_layout = QHBoxLayout()
         value_layout.setSpacing(4)
-        value_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        value_layout.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
 
         self._value_label = QLabel("--")
         self._value_label.setObjectName("metricValue")
@@ -180,7 +182,9 @@ class CollapsibleDetails(QWidget):
 
     def _toggle(self) -> None:
         self._is_expanded = not self._is_expanded
-        self._toggle_btn.setText("Hide Details" if self._is_expanded else "Show Details")
+        self._toggle_btn.setText(
+            "Hide Details" if self._is_expanded else "Show Details"
+        )
         if self._is_expanded:
             self._content.show()
         else:

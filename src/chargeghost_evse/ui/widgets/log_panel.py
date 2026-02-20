@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QTextEdit
