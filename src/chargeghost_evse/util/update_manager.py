@@ -20,6 +20,10 @@ class ReleaseInfo:
 
 
 class UpdateManager:
+	def __init__(self, current_version: str, config):
+		self.current_version = current_version
+		self.config = config
+
 	@staticmethod
 	def normalize_version(version: str) -> str:
 		return version.strip().lstrip("vV")

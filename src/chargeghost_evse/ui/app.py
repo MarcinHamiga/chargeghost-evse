@@ -38,7 +38,10 @@ from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
+from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 from chargeghost_evse.util.config import ConnectorConfig, LogMode, SimulationConfig
+from chargeghost_evse.util.update_manager import UpdateManager
+from chargeghost_evse import __version__
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -758,6 +761,11 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.simulate_step)
         self.timer.start(100)
 
+        # Initialize updater
+        self.update_manager = UpdateManager(current_version=__version__, config=self.config)
+        self._update_chip: Optional[UpdateStatusChip] = None
+        QTimer.singleShot(1500, self._start_update_check)
+
     def _setup_ui(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -1003,6 +1011,115 @@ class MainWindow(QMainWindow):
     @Slot(str, str)
     def on_ocpp_config_key_changed(self, key_name: str, new_value: str) -> None:
         self.simulator.config_keys_panel.update_key(key_name, new_value)
+
+    def _start_update_check(self) -> None:
+        """Start checking for updates in background."""
+        try:
+            import asyncio
+            from threading import Thread
+            
+            def check_updates():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    # Check if update is available and not ignored
+                    if (self.update_manager.is_update_available(__version__, release_info.tag_name) and
+                        release_info.tag_name != self.config.ignored_version):
+                        self._show_update_chip(release_info)
+                except Exception as e:
+                    # Silently fail update check - don't bother user
+                    pass
+                finally:
+                    loop.close()
+            
+            thread = Thread(target=check_updates, daemon=True)
+            thread.start()
+        except Exception:
+            # Silently fail - updater is not critical
+            pass
+
+    def _show_update_chip(self, release_info) -> None:
+        """Show update chip in status bar."""
+        if self._update_chip:
+            return  # Already showing
+        
+        self._update_chip = UpdateStatusChip(release_info.tag_name)
+        self._update_chip.clicked.connect(self._on_update_chip_clicked)
+        
+        # Add to status bar
+        status_bar = self.statusBar()
+        if status_bar:
+            status_bar.addPermanentWidget(self._update_chip)
+            self._update_chip.show()
+
+    def _on_update_chip_clicked(self) -> None:
+        """Handle update chip click - show update dialog."""
+        try:
+            import asyncio
+            from threading import Thread
+            
+            def fetch_release_info():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    self._show_update_dialog(release_info)
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
+            
+            thread = Thread(target=fetch_release_info, daemon=True)
+            thread.start()
+        except Exception:
+            pass
+
+    def _show_update_dialog(self, release_info) -> None:
+        """Show update dialog to user."""
+        dialog = UpdateDialog(__version__, release_info.tag_name, release_info.body, self)
+        dialog.update_now_clicked.connect(self._on_update_now)
+        dialog.later_clicked.connect(self._on_update_later)
+        dialog.ignore_clicked.connect(self._on_update_ignore)
+        dialog.exec()
+
+    def _on_update_now(self) -> None:
+        """Handle 'Update Now' click."""
+        self.show_toast("Starting update download...", "info")
+        # TODO: Implement download and handover flow in Task 8
+
+    def _on_update_later(self) -> None:
+        """Handle 'Later' click - just close dialog."""
+        pass
+
+    def _on_update_ignore(self) -> None:
+        """Handle 'Ignore This Version' click."""
+        try:
+            import asyncio
+            from threading import Thread
+            
+            def fetch_and_ignore():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    self.config.ignored_version = release_info.tag_name
+                    self.config.save()
+                    
+                    # Remove update chip
+                    if self._update_chip:
+                        self.statusBar().removeWidget(self._update_chip)
+                        self._update_chip.deleteLater()
+                        self._update_chip = None
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
+            
+            thread = Thread(target=fetch_and_ignore, daemon=True)
+            thread.start()
+        except Exception:
+            pass
 
     def closeEvent(self, event) -> None:
         self.app_settings.window_geometry = self.saveGeometry()
