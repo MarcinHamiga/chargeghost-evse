@@ -1,10 +1,14 @@
 import platform
 import aiohttp
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Optional
 
 GITHUB_LATEST_RELEASE_URL = (
 	"https://api.github.com/repos/mhamiga/chargeghost-evse/releases/latest"
 )
+
+ProgressFn = Callable[[int], None]
 
 
 @dataclass
@@ -55,3 +59,17 @@ class UpdateManager:
 				if a.get("name", "").endswith("macos.zip"):
 					return a
 		return None
+
+	async def download_update(self, url: str, target_file: Path, on_progress: Optional[ProgressFn] = None) -> Path:
+		async with aiohttp.ClientSession() as session:
+			async with session.get(url, timeout=None) as resp:
+				resp.raise_for_status()
+				total = int(resp.headers.get("Content-Length", "0"))
+				received = 0
+				with open(target_file, "wb") as f:
+					async for chunk in resp.content.iter_chunked(64 * 1024):
+						f.write(chunk)
+						received += len(chunk)
+						if on_progress and total > 0:
+							on_progress(min(100, int(received * 100 / total)))
+		return target_file
