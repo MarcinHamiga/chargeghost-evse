@@ -41,6 +41,7 @@ from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 from chargeghost_evse.util.config import ConnectorConfig, LogMode, SimulationConfig
 from chargeghost_evse.util.update_manager import UpdateManager
+from chargeghost_evse.util.handover_manager import HandoverManager
 from chargeghost_evse import __version__
 
 
@@ -1086,7 +1087,92 @@ class MainWindow(QMainWindow):
     def _on_update_now(self) -> None:
         """Handle 'Update Now' click."""
         self.show_toast("Starting update download...", "info")
-        # TODO: Implement download and handover flow in Task 8
+        
+        try:
+            import asyncio
+            import platform
+            import tempfile
+            import os
+            from threading import Thread
+            
+            def download_and_handover():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # Fetch latest release info
+                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    
+                    # Select appropriate asset for platform
+                    system_name = platform.system()
+                    asset = self.update_manager.select_asset_for_platform(system_name, release_info.assets)
+                    
+                    if not asset:
+                        self.show_toast("No update available for your platform", "warning")
+                        return
+                    
+                    # Download update
+                    temp_dir = Path(tempfile.mkdtemp())
+                    download_url = asset["browser_download_url"]
+                    filename = Path(download_url).name
+                    target_file = temp_dir / filename
+                    
+                    def progress_callback(percent):
+                        # Update UI on main thread
+                        QTimer.singleShot(0, lambda: self.show_toast(f"Downloading update: {percent}%", "info"))
+                    
+                    loop.run_until_complete(
+                        self.update_manager.download_update(download_url, target_file, progress_callback)
+                    )
+                    
+                    # Prepare handover
+                    handover_manager = HandoverManager(temp_dir)
+                    
+                    # Get current executable path
+                    if getattr(sys, "frozen", False):
+                        # Running as PyInstaller bundle
+                        current_exe = Path(sys.executable)
+                    else:
+                        # Running in development mode - skip handover
+                        self.show_toast("Update downloaded. In development mode, please update manually.", "info")
+                        return
+                    
+                    # Generate handover script
+                    if system_name == "Windows":
+                        script_content = handover_manager.build_windows_script(
+                            pid=os.getpid(),
+                            new_path=str(target_file),
+                            old_path=str(current_exe)
+                        )
+                        script_path = temp_dir / "update.bat"
+                    else:  # macOS/Linux
+                        script_content = handover_manager.build_macos_script(
+                            pid=os.getpid(),
+                            new_path=str(target_file),
+                            old_path=str(current_exe)
+                        )
+                        script_path = temp_dir / "update.sh"
+                    
+                    # Write handover script
+                    with open(script_path, "w") as f:
+                        f.write(script_content)
+                    
+                    # Shutdown bridge and launch handover
+                    self.bridge.shutdown()
+                    handover_manager.launch_handover(script_path)
+                    
+                    # Quit application
+                    QTimer.singleShot(100, QApplication.quit)
+                    
+                except Exception as e:
+                    self.show_toast(f"Update failed: {str(e)}", "error")
+                finally:
+                    loop.close()
+            
+            thread = Thread(target=download_and_handover, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            self.show_toast(f"Update failed: {str(e)}", "error")
 
     def _on_update_later(self) -> None:
         """Handle 'Later' click - just close dialog."""
