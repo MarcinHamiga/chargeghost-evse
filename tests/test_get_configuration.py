@@ -1,7 +1,5 @@
-import pytest
 import asyncio
 from unittest.mock import MagicMock
-from ocpp.v16 import call, call_result
 from chargeghost_evse.ocpp_adapter.adapter import Adapter
 
 def test_on_get_configuration_empty_list():

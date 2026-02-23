@@ -1,4 +1,3 @@
-import pytest
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from ocpp.v16.enums import ConfigurationStatus
 

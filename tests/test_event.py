@@ -1,4 +1,3 @@
-import pytest
 import threading
 from chargeghost_evse.util.event import Event
 

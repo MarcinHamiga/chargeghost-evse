@@ -264,3 +264,52 @@ class TestEngine:
 		assert connector.voltage == 400.0
 		assert connector.current == 63.0
 		assert connector.phase == 3
+
+	def test_delayed_remote_start(self):
+		engine = Engine()
+		engine.add_connector()
+		# 1. Send START command with timeout
+		command = {
+			"action": "START",
+			"connector_id": 1,
+			"id_tag": "TEST_TAG",
+			"transaction_id": 123,
+			"timeout": 5
+		}
+		engine.command_queue.put(command)
+		engine._process_commands()
+
+		# 2. Assert Session has NOT started yet
+		assert engine.session is None
+
+		# 3. Simulate Plug-in (within timeout)
+		engine.plug_in(1)
+
+		# 4. Assert Session STARTS automatically
+		assert engine.session is not None
+		assert engine.session.id_tag == "TEST_TAG"
+		assert engine.session.connector_id == 1
+
+	def test_delayed_remote_start_expired(self):
+		import time
+		engine = Engine()
+		engine.add_connector()
+		# 1. Send START command with short timeout
+		command = {
+			"action": "START",
+			"connector_id": 1,
+			"id_tag": "TEST_TAG",
+			"transaction_id": 124,
+			"timeout": 0.1
+		}
+		engine.command_queue.put(command)
+		engine._process_commands()
+
+		# 2. Wait for expiration
+		time.sleep(0.2)
+
+		# 3. Simulate Plug-in
+		engine.plug_in(1)
+
+		# 4. Assert Session did NOT start
+		assert engine.session is None

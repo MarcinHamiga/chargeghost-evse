@@ -233,6 +233,7 @@ class Adapter(cp):
                     "action": "START",
                     "connector_id": target_connector_id,
                     "id_tag": id_tag,
+                    "timeout": self.response_timeout,
                 }
             )
             return call_result.RemoteStartTransaction(

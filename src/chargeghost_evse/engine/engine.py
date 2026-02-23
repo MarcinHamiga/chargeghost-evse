@@ -25,6 +25,8 @@ class Engine(Subscriber):
         self.last_update_time: Optional[float] = None
         self.last_display_time: Optional[float] = None
 
+        self._pending_remote_starts: dict[int, dict] = {}
+
         self.session_started: Event = Event()
         self.session_stopped: Event = Event()
         self.connector_status_changed: Event = Event()
@@ -93,6 +95,24 @@ class Engine(Subscriber):
     ) -> None:
         self.connector_status_changed.emit(connector_id=connector_id, status=status)
 
+        if status == ConnectorState.PREPARING:
+            pending = self._pending_remote_starts.get(connector_id)
+            if pending:
+                if time.monotonic() < pending["expiry"]:
+                    self._log(f"Executing pending RemoteStart for connector {connector_id}")
+                    self.start_session(
+                        connector_id=connector_id,
+                        transaction_id=pending["transaction_id"],
+                        max_energy=pending["max_energy"],
+                        id_tag=pending["id_tag"],
+                    )
+                else:
+                    self._log(f"Pending RemoteStart for connector {connector_id} expired.")
+                
+                # Cleanup handled or expired request
+                if connector_id in self._pending_remote_starts:
+                    del self._pending_remote_starts[connector_id]
+
     def plug_in(self, connector_id: int) -> None:
         connector = self._connectors.get(connector_id)
         if connector:
@@ -111,6 +131,7 @@ class Engine(Subscriber):
         transaction_id: int,
         max_energy: float = 55000.0,
         id_tag: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> None:
         connector = self._connectors.get(connector_id)
         if connector is None:
@@ -118,8 +139,23 @@ class Engine(Subscriber):
             return
 
         if not connector.is_plugged_in:
-            self._log(f"Error: Connector {connector_id} is not plugged in.")
+            if timeout and timeout > 0:
+                self._log(
+                    f"Connector {connector_id} unplugged. Pending RemoteStart (timeout={timeout}s)."
+                )
+                self._pending_remote_starts[connector_id] = {
+                    "transaction_id": transaction_id,
+                    "max_energy": max_energy,
+                    "id_tag": id_tag,
+                    "expiry": time.monotonic() + timeout,
+                }
+            else:
+                self._log(f"Error: Connector {connector_id} is not plugged in.")
             return
+
+        # If we are starting a session, clear any pending start for this connector
+        if connector_id in self._pending_remote_starts:
+            del self._pending_remote_starts[connector_id]
 
         if connector.status not in (ConnectorState.AVAILABLE, ConnectorState.PREPARING):
             self._log(
@@ -219,6 +255,7 @@ class Engine(Subscriber):
                 transaction_id=command.get("transaction_id", 0),
                 max_energy=command.get("max_energy", 55000.0),
                 id_tag=command.get("id_tag"),
+                timeout=command.get("timeout"),
             )
         elif action == "STOP":
             self.stop_session(reason=command.get("reason", "Remote"))
