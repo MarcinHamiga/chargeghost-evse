@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QMenuBar,
+    QMenu,
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
@@ -754,6 +756,7 @@ class MainWindow(QMainWindow):
         )
 
         self._setup_ui()
+        self._setup_menu()
         self._setup_shortcuts()
         self._restore_ui_state()
 
@@ -859,6 +862,28 @@ class MainWindow(QMainWindow):
 
         shortcut_home = QShortcut(QKeySequence("Esc"), self)
         shortcut_home.activated.connect(self._go_home)
+
+    def _setup_menu(self) -> None:
+        """Setup the application menu bar."""
+        menubar = self.menuBar()
+        
+        # Help menu
+        help_menu = menubar.addMenu("Help")
+        
+        # Check for Updates action (only enabled in production builds)
+        check_updates_action = help_menu.addAction("Check for Updates...")
+        check_updates_action.triggered.connect(self._manual_update_check)
+        
+        # Disable in development mode
+        if not getattr(sys, "frozen", False):
+            check_updates_action.setEnabled(False)
+            check_updates_action.setText("Check for Updates... (Disabled in Dev Mode)")
+        
+        help_menu.addSeparator()
+        
+        # About action
+        about_action = help_menu.addAction("About ChargeGhost EVSE")
+        about_action.triggered.connect(self._show_about_dialog)
 
     def _restore_ui_state(self) -> None:
         geometry = self.app_settings.window_geometry
@@ -1028,7 +1053,7 @@ class MainWindow(QMainWindow):
                     if (self.update_manager.is_update_available(__version__, release_info.tag_name) and
                         release_info.tag_name != self.config.ignored_version):
                         self._show_update_chip(release_info)
-                except Exception as e:
+                except Exception:
                     # Silently fail update check - don't bother user
                     pass
                 finally:
@@ -1206,6 +1231,75 @@ class MainWindow(QMainWindow):
             thread.start()
         except Exception:
             pass
+
+    def _manual_update_check(self) -> None:
+        """Handle manual update check from menu."""
+        self.show_toast("Checking for updates...", "info")
+        
+        try:
+            import asyncio
+            from threading import Thread
+            
+            def check_updates_manually():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    
+                    # Check if update is available
+                    if self.update_manager.is_update_available(__version__, release_info.tag_name):
+                        # Check if version is ignored
+                        if release_info.tag_name == self.config.ignored_version:
+                            QTimer.singleShot(0, lambda: self.show_toast(
+                                f"Update {release_info.tag_name} is available but ignored. "
+                                f"Current version: {__version__}", "info"
+                            ))
+                        else:
+                            # Show update dialog
+                            QTimer.singleShot(0, lambda: self._show_update_dialog(release_info))
+                    else:
+                        QTimer.singleShot(0, lambda: self.show_toast(
+                            f"You're running the latest version ({__version__})", "success"
+                        ))
+                except Exception as e:
+                    QTimer.singleShot(0, lambda: self.show_toast(
+                        f"Failed to check for updates: {str(e)}", "error"
+                    ))
+                finally:
+                    loop.close()
+            
+            thread = Thread(target=check_updates_manually, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            self.show_toast(f"Failed to check for updates: {str(e)}", "error")
+
+    def _show_about_dialog(self) -> None:
+        """Show about dialog."""
+        from PySide6.QtWidgets import QMessageBox
+        
+        about_text = f"""
+        <h2>ChargeGhost EVSE</h2>
+        <p>Version: {__version__}</p>
+        <p>A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
+        featuring a modern graphical user interface built with PySide6 (Qt).</p>
+        <p><b>Features:</b></p>
+        <ul>
+        <li>OCPP 1.6 protocol support</li>
+        <li>Cross-platform compatibility</li>
+        <li>Real-time simulation dashboard</li>
+        <li>Automatic updates</li>
+        </ul>
+        <p>© 2026 Marcin Hamiga</p>
+        <p>License: AGPLv3</p>
+        """
+        
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("About ChargeGhost EVSE")
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
+        msg_box.setText(about_text)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.exec()
 
     def closeEvent(self, event) -> None:
         self.app_settings.window_geometry = self.saveGeometry()
