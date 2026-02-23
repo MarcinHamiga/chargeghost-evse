@@ -1,4 +1,3 @@
-import platform
 import aiohttp
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,8 +34,11 @@ class UpdateManager:
 		return new > cur
 
 	async def fetch_latest_release(self) -> ReleaseInfo:
+		from aiohttp import ClientTimeout
+		
+		timeout = ClientTimeout(total=15)
 		async with aiohttp.ClientSession() as session:
-			async with session.get(GITHUB_LATEST_RELEASE_URL, timeout=15) as resp:
+			async with session.get(GITHUB_LATEST_RELEASE_URL, timeout=timeout) as resp:
 				resp.raise_for_status()
 				data = await resp.json()
 				return ReleaseInfo(

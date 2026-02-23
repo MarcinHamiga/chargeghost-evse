@@ -1,7 +1,5 @@
 from chargeghost_evse.ui.app import MainWindow
-from chargeghost_evse import __version__
 from unittest.mock import patch, MagicMock
-import pytest
 
 
 def test_mainwindow_shows_update_chip_when_new_version(monkeypatch, qtbot):
@@ -76,7 +74,7 @@ def test_update_now_triggers_handover_and_quit(monkeypatch, qtbot):
 			qtbot.addWidget(window)
 			
 			# Mock QApplication.quit method
-			with patch('chargeghost_evse.ui.app.QApplication.quit') as mock_quit:
+			with patch('chargeghost_evse.ui.app.QApplication.quit'):
 				# Call update now handler
 				window._on_update_now()
 				

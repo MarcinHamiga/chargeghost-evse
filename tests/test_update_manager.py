@@ -1,6 +1,5 @@
 from chargeghost_evse.util.update_manager import UpdateManager
-from unittest.mock import AsyncMock, patch
-import aiohttp
+from unittest.mock import patch, MagicMock
 
 
 def test_is_update_available_when_tag_is_newer():
@@ -37,7 +36,8 @@ async def test_download_update_reports_progress(tmp_path):
 		progress_calls.append(percent)
 
 	# Create a simple test by mocking the entire download_update method
-	update_manager = UpdateManager()
+	mock_config = MagicMock()
+	update_manager = UpdateManager(current_version="0.1.0", config=mock_config)
 	target_file = tmp_path / "test_download"
 	
 	# Mock the download_update method to simulate progress
