@@ -66,6 +66,7 @@ class SimulationConfig:
     )
     skip_tls_verify: bool = False
     log_mode: LogMode = field(default="compact")
+    ignored_version: Optional[str] = None
 
     @staticmethod
     def _get_password(ocpp_id: str) -> str:
@@ -124,6 +125,7 @@ class SimulationConfig:
                     connectors=connectors,
                     skip_tls_verify=data.get("skip_tls_verify", False),
                     log_mode=data.get("log_mode", "compact"),
+                    ignored_version=data.get("ignored_version"),
                 )
             except (json.JSONDecodeError, IOError):
                 pass
@@ -141,6 +143,7 @@ class SimulationConfig:
             "connectors": [c.to_dict() for c in self.connectors],
             "skip_tls_verify": self.skip_tls_verify,
             "log_mode": self.log_mode,
+            "ignored_version": self.ignored_version,
         }
         with open(CONFIG_FILE, "w") as f:
             json.dump(data, f, indent=2)
