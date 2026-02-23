@@ -134,6 +134,8 @@ class ConnectorIndicator(QFrame):
             self._pulse_animation.stop()
             self._pulse_animation.deleteLater()
             self._pulse_animation = None
+        self._pulse_value = 0.0
+        self.setStyleSheet("")
 
     def get_pulse_opacity(self) -> float:
         return self._pulse_value

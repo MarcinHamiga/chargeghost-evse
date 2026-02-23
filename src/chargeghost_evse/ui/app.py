@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, QTimer, Slot, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, Slot, QPropertyAnimation, QEasingCurve, QSize
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -58,6 +58,7 @@ class ToastManager(QWidget):
         super().__init__(parent)
         self._toasts: list[ToastNotification] = []
         self._setup_ui()
+        self.hide()
 
     def _setup_ui(self) -> None:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
@@ -75,11 +76,30 @@ class ToastManager(QWidget):
         toast.closed.connect(lambda: self._remove_toast(toast))
         self._layout.insertWidget(self._layout.count() - 1, toast)
         self._toasts.append(toast)
+        self.adjustSize()
+        self.reposition()
+        self.show()
+        self.raise_()
         return toast
 
     def _remove_toast(self, toast: ToastNotification) -> None:
         if toast in self._toasts:
             self._toasts.remove(toast)
+        if self._toasts:
+            self.adjustSize()
+            self.reposition()
+        else:
+            self.hide()
+
+    def reposition(self) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            return
+
+        margin = 16
+        x_pos = max(margin, parent.width() - self.width() - margin)
+        y_pos = margin
+        self.move(x_pos, y_pos)
 
 
 class ClickableModeCard(QFrame):
@@ -215,7 +235,7 @@ class SimulatorWidget(QWidget):
         self._sidebar.setFixedWidth(200)
         sidebar_layout = QVBoxLayout(self._sidebar)
         sidebar_layout.setContentsMargins(8, 16, 8, 16)
-        sidebar_layout.setSpacing(4)
+        sidebar_layout.setSpacing(8)
 
         self._btn_dashboard = self._create_nav_btn("Dashboard", "dashboard")
         self._btn_dashboard.setChecked(True)
@@ -295,7 +315,9 @@ class SimulatorWidget(QWidget):
         btn.setCheckable(True)
         btn.setAutoExclusive(True)
         btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
+        btn.setIconSize(QSize(16, 16))
         btn.setMinimumHeight(40)
+        btn.setMaximumHeight(40)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
 
@@ -586,12 +608,13 @@ class ManualWidget(QWidget):
         log_header.addStretch()
 
         self.btn_clear_logs = QPushButton("Clear")
+        self.btn_clear_logs.setObjectName("btnClearLog")
         self.btn_clear_logs.setMinimumHeight(24)
         self.btn_clear_logs.clicked.connect(self.log_panel.clear)
         log_header.addWidget(self.btn_clear_logs)
 
         self.btn_log_mode = QPushButton("Detailed")
-        self.btn_log_mode.setObjectName("btn_log_mode")
+        self.btn_log_mode.setObjectName("btnLogMode")
         self.btn_log_mode.setCheckable(True)
         self.btn_log_mode.setMinimumHeight(24)
         self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
@@ -917,7 +940,7 @@ class MainWindow(QMainWindow):
     def log_message(self, message: str) -> None:
         self._global_log_panel.log_message(message)
         if self.stack.currentWidget() == self.simulator:
-            self._global_log_panel.log_message(message)
+            return
         elif self.stack.currentWidget() == self.manual:
             self.manual.log_message(message)
 
@@ -993,6 +1016,11 @@ class MainWindow(QMainWindow):
         self.config.save()
         self.bridge.shutdown()
         event.accept()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "toast_manager"):
+            self.toast_manager.reposition()
 
 
 def main() -> None:
