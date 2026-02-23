@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 GITHUB_LATEST_RELEASE_URL = (
-	"https://api.github.com/repos/mhamiga/chargeghost-evse/releases/latest"
+	"https://api.github.com/repos/MarcinHamiga/chargeghost-evse/releases/latest"
 )
 
 ProgressFn = Callable[[int], None]

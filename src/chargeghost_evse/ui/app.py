@@ -1044,16 +1044,30 @@ class MainWindow(QMainWindow):
             import asyncio
             from threading import Thread
             
+            # Debug: Log updater status
+            is_frozen = getattr(sys, "frozen", False)
+            self._log(f"[magenta]Updater:[/magenta] Starting update check (frozen={is_frozen})")
+            
             def check_updates():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
+                    self._log(f"[magenta]Updater:[/magenta] Fetching latest release...")
                     release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
+                    
+                    self._log(f"[magenta]Updater:[/magenta] Latest release: {release_info.tag_name}")
+                    self._log(f"[magenta]Updater:[/magenta] Current version: {__version__}")
+                    self._log(f"[magenta]Updater:[/magenta] Ignored version: {self.config.ignored_version}")
+                    
                     # Check if update is available and not ignored
                     if (self.update_manager.is_update_available(__version__, release_info.tag_name) and
                         release_info.tag_name != self.config.ignored_version):
+                        self._log(f"[magenta]Updater:[/magenta] Update available, showing chip")
                         self._show_update_chip(release_info)
-                except Exception:
+                    else:
+                        self._log(f"[magenta]Updater:[/magenta] No update available or version ignored")
+                except Exception as e:
+                    self._log(f"[magenta]Updater:[/magenta] Update check failed: {e}")
                     # Silently fail update check - don't bother user
                     pass
                 finally:
@@ -1061,7 +1075,8 @@ class MainWindow(QMainWindow):
             
             thread = Thread(target=check_updates, daemon=True)
             thread.start()
-        except Exception:
+        except Exception as e:
+            self._log(f"[magenta]Updater:[/magenta] Failed to start update check: {e}")
             # Silently fail - updater is not critical
             pass
 
