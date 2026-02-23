@@ -30,7 +30,8 @@ class TelemetryChart(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumHeight(200)
 
-        self._max_points = 100
+        self._window_seconds = 60.0
+        self._max_points = 600
         self._power_data: list[QPointF] = []
         self._current_data: list[QPointF] = []
         self._start_time = time.monotonic()
@@ -53,7 +54,7 @@ class TelemetryChart(QFrame):
         self.chart.addSeries(self.series_power)
 
         self.axis_x = QValueAxis()
-        self.axis_x.setRange(0, 60)  # 60 seconds window
+        self.axis_x.setRange(0, self._window_seconds)
         self.axis_x.setLabelFormat("%.0f s")
         self.axis_x.setGridLineVisible(True)
         self.axis_x.setGridLineColor(Qt.GlobalColor.darkGray)
@@ -75,16 +76,18 @@ class TelemetryChart(QFrame):
 
     def add_point(self, power_kw: float) -> None:
         current_time = time.monotonic() - self._start_time
+        if current_time >= self._window_seconds:
+            self._start_time = time.monotonic()
+            self._power_data.clear()
+            current_time = 0.0
+            self.axis_x.setRange(0, self._window_seconds)
+
         self._power_data.append(QPointF(current_time, power_kw))
 
         if len(self._power_data) > self._max_points:
             self._power_data.pop(0)
 
         self.series_power.replace(self._power_data)
-
-        # Shift X axis
-        if current_time > self.axis_x.max():
-            self.axis_x.setRange(current_time - 60, current_time)
 
         # Auto-scale Y axis
         max_power = max((p.y() for p in self._power_data), default=25)
@@ -97,7 +100,8 @@ class TelemetryChart(QFrame):
         self._power_data.clear()
         self.series_power.clear()
         self._start_time = time.monotonic()
-        self.axis_x.setRange(0, 60)
+        self.axis_x.setRange(0, self._window_seconds)
+        self.axis_y.setRange(0, 25)
 
 
 class MetricCard(QFrame):
