@@ -19,6 +19,7 @@ from chargeghost_evse.ui.widgets.session_dashboard import (
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel, ValidatedLineEdit
 from chargeghost_evse.ui.widgets.status_panel import StatusPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
+from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 
 __all__ = [
     "AppSettings",
@@ -37,6 +38,8 @@ __all__ = [
     "StatusPanel",
     "ToastNotification",
     "ToastType",
+    "UpdateDialog",
+    "UpdateStatusChip",
     "ValidatedLineEdit",
     "get_icon_svg",
 ]
