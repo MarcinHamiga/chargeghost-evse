@@ -94,8 +94,6 @@ class UpdateDialog(QDialog):
 class UpdateStatusChip(QPushButton):
 	"""Clickable status chip showing update availability."""
 	
-	clicked = Signal()
-	
 	def __init__(self, version: str, parent=None):
 		super().__init__(parent)
 		self.version = version

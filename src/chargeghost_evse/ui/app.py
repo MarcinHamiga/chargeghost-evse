@@ -23,8 +23,6 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
-    QMenuBar,
-    QMenu,
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
@@ -1046,29 +1044,20 @@ class MainWindow(QMainWindow):
             
             # Debug: Log updater status
             is_frozen = getattr(sys, "frozen", False)
-            self._log(f"[magenta]Updater:[/magenta] Starting update check (frozen={is_frozen})")
+            self.log_message(f"[magenta]Updater:[/magenta] Starting update check (frozen={is_frozen})")
             
             def check_updates():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    self._log(f"[magenta]Updater:[/magenta] Fetching latest release...")
                     release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
-                    
-                    self._log(f"[magenta]Updater:[/magenta] Latest release: {release_info.tag_name}")
-                    self._log(f"[magenta]Updater:[/magenta] Current version: {__version__}")
-                    self._log(f"[magenta]Updater:[/magenta] Ignored version: {self.config.ignored_version}")
                     
                     # Check if update is available and not ignored
                     if (self.update_manager.is_update_available(__version__, release_info.tag_name) and
                         release_info.tag_name != self.config.ignored_version):
-                        self._log(f"[magenta]Updater:[/magenta] Update available, showing chip")
-                        self._show_update_chip(release_info)
-                    else:
-                        self._log(f"[magenta]Updater:[/magenta] No update available or version ignored")
-                except Exception as e:
-                    self._log(f"[magenta]Updater:[/magenta] Update check failed: {e}")
-                    # Silently fail update check - don't bother user
+                        # Must use QTimer to marshal UI call to main thread
+                        QTimer.singleShot(0, lambda: self._show_update_chip(release_info))
+                except Exception:
                     pass
                 finally:
                     loop.close()
@@ -1076,7 +1065,7 @@ class MainWindow(QMainWindow):
             thread = Thread(target=check_updates, daemon=True)
             thread.start()
         except Exception as e:
-            self._log(f"[magenta]Updater:[/magenta] Failed to start update check: {e}")
+            self.log_message(f"[magenta]Updater:[/magenta] Failed to start update check: {e}")
             # Silently fail - updater is not critical
             pass
 
@@ -1105,7 +1094,8 @@ class MainWindow(QMainWindow):
                 asyncio.set_event_loop(loop)
                 try:
                     release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
-                    self._show_update_dialog(release_info)
+                    # Must use QTimer to marshal UI call to main thread
+                    QTimer.singleShot(0, lambda: self._show_update_dialog(release_info))
                 except Exception:
                     pass
                 finally:
@@ -1147,7 +1137,7 @@ class MainWindow(QMainWindow):
                     asset = self.update_manager.select_asset_for_platform(system_name, release_info.assets)
                     
                     if not asset:
-                        self.show_toast("No update available for your platform", "warning")
+                        QTimer.singleShot(0, lambda: self.show_toast("No update available for your platform", "warning"))
                         return
                     
                     # Download update
@@ -1173,7 +1163,7 @@ class MainWindow(QMainWindow):
                         current_exe = Path(sys.executable)
                     else:
                         # Running in development mode - skip handover
-                        self.show_toast("Update downloaded. In development mode, please update manually.", "info")
+                        QTimer.singleShot(0, lambda: self.show_toast("Update downloaded. In development mode, please update manually.", "info"))
                         return
                     
                     # Generate handover script
@@ -1204,7 +1194,8 @@ class MainWindow(QMainWindow):
                     QTimer.singleShot(100, QApplication.quit)
                     
                 except Exception as e:
-                    self.show_toast(f"Update failed: {str(e)}", "error")
+                    error_msg = str(e)
+                    QTimer.singleShot(0, lambda msg=error_msg: self.show_toast(f"Update failed: {msg}", "error"))
                 finally:
                     loop.close()
             
@@ -1232,11 +1223,13 @@ class MainWindow(QMainWindow):
                     self.config.ignored_version = release_info.tag_name
                     self.config.save()
                     
-                    # Remove update chip
-                    if self._update_chip:
-                        self.statusBar().removeWidget(self._update_chip)
-                        self._update_chip.deleteLater()
-                        self._update_chip = None
+                    # Remove update chip on main thread
+                    def remove_chip():
+                        if self._update_chip:
+                            self.statusBar().removeWidget(self._update_chip)
+                            self._update_chip.deleteLater()
+                            self._update_chip = None
+                    QTimer.singleShot(0, remove_chip)
                 except Exception:
                     pass
                 finally:
@@ -1277,8 +1270,9 @@ class MainWindow(QMainWindow):
                             f"You're running the latest version ({__version__})", "success"
                         ))
                 except Exception as e:
-                    QTimer.singleShot(0, lambda: self.show_toast(
-                        f"Failed to check for updates: {str(e)}", "error"
+                    error_msg = str(e)
+                    QTimer.singleShot(0, lambda msg=error_msg: self.show_toast(
+                        f"Failed to check for updates: {msg}", "error"
                     ))
                 finally:
                     loop.close()
