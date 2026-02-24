@@ -1,3 +1,4 @@
+import pytest
 from chargeghost_evse.util.update_manager import UpdateManager
 from unittest.mock import patch, MagicMock
 
@@ -29,6 +30,7 @@ def test_select_asset_for_windows_exe():
 	assert asset["browser_download_url"] == "https://x/w.exe"
 
 
+@pytest.mark.asyncio
 async def test_download_update_reports_progress(tmp_path):
 	progress_calls = []
 	

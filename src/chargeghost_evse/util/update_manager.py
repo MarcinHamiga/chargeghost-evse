@@ -29,9 +29,13 @@ class UpdateManager:
 
 	@classmethod
 	def is_update_available(cls, current: str, latest_tag: str) -> bool:
-		cur = tuple(int(x) for x in cls.normalize_version(current).split("."))
-		new = tuple(int(x) for x in cls.normalize_version(latest_tag).split("."))
-		return new > cur
+		try:
+			def parse(v: str) -> tuple[int, ...]:
+				base = cls.normalize_version(v).split("-")[0]  # strip pre-release suffix
+				return tuple(int(x) for x in base.split(".") if x)
+			return parse(latest_tag) > parse(current)
+		except (ValueError, AttributeError):
+			return False
 
 	async def fetch_latest_release(self) -> ReleaseInfo:
 		from aiohttp import ClientTimeout
@@ -64,11 +68,16 @@ class UpdateManager:
 			for a in assets:
 				if a.get("name", "").endswith("macos.zip"):
 					return a
+		elif system_name == "Linux":
+			# Linux: no packaged installer provided yet
+			return None
 		return None
 
 	async def download_update(self, url: str, target_file: Path, on_progress: Optional[ProgressFn] = None) -> Path:
+		from aiohttp import ClientTimeout
+		timeout = ClientTimeout(total=300, connect=15)
 		async with aiohttp.ClientSession() as session:
-			async with session.get(url, timeout=None) as resp:
+			async with session.get(url, timeout=timeout) as resp:
 				resp.raise_for_status()
 				total = int(resp.headers.get("Content-Length", "0"))
 				received = 0

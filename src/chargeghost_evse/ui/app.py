@@ -766,6 +766,7 @@ class MainWindow(QMainWindow):
         # Initialize updater
         self.update_manager = UpdateManager(current_version=__version__, config=self.config)
         self._update_chip: Optional[UpdateStatusChip] = None
+        self._latest_release_info = None
         QTimer.singleShot(1500, self._start_update_check)
 
     def _setup_ui(self) -> None:
@@ -1073,7 +1074,8 @@ class MainWindow(QMainWindow):
         """Show update chip in status bar."""
         if self._update_chip:
             return  # Already showing
-        
+
+        self._latest_release_info = release_info
         self._update_chip = UpdateStatusChip(release_info.tag_name)
         self._update_chip.clicked.connect(self._on_update_chip_clicked)
         
@@ -1085,10 +1087,15 @@ class MainWindow(QMainWindow):
 
     def _on_update_chip_clicked(self) -> None:
         """Handle update chip click - show update dialog."""
+        if self._latest_release_info is not None:
+            self._show_update_dialog(self._latest_release_info)
+            return
+
+        # Fallback: fetch release info if not cached
         try:
             import asyncio
             from threading import Thread
-            
+
             def fetch_release_info():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -1100,7 +1107,7 @@ class MainWindow(QMainWindow):
                     pass
                 finally:
                     loop.close()
-            
+
             thread = Thread(target=fetch_release_info, daemon=True)
             thread.start()
         except Exception:
@@ -1109,54 +1116,59 @@ class MainWindow(QMainWindow):
     def _show_update_dialog(self, release_info) -> None:
         """Show update dialog to user."""
         dialog = UpdateDialog(__version__, release_info.tag_name, release_info.body, self)
-        dialog.update_now_clicked.connect(self._on_update_now)
+        dialog.update_now_clicked.connect(lambda: self._on_update_now(release_info))
         dialog.later_clicked.connect(self._on_update_later)
-        dialog.ignore_clicked.connect(self._on_update_ignore)
+        dialog.ignore_clicked.connect(lambda: self._on_update_ignore(release_info.tag_name))
         dialog.exec()
 
-    def _on_update_now(self) -> None:
+    def _on_update_now(self, release_info=None) -> None:
         """Handle 'Update Now' click."""
+        release_info = release_info or self._latest_release_info
+        if release_info is None:
+            self.show_toast("Update info unavailable. Please try again.", "error")
+            return
+
         self.show_toast("Starting update download...", "info")
-        
+
         try:
-            import asyncio
             import platform
             import tempfile
             import os
             from threading import Thread
-            
+
             def download_and_handover():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    # Fetch latest release info
-                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
-                    
                     # Select appropriate asset for platform
                     system_name = platform.system()
                     asset = self.update_manager.select_asset_for_platform(system_name, release_info.assets)
-                    
+
                     if not asset:
                         QTimer.singleShot(0, lambda: self.show_toast("No update available for your platform", "warning"))
                         return
-                    
+
                     # Download update
                     temp_dir = Path(tempfile.mkdtemp())
                     download_url = asset["browser_download_url"]
-                    filename = Path(download_url).name
+                    filename = Path(urlparse(download_url).path).name
                     target_file = temp_dir / filename
-                    
+
+                    last_reported = [-1]  # mutable container for closure
+
                     def progress_callback(percent):
-                        # Update UI on main thread
-                        QTimer.singleShot(0, lambda: self.show_toast(f"Downloading update: {percent}%", "info"))
-                    
+                        milestone = (percent // 10) * 10
+                        if milestone > last_reported[0]:
+                            last_reported[0] = milestone
+                            QTimer.singleShot(0, lambda p=milestone: self.show_toast(f"Downloading update: {p}%", "info"))
+
                     loop.run_until_complete(
                         self.update_manager.download_update(download_url, target_file, progress_callback)
                     )
-                    
+
                     # Prepare handover
                     handover_manager = HandoverManager(temp_dir)
-                    
+
                     # Get current executable path
                     if getattr(sys, "frozen", False):
                         # Running as PyInstaller bundle
@@ -1165,7 +1177,7 @@ class MainWindow(QMainWindow):
                         # Running in development mode - skip handover
                         QTimer.singleShot(0, lambda: self.show_toast("Update downloaded. In development mode, please update manually.", "info"))
                         return
-                    
+
                     # Generate handover script
                     if system_name == "Windows":
                         script_content = handover_manager.build_windows_script(
@@ -1174,34 +1186,36 @@ class MainWindow(QMainWindow):
                             old_path=str(current_exe)
                         )
                         script_path = temp_dir / "update.bat"
-                    else:  # macOS/Linux
+                    else:  # macOS
                         script_content = handover_manager.build_macos_script(
                             pid=os.getpid(),
                             new_path=str(target_file),
                             old_path=str(current_exe)
                         )
                         script_path = temp_dir / "update.sh"
-                    
+
                     # Write handover script
                     with open(script_path, "w") as f:
                         f.write(script_content)
-                    
-                    # Shutdown bridge and launch handover
-                    self.bridge.shutdown()
+
+                    # Launch handover, then shut down bridge and quit on the main thread
                     handover_manager.launch_handover(script_path)
-                    
-                    # Quit application
-                    QTimer.singleShot(100, QApplication.quit)
-                    
+
+                    def do_shutdown():
+                        self.bridge.shutdown()
+                        QApplication.quit()
+
+                    QTimer.singleShot(0, do_shutdown)
+
                 except Exception as e:
                     error_msg = str(e)
                     QTimer.singleShot(0, lambda msg=error_msg: self.show_toast(f"Update failed: {msg}", "error"))
                 finally:
                     loop.close()
-            
+
             thread = Thread(target=download_and_handover, daemon=True)
             thread.start()
-            
+
         except Exception as e:
             self.show_toast(f"Update failed: {str(e)}", "error")
 
@@ -1209,36 +1223,20 @@ class MainWindow(QMainWindow):
         """Handle 'Later' click - just close dialog."""
         pass
 
-    def _on_update_ignore(self) -> None:
+    def _on_update_ignore(self, version_tag: str = None) -> None:
         """Handle 'Ignore This Version' click."""
-        try:
-            import asyncio
-            from threading import Thread
-            
-            def fetch_and_ignore():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    release_info = loop.run_until_complete(self.update_manager.fetch_latest_release())
-                    self.config.ignored_version = release_info.tag_name
-                    self.config.save()
-                    
-                    # Remove update chip on main thread
-                    def remove_chip():
-                        if self._update_chip:
-                            self.statusBar().removeWidget(self._update_chip)
-                            self._update_chip.deleteLater()
-                            self._update_chip = None
-                    QTimer.singleShot(0, remove_chip)
-                except Exception:
-                    pass
-                finally:
-                    loop.close()
-            
-            thread = Thread(target=fetch_and_ignore, daemon=True)
-            thread.start()
-        except Exception:
-            pass
+        if version_tag is None and self._latest_release_info is not None:
+            version_tag = self._latest_release_info.tag_name
+        if version_tag is None:
+            return
+
+        self.config.ignored_version = version_tag
+        self.config.save()
+
+        if self._update_chip:
+            self.statusBar().removeWidget(self._update_chip)
+            self._update_chip.deleteLater()
+            self._update_chip = None
 
     def _manual_update_check(self) -> None:
         """Handle manual update check from menu."""

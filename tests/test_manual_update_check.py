@@ -1,5 +1,6 @@
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse import __version__
+from chargeghost_evse.util.config import SimulationConfig
 from unittest.mock import patch, MagicMock
 import pytest
 import sys
@@ -43,19 +44,19 @@ def test_manual_update_check_shows_no_updates_available(qtbot):
 	
 	with patch('chargeghost_evse.ui.app.UpdateManager', return_value=mock_update_manager):
 		with patch('chargeghost_evse.ui.app.SimulationConfig') as mock_config_class:
-			mock_config = MagicMock()
+			mock_config = SimulationConfig()
 			mock_config.ignored_version = None
 			mock_config_class.load.return_value = mock_config
-			
-		window = MainWindow()
-		qtbot.addWidget(window)
-		
-		# Call manual update check
-		window._manual_update_check()
-		
-		# Verify toast was shown (would be shown in background thread)
-		# For now, just verify the method exists and doesn't crash
-		assert True
+
+			window = MainWindow()
+			qtbot.addWidget(window)
+
+			# Call manual update check
+			window._manual_update_check()
+
+			# Verify toast was shown (would be shown in background thread)
+			# For now, just verify the method exists and doesn't crash
+			assert True
 
 
 def test_manual_update_check_shows_update_dialog(qtbot):
@@ -68,18 +69,18 @@ def test_manual_update_check_shows_update_dialog(qtbot):
 	
 	with patch('chargeghost_evse.ui.app.UpdateManager', return_value=mock_update_manager):
 		with patch('chargeghost_evse.ui.app.SimulationConfig') as mock_config_class:
-			mock_config = MagicMock()
+			mock_config = SimulationConfig()
 			mock_config.ignored_version = None
 			mock_config_class.load.return_value = mock_config
-			
-		window = MainWindow()
-		qtbot.addWidget(window)
-		
-		# Call manual update check
-		window._manual_update_check()
-		
-		# Verify the method exists and doesn't crash
-		assert True
+
+			window = MainWindow()
+			qtbot.addWidget(window)
+
+			# Call manual update check
+			window._manual_update_check()
+
+			# Verify the method exists and doesn't crash
+			assert True
 
 
 def test_about_dialog_shows_version_info(qtbot):
