@@ -1,5 +1,4 @@
-import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from ocpp.v16.enums import (
     ChargingProfilePurposeType,
     ChargingProfileKindType,
@@ -55,3 +54,11 @@ class TestChargingProfileDataclass:
         assert profile.valid_from is None
         assert profile.valid_to is None
         assert profile.recurrency_kind is None
+
+    def test_schedule_default_period_list_is_not_shared(self):
+        s1 = ChargingScheduleData(charging_rate_unit=ChargingRateUnitType.amps)
+        s2 = ChargingScheduleData(charging_rate_unit=ChargingRateUnitType.amps)
+        s1.charging_schedule_period.append(
+            ChargingSchedulePeriodData(start_period=0, limit=16.0)
+        )
+        assert s2.charging_schedule_period == []
