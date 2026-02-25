@@ -360,6 +360,52 @@ class TestCompositeLimit:
         )
         assert result == pytest.approx(16.0, rel=1e-3)
 
+    def test_watts_with_zero_voltage_returns_none(self):
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        period = ChargingSchedulePeriodData(start_period=0, limit=3680.0)
+        schedule = ChargingScheduleData(
+            charging_rate_unit=ChargingRateUnitType.watts,
+            charging_schedule_period=(period,),
+            start_schedule=start,
+        )
+        profile = ChargingProfileData(
+            charging_profile_id=1, stack_level=0,
+            charging_profile_purpose=ChargingProfilePurposeType.tx_default_profile,
+            charging_profile_kind=ChargingProfileKindType.absolute,
+            charging_schedule=schedule,
+        )
+        mgr = self._mgr_with_profile(profile)
+        result = mgr.get_composite_limit(
+            connector_id=1, transaction_id=None,
+            now=start,
+            connector_voltage=0.0,
+        )
+        assert result is None
+
+    def test_watts_with_negative_voltage_returns_none(self):
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        period = ChargingSchedulePeriodData(start_period=0, limit=3680.0)
+        schedule = ChargingScheduleData(
+            charging_rate_unit=ChargingRateUnitType.watts,
+            charging_schedule_period=(period,),
+            start_schedule=start,
+        )
+        profile = ChargingProfileData(
+            charging_profile_id=1, stack_level=0,
+            charging_profile_purpose=ChargingProfilePurposeType.tx_default_profile,
+            charging_profile_kind=ChargingProfileKindType.absolute,
+            charging_schedule=schedule,
+        )
+        mgr = self._mgr_with_profile(profile)
+        result = mgr.get_composite_limit(
+            connector_id=1, transaction_id=None,
+            now=start,
+            connector_voltage=-230.0,
+        )
+        assert result is None
+
     def test_min_of_chargepoint_max_and_tx_profile(self):
         from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
         start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)

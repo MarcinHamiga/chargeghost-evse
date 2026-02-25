@@ -1,7 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
@@ -90,6 +90,8 @@ class Adapter(cp):
         )
 
         self.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
+
+        self.get_connector_info: Optional[Callable[[int], Optional[tuple[float, int]]]] = None
 
     def _log(
         self, message: str, *, is_ocpp_message: bool = False, is_important: bool = True
@@ -878,6 +880,10 @@ class Adapter(cp):
 
         connector_voltage = 230.0
         phases = 1
+        if self.get_connector_info:
+            info = self.get_connector_info(connector_id)
+            if info:
+                connector_voltage, phases = info
 
         schedule_periods = self.charging_profile_manager.get_composite_schedule(
             connector_id=connector_id,

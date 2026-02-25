@@ -277,8 +277,19 @@ class Bridge:
 
         self.engine.get_limit = get_limit
 
+        def get_connector_info(connector_id: int) -> Optional[tuple[float, int]]:
+            connector = self.engine.get_connector(connector_id)
+            if not connector:
+                return None
+            return (connector.voltage, connector.phase)
+
+        if self.runner.adapter:
+            self.runner.adapter.get_connector_info = get_connector_info
+
     def _remove_limit_getter(self) -> None:
         self.engine.get_limit = None
+        if self.runner.adapter:
+            self.runner.adapter.get_connector_info = None
 
     def _send_initial_status_notifications(self) -> None:
         if not self.runner.adapter or not self.runner.loop:

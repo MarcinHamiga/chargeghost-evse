@@ -240,6 +240,8 @@ class ChargingProfileManager:
             return None
 
         if schedule.charging_rate_unit == ChargingRateUnitType.watts:
+            if connector_voltage <= 0:
+                return None
             effective_phases = phases if phases > 0 else 1
             limit = limit / (connector_voltage * effective_phases)
 
