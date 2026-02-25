@@ -27,7 +27,7 @@ class TestChargingProfileDataclass:
         period = ChargingSchedulePeriodData(start_period=0, limit=16.0)
         schedule = ChargingScheduleData(
             charging_rate_unit=ChargingRateUnitType.amps,
-            charging_schedule_period=[period],
+            charging_schedule_period=(period,),
         )
         assert schedule.charging_rate_unit == ChargingRateUnitType.amps
         assert len(schedule.charging_schedule_period) == 1
@@ -38,7 +38,7 @@ class TestChargingProfileDataclass:
         period = ChargingSchedulePeriodData(start_period=0, limit=16.0)
         schedule = ChargingScheduleData(
             charging_rate_unit=ChargingRateUnitType.amps,
-            charging_schedule_period=[period],
+            charging_schedule_period=(period,),
         )
         profile = ChargingProfileData(
             charging_profile_id=1,
@@ -55,13 +55,15 @@ class TestChargingProfileDataclass:
         assert profile.valid_to is None
         assert profile.recurrency_kind is None
 
-    def test_schedule_default_period_list_is_not_shared(self):
-        s1 = ChargingScheduleData(charging_rate_unit=ChargingRateUnitType.amps)
-        s2 = ChargingScheduleData(charging_rate_unit=ChargingRateUnitType.amps)
-        s1.charging_schedule_period.append(
-            ChargingSchedulePeriodData(start_period=0, limit=16.0)
+    def test_schedule_is_immutable(self):
+        import pytest
+        period = ChargingSchedulePeriodData(start_period=0, limit=16.0)
+        schedule = ChargingScheduleData(
+            charging_rate_unit=ChargingRateUnitType.amps,
+            charging_schedule_period=(period,),
         )
-        assert s2.charging_schedule_period == []
+        with pytest.raises(Exception):
+            schedule.duration = 999  # type: ignore
 
 
 from typing import Optional
@@ -77,7 +79,7 @@ def _make_profile(
     unit: ChargingRateUnitType = ChargingRateUnitType.amps,
     num_periods: int = 1,
 ) -> "ChargingProfileData":
-    periods = [ChargingSchedulePeriodData(start_period=i * 100, limit=limit) for i in range(num_periods)]
+    periods = tuple(ChargingSchedulePeriodData(start_period=i * 100, limit=limit) for i in range(num_periods))
     schedule = ChargingScheduleData(
         charging_rate_unit=unit,
         charging_schedule_period=periods,
@@ -127,6 +129,7 @@ class TestChargingProfileManagerStorage:
             ChargingProfilePurposeType.tx_default_profile, connector_id=1
         )
         assert len(profiles) == 1
+        assert profiles[0].charging_profile_id == 2
 
     def test_clear_by_purpose(self):
         from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
