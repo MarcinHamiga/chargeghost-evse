@@ -254,8 +254,9 @@ class ChargingProfileManager:
     ) -> Optional[float]:
         if not periods:
             return None
-        active_limit = periods[0].limit
-        for period in periods:
+        sorted_periods = sorted(periods, key=lambda p: p.start_period)
+        active_limit = sorted_periods[0].limit
+        for period in sorted_periods:
             if period.start_period <= elapsed:
                 active_limit = period.limit
             else:

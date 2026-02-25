@@ -245,11 +245,13 @@ class Bridge:
             self._shutdown_event.wait(timeout=0.5)
 
     def _inject_limit_getter_loop(self) -> None:
+        last_injected_adapter = None
         while not self._shutdown_event.is_set():
-            if self.runner.is_connected and self.runner.adapter:
+            adapter = self.runner.adapter
+            if self.runner.is_connected and adapter and adapter is not last_injected_adapter:
                 self._inject_limit_getter()
                 self._log(message="Charging profile limit enforcement enabled")
-                break
+                last_injected_adapter = adapter
             self._shutdown_event.wait(timeout=0.5)
 
     def _inject_limit_getter(self) -> None:

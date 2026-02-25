@@ -907,7 +907,7 @@ class Adapter(cp):
                 period_dict["numberPhases"] = period.number_phases
             ocpp_periods.append(period_dict)
 
-        rate_unit = charging_rate_unit or "Current"
+        rate_unit = charging_rate_unit or ChargingRateUnitType.amps
 
         return call_result.GetCompositeSchedule(
             status="Accepted",

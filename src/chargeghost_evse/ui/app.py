@@ -1,8 +1,12 @@
 import asyncio
+import os
+import platform
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Thread
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -16,6 +20,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QStackedWidget,
@@ -1059,9 +1064,6 @@ class MainWindow(QMainWindow):
     def _start_update_check(self) -> None:
         """Start checking for updates in background."""
         try:
-            import asyncio
-            from threading import Thread
-            
             # Debug: Log updater status
             is_frozen = getattr(sys, "frozen", False)
             self.log_message(f"[magenta]Updater:[/magenta] Starting update check (frozen={is_frozen})")
@@ -1112,9 +1114,6 @@ class MainWindow(QMainWindow):
 
         # Fallback: fetch release info if not cached
         try:
-            import asyncio
-            from threading import Thread
-
             def fetch_release_info():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -1150,11 +1149,6 @@ class MainWindow(QMainWindow):
         self.show_toast("Starting update download...", "info")
 
         try:
-            import platform
-            import tempfile
-            import os
-            from threading import Thread
-
             def download_and_handover():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -1262,9 +1256,6 @@ class MainWindow(QMainWindow):
         self.show_toast("Checking for updates...", "info")
         
         try:
-            import asyncio
-            from threading import Thread
-            
             def check_updates_manually():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -1302,8 +1293,6 @@ class MainWindow(QMainWindow):
 
     def _show_about_dialog(self) -> None:
         """Show about dialog."""
-        from PySide6.QtWidgets import QMessageBox
-        
         about_text = f"""
         <h2>ChargeGhost EVSE</h2>
         <p>Version: {__version__}</p>

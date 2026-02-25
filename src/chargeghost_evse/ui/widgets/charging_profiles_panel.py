@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
+from ocpp.v16.enums import ChargingRateUnitType
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
 	QFrame,
@@ -330,7 +331,7 @@ class ChargingProfilesPanel(QWidget):
 			# Show first few periods
 			max_show = 3
 			for i, period in enumerate(periods[:max_show]):
-				unit = "A" if schedule.charging_rate_unit.value == "Current" else "W"
+				unit = "A" if schedule.charging_rate_unit == ChargingRateUnitType.amps else "W"
 				period_text = f"{period.limit:.1f}{unit}"
 				if period.start_period > 0:
 					period_text = f"+{period.start_period}s→{period_text}"

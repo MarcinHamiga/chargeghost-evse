@@ -785,3 +785,72 @@ class TestGetCompositeSchedule:
 
         assert len(result) == 1
         assert result[0].limit == pytest.approx(8.0)
+
+
+class TestFindPeriodLimitUnsorted:
+	"""_find_period_limit must return correct limits even when periods are not sorted."""
+
+	def test_unsorted_periods_at_elapsed_zero(self):
+		"""Periods delivered out of order should not confuse limit lookup."""
+		from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+		mgr = ChargingProfileManager()
+		# Deliberately unsorted: high-start period first, 0-start period second
+		periods = (
+			ChargingSchedulePeriodData(start_period=3600, limit=8.0),
+			ChargingSchedulePeriodData(start_period=0, limit=16.0),
+		)
+		schedule = ChargingScheduleData(
+			charging_rate_unit=ChargingRateUnitType.amps,
+			charging_schedule_period=periods,
+		)
+		profile = ChargingProfileData(
+			charging_profile_id=1,
+			stack_level=0,
+			charging_profile_purpose=ChargingProfilePurposeType.charge_point_max_profile,
+			charging_profile_kind=ChargingProfileKindType.absolute,
+			charging_schedule=schedule,
+		)
+		mgr.set_profile(connector_id=1, profile=profile)
+
+		now = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+		# elapsed = 0, so period at start_period=0 (16A) should apply
+		limit = mgr.get_composite_limit(
+			connector_id=1, transaction_id=None, now=now, connector_voltage=230.0,
+		)
+		assert limit == pytest.approx(16.0)
+
+	def test_unsorted_periods_mid_schedule(self):
+		"""Mid-schedule lookup with unsorted periods should pick the right step."""
+		from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+		mgr = ChargingProfileManager()
+		start = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+		# Reversed order: 1800s→4A then 0s→16A
+		periods = (
+			ChargingSchedulePeriodData(start_period=1800, limit=4.0),
+			ChargingSchedulePeriodData(start_period=0, limit=16.0),
+		)
+		schedule = ChargingScheduleData(
+			charging_rate_unit=ChargingRateUnitType.amps,
+			charging_schedule_period=periods,
+			start_schedule=start,
+		)
+		profile = ChargingProfileData(
+			charging_profile_id=1,
+			stack_level=0,
+			charging_profile_purpose=ChargingProfilePurposeType.tx_default_profile,
+			charging_profile_kind=ChargingProfileKindType.absolute,
+			charging_schedule=schedule,
+		)
+		mgr.set_profile(connector_id=1, profile=profile)
+
+		# At elapsed=900s the 0→16A period applies; at elapsed=2000s the 1800→4A applies
+		assert mgr.get_composite_limit(
+			connector_id=1, transaction_id=None,
+			now=start + timedelta(seconds=900), connector_voltage=230.0,
+		) == pytest.approx(16.0)
+		assert mgr.get_composite_limit(
+			connector_id=1, transaction_id=None,
+			now=start + timedelta(seconds=2000), connector_voltage=230.0,
+		) == pytest.approx(4.0)
