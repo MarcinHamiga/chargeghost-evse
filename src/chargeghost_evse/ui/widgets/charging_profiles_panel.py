@@ -120,6 +120,7 @@ class ChargingProfilesPanel(QWidget):
 
 	def _show_no_adapter_message(self) -> None:
 		"""Show message when adapter is not connected."""
+		self._limits_section.setVisible(False)
 		self._profile_count.setText("Not connected")
 		self._clear_frames()
 

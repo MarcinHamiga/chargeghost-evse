@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -233,6 +234,7 @@ class SimulatorWidget(QWidget):
         self._config_manager = ConfigurationKeyManager()
         self._config_manager.initialize_defaults()
 
+        self._profiles_tick_counter: int = 0
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -401,7 +403,10 @@ class SimulatorWidget(QWidget):
     def update_ui(self) -> None:
         self._ensure_valid_selection()
         self.dashboard.update_from_engine(self.engine)
-        self.profiles_panel.update_from_engine(self.engine, self.bridge)
+        self._profiles_tick_counter += 1
+        if self._profiles_tick_counter >= 10:
+            self._profiles_tick_counter = 0
+            self.profiles_panel.update_from_engine(self.engine, self.bridge)
 
     def action_plug_in(self) -> None:
         for conn in self.engine.connectors:
@@ -564,6 +569,15 @@ class ManualWidget(QWidget):
         controls_title.setObjectName("sectionHeader")
         controls.addWidget(controls_title)
 
+        connector_row = QHBoxLayout()
+        connector_label = QLabel("Connector:")
+        connector_row.addWidget(connector_label)
+        self.input_connector_id = QSpinBox()
+        self.input_connector_id.setRange(1, max(len(self.engine.connectors), 1))
+        connector_row.addWidget(self.input_connector_id)
+        connector_row.addStretch()
+        controls.addLayout(connector_row)
+
         basic_group = QFrame()
         basic_group.setProperty("controlGroup", True)
         basic_group.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -681,7 +695,7 @@ class ManualWidget(QWidget):
             id_tag = self.input_tag.text() or "MANUAL_TAG"
             asyncio.run_coroutine_threadsafe(
                 adapter.send_start_transaction(
-                    connector_id=1,
+                    connector_id=self.input_connector_id.value(),
                     id_tag=id_tag,
                     meter_start=0,
                     timestamp=datetime.now(timezone.utc).isoformat(),
@@ -726,7 +740,9 @@ class ManualWidget(QWidget):
         if adapter and loop:
             asyncio.run_coroutine_threadsafe(
                 adapter.send_status_notification(
-                    connector_id=1, error_code="NoError", status="Available"
+                    connector_id=self.input_connector_id.value(),
+                    error_code="NoError",
+                    status="Available",
                 ),
                 loop,
             )
@@ -776,6 +792,7 @@ class MainWindow(QMainWindow):
         self.signal_bridge.ocpp_config_key_changed.connect(
             self.on_ocpp_config_key_changed
         )
+        self.signal_bridge.session_started.connect(self.on_session_started)
 
         self._setup_ui()
         self._setup_menu()
@@ -922,10 +939,14 @@ class MainWindow(QMainWindow):
             self._global_log_panel.expand()
             self._btn_toggle_log.setChecked(True)
 
-        saved_mode = self.app_settings.log_mode
+        saved_log_mode = self.app_settings.log_mode
         self.signal_bridge.log_mode = (
-            "verbose" if saved_mode == "verbose" else "compact"
+            "verbose" if saved_log_mode == "verbose" else "compact"
         )
+
+        saved_ui_mode = self.app_settings.last_mode
+        if saved_ui_mode in ("simulator", "manual"):
+            self.switch_to_mode(saved_ui_mode)
 
     def _go_home(self) -> None:
         if self.stack.currentWidget() != self.mode_select:
@@ -1016,6 +1037,9 @@ class MainWindow(QMainWindow):
             self._status_check_counter = 0
             self.signal_bridge.check_connection_status()
 
+        # Always record chart data so no samples are lost while on another panel.
+        self.simulator.dashboard.record_telemetry(self.engine)
+
         if self.stack.currentWidget() == self.simulator:
             self.simulator.update_ui()
 
@@ -1056,6 +1080,10 @@ class MainWindow(QMainWindow):
             self.show_toast("Disconnected from Central System", "warning")
         self._connection_indicator.style().unpolish(self._connection_indicator)
         self._connection_indicator.style().polish(self._connection_indicator)
+
+    @Slot(int)
+    def on_session_started(self, connector_id: int) -> None:
+        self.simulator.dashboard.telemetry_chart.clear()
 
     @Slot(str, str)
     def on_ocpp_config_key_changed(self, key_name: str, new_value: str) -> None:

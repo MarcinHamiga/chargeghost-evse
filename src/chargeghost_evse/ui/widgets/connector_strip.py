@@ -146,7 +146,7 @@ class ConnectorIndicator(QFrame):
             opacity = 0.08 + (value * 0.08)
             self.setStyleSheet(
                 f"QFrame[connectorIndicator='true'][charging='true'] "
-                f"{{ background-color: rgba(35, 134, 54, {opacity:.2f}); }}"
+                f"{{ background-color: rgba(30, 173, 152, {opacity:.2f}); }}"
             )
 
     pulseOpacity = Property(float, get_pulse_opacity, set_pulse_opacity)

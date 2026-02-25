@@ -24,7 +24,8 @@ def test_telemetry_chart_clear_resets_axes() -> None:
 	_app()
 	chart = TelemetryChart()
 
-	chart.add_point(80.0)
+	chart.record_point(80.0)
+	chart.refresh()
 	assert chart.axis_y.max() > 25
 
 	chart.clear()
@@ -35,20 +36,26 @@ def test_telemetry_chart_clear_resets_axes() -> None:
 	assert chart.axis_y.max() == 25
 
 
-def test_telemetry_chart_restarts_from_window_start(monkeypatch) -> None:
+def test_telemetry_chart_scrolls_after_window_elapsed(monkeypatch) -> None:
 	_app()
-	monotonic_values = iter([0.0, 65.0, 65.0])
+	# Simulate: chart created at t=0, first point at t=30, second at t=65.
+	monotonic_values = iter([0.0, 30.0, 65.0])
 	monkeypatch.setattr(
 		session_dashboard.time, "monotonic", lambda: next(monotonic_values)
 	)
-	chart = TelemetryChart()
+	chart = TelemetryChart()  # _session_start = 0.0
 
-	chart.add_point(11.5)
+	chart.record_point(11.5)  # elapsed = 30 s
+	chart.record_point(5.0)   # elapsed = 65 s → window should scroll
 
-	assert len(chart._power_data) == 1
-	assert chart._power_data[0].x() == 0.0
-	assert chart.axis_x.min() == 0
-	assert chart.axis_x.max() == 60
+	assert len(chart._data) == 2
+	assert chart._data[0].x() == 30.0
+	assert chart._data[1].x() == 65.0
+
+	chart.refresh()
+	# With a 60 s window and latest_t = 65, x_min = 5 and x_max = 65.
+	assert chart.axis_x.min() == 5.0
+	assert chart.axis_x.max() == 65.0
 
 
 def test_connector_indicator_clears_charging_stylesheet() -> None:

@@ -1,9 +1,10 @@
 import time
+from collections import deque
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.connector_strip import ConnectorStrip
 
 if TYPE_CHECKING:
@@ -24,6 +26,10 @@ if TYPE_CHECKING:
 
 
 class TelemetryChart(QFrame):
+    # Must match the QTimer interval in app.py (100 ms → 10 Hz).
+    # Used to derive _max_points and to debounce Y-axis downscaling.
+    _SAMPLE_RATE_HZ: int = 10
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("telemetryChartFrame")
@@ -31,10 +37,14 @@ class TelemetryChart(QFrame):
         self.setMinimumHeight(200)
 
         self._window_seconds = 60.0
-        self._max_points = 600
-        self._power_data: list[QPointF] = []
-        self._current_data: list[QPointF] = []
-        self._start_time = time.monotonic()
+        # Safety cap: 2× the expected points per window so the deque never
+        # silently drops samples when the timer fires slightly faster.
+        _max_points = int(self._window_seconds * self._SAMPLE_RATE_HZ) * 2
+        self._data: deque[QPointF] = deque(maxlen=_max_points)
+        self._session_start: float = time.monotonic()
+        self._running_max: float = 0.0
+        # Ticks since the last full Y-axis downscale recalculation.
+        self._downscale_counter: int = 0
 
         self._setup_ui()
 
@@ -48,7 +58,7 @@ class TelemetryChart(QFrame):
         self.chart.legend().hide()
 
         self.series_power = QLineSeries()
-        power_pen = QPen(Qt.GlobalColor.cyan)
+        power_pen = QPen(QColor(colors.ACCENT_TEAL))
         power_pen.setWidth(2)
         self.series_power.setPen(power_pen)
         self.chart.addSeries(self.series_power)
@@ -56,16 +66,18 @@ class TelemetryChart(QFrame):
         self.axis_x = QValueAxis()
         self.axis_x.setRange(0, self._window_seconds)
         self.axis_x.setLabelFormat("%.0f s")
+        self.axis_x.setTitleText("Session time (s)")
         self.axis_x.setGridLineVisible(True)
-        self.axis_x.setGridLineColor(Qt.GlobalColor.darkGray)
+        self.axis_x.setGridLineColor(QColor(colors.BORDER_DEFAULT))
         self.chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
         self.series_power.attachAxis(self.axis_x)
 
         self.axis_y = QValueAxis()
-        self.axis_y.setRange(0, 25)  # 22kW is common max
+        self.axis_y.setRange(0, 25)
         self.axis_y.setLabelFormat("%.1f kW")
+        self.axis_y.setTitleText("Power (kW)")
         self.axis_y.setGridLineVisible(True)
-        self.axis_y.setGridLineColor(Qt.GlobalColor.darkGray)
+        self.axis_y.setGridLineColor(QColor(colors.BORDER_DEFAULT))
         self.chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
         self.series_power.attachAxis(self.axis_y)
 
@@ -74,32 +86,55 @@ class TelemetryChart(QFrame):
         self.chart_view.setBackgroundRole(self.backgroundRole())
         layout.addWidget(self.chart_view)
 
-    def add_point(self, power_kw: float) -> None:
-        current_time = time.monotonic() - self._start_time
-        if current_time >= self._window_seconds:
-            self._start_time = time.monotonic()
-            self._power_data.clear()
-            current_time = 0.0
-            self.axis_x.setRange(0, self._window_seconds)
+    def record_point(self, power_kw: float) -> None:
+        """Append a sample to the internal buffer. Does not touch Qt series."""
+        elapsed = time.monotonic() - self._session_start
+        self._data.append(QPointF(elapsed, power_kw))
+        if power_kw > self._running_max:
+            self._running_max = power_kw
 
-        self._power_data.append(QPointF(current_time, power_kw))
+    def refresh(self) -> None:
+        """Sync buffered data to the visible chart. Call only from the main thread."""
+        if not self._data:
+            return
 
-        if len(self._power_data) > self._max_points:
-            self._power_data.pop(0)
+        latest_t = self._data[-1].x()
+        x_min = max(0.0, latest_t - self._window_seconds)
+        # Always show at least one full window width so early data isn't squashed.
+        x_max = max(latest_t, self._window_seconds)
 
-        self.series_power.replace(self._power_data)
+        # Build the visible slice without mutating the deque.
+        visible: list[QPointF] = [p for p in self._data if p.x() >= x_min]
+        self.series_power.replace(visible)
+        self.axis_x.setRange(x_min, x_max)
+        self._update_y_axis(self._data[-1].y(), x_min)
 
-        # Auto-scale Y axis
-        max_power = max((p.y() for p in self._power_data), default=25)
-        if max_power > self.axis_y.max():
-            self.axis_y.setRange(0, max_power * 1.2)
-        elif max_power < self.axis_y.max() * 0.5 and self.axis_y.max() > 25:
-            self.axis_y.setRange(0, max(25, max_power * 1.5))
+    def _update_y_axis(self, latest_power: float, x_min: float) -> None:
+        # Upscale immediately when a new peak arrives.
+        if latest_power > self.axis_y.max():
+            self.axis_y.setRange(0, latest_power * 1.2)
+            return
+
+        # Downscale is expensive (O(n) scan) — only recalculate every ~5 s.
+        self._downscale_counter += 1
+        if self._downscale_counter < self._SAMPLE_RATE_HZ * 5:
+            return
+        self._downscale_counter = 0
+
+        visible_max = max((p.y() for p in self._data if p.x() >= x_min), default=0.0)
+        self._running_max = visible_max
+        ceiling = self.axis_y.max()
+        if visible_max < ceiling * 0.6 and ceiling > 25.0:
+            self.axis_y.setRange(0, max(25.0, visible_max * 1.5))
+        elif ceiling < 25.0:
+            self.axis_y.setRange(0, 25.0)
 
     def clear(self) -> None:
-        self._power_data.clear()
+        self._data.clear()
+        self._session_start = time.monotonic()
+        self._running_max = 0.0
+        self._downscale_counter = 0
         self.series_power.clear()
-        self._start_time = time.monotonic()
         self.axis_x.setRange(0, self._window_seconds)
         self.axis_y.setRange(0, 25)
 
@@ -159,7 +194,7 @@ class CollapsibleDetails(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._toggle_btn = QPushButton("Details")
+        self._toggle_btn = QPushButton("Show Details")
         self._toggle_btn.setObjectName("toggleDetailsBtn")
         self._toggle_btn.setProperty("flat", True)
         self._toggle_btn.clicked.connect(self._toggle)
@@ -281,6 +316,22 @@ class IdTagInput(QWidget):
         self._input.setText(tag)
 
 
+def _compute_effective_power_kw(engine: "Engine", connector_id: int) -> float:
+    """Return delivered power in kW, honouring smart charging limits. 0 when not charging."""
+    conn = engine.get_connector(connector_id)
+    if conn is None or not engine.energy_meter.is_charging:
+        return 0.0
+    session = engine.session
+    if session is None or session.connector_id != connector_id:
+        return 0.0
+    effective_current = conn.current
+    if engine.get_limit is not None:
+        limit = engine.get_limit(session.connector_id, session.transaction_id)
+        if limit is not None and limit >= 0:
+            effective_current = min(conn.current, limit)
+    return (conn.voltage * effective_current * conn.phase) / 1000.0
+
+
 class SessionDashboard(QWidget):
     connector_selected = Signal(int)
     plug_in_clicked = Signal()
@@ -309,7 +360,7 @@ class SessionDashboard(QWidget):
 
         self.metric_energy = MetricCard("Energy Charged", "Wh")
         self.metric_power = MetricCard("Current Power", "kW")
-        self.metric_duration = MetricCard("Duration", "s")
+        self.metric_duration = MetricCard("Duration")
         self.metric_soc = MetricCard("State of Charge", "%")
 
         primary_metrics.addWidget(self.metric_energy, 0, 0)
@@ -339,7 +390,7 @@ class SessionDashboard(QWidget):
         soc_layout.addLayout(soc_header)
 
         self.soc_progress = QProgressBar()
-        self.soc_progress.setMinimumHeight(8)
+        self.soc_progress.setMinimumHeight(12)
         self.soc_progress.setTextVisible(False)
         self.soc_progress.setValue(0)
         soc_layout.addWidget(self.soc_progress)
@@ -371,12 +422,19 @@ class SessionDashboard(QWidget):
         self.btn_plug.clicked.connect(self.plug_in_clicked)
         actions.addWidget(self.btn_plug, 1)
 
-        self.btn_charge = QPushButton("Start Charging")
-        self.btn_charge.setObjectName("btnCharge")
-        self.btn_charge.setProperty("success", True)
-        self.btn_charge.setMinimumHeight(48)
-        self.btn_charge.clicked.connect(self._on_charge_clicked)
-        actions.addWidget(self.btn_charge, 1)
+        self.btn_start_charge = QPushButton("Start Charging")
+        self.btn_start_charge.setObjectName("btnStartCharge")
+        self.btn_start_charge.setProperty("success", True)
+        self.btn_start_charge.setMinimumHeight(48)
+        self.btn_start_charge.clicked.connect(self.start_charging_clicked)
+        actions.addWidget(self.btn_start_charge, 1)
+
+        self.btn_stop_charge = QPushButton("Stop Charging")
+        self.btn_stop_charge.setObjectName("btnStopCharge")
+        self.btn_stop_charge.setProperty("danger", True)
+        self.btn_stop_charge.setMinimumHeight(48)
+        self.btn_stop_charge.clicked.connect(self.stop_charging_clicked)
+        actions.addWidget(self.btn_stop_charge, 1)
 
         self.btn_unplug = QPushButton("Unplug")
         self.btn_unplug.setObjectName("btnUnplug")
@@ -391,12 +449,6 @@ class SessionDashboard(QWidget):
     def _on_connector_selected(self, connector_id: int) -> None:
         self._selected_connector_id = connector_id
         self.connector_selected.emit(connector_id)
-
-    def _on_charge_clicked(self) -> None:
-        if self.btn_charge.text().startswith("Start"):
-            self.start_charging_clicked.emit()
-        else:
-            self.stop_charging_clicked.emit()
 
     def _on_apply_id_tag(self, tag: str) -> None:
         self.apply_id_tag_clicked.emit(tag)
@@ -422,24 +474,30 @@ class SessionDashboard(QWidget):
 
         self.btn_plug.setEnabled(not conn.is_plugged_in)
         self.btn_unplug.setEnabled(conn.is_plugged_in)
-        self.btn_charge.setEnabled(conn.is_plugged_in)
 
-        power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
         self.metric_power.set_value(f"{power_kw:.2f}")
-        self.telemetry_chart.add_point(power_kw)
+        self.telemetry_chart.refresh()
 
         session = engine.session
         if session and session.connector_id == self._selected_connector_id:
             self.metric_energy.set_value(f"{session.energy_charged:.1f}")
             self.metric_soc.set_value(f"{session.state_of_charge:.1f}")
             duration = time.monotonic() - session.start_time
-            self.metric_duration.set_value(f"{duration:.0f}")
+            total_secs = int(duration)
+            hours = total_secs // 3600
+            minutes = (total_secs % 3600) // 60
+            seconds = total_secs % 60
+            if hours > 0:
+                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+            else:
+                duration_str = f"{minutes}:{seconds:02d}"
+            self.metric_duration.set_value(duration_str)
             self.soc_progress.setValue(int(session.state_of_charge))
             self._soc_percent_label.setText(f"{session.state_of_charge:.0f}%")
 
-            self.btn_charge.setText("Stop Charging")
-            self.btn_charge.setProperty("success", False)
-            self.btn_charge.setProperty("danger", True)
+            self.btn_start_charge.setEnabled(False)
+            self.btn_stop_charge.setEnabled(True)
         else:
             self.metric_energy.clear()
             self.metric_soc.clear()
@@ -447,11 +505,8 @@ class SessionDashboard(QWidget):
             self.soc_progress.setValue(0)
             self._soc_percent_label.setText("0%")
 
-            self.btn_charge.setText("Start Charging")
-            self.btn_charge.setProperty("success", True)
-            self.btn_charge.setProperty("danger", False)
-
-        self._refresh_widget_style(self.btn_charge)
+            self.btn_start_charge.setEnabled(conn.is_plugged_in)
+            self.btn_stop_charge.setEnabled(False)
 
         self.details.update_metrics(
             tx_id=session.transaction_id if session else None,
@@ -460,9 +515,10 @@ class SessionDashboard(QWidget):
             meter=engine.energy_meter.get_meter_reading(),
         )
 
-    def _refresh_widget_style(self, widget: QWidget) -> None:
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
+    def record_telemetry(self, engine: "Engine") -> None:
+        """Record one chart sample. Called every simulation step, even when not visible."""
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
+        self.telemetry_chart.record_point(power_kw)
 
     def set_id_tag(self, tag: str) -> None:
         self.id_tag_input.set_tag(tag)

@@ -18,7 +18,6 @@ from chargeghost_evse.ui.widgets.session_dashboard import (
     SessionDashboard,
 )
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel, ValidatedLineEdit
-from chargeghost_evse.ui.widgets.status_panel import StatusPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 
@@ -37,7 +36,6 @@ __all__ = [
     "MetricCard",
     "SessionDashboard",
     "SettingsPanel",
-    "StatusPanel",
     "ToastNotification",
     "ToastType",
     "UpdateDialog",
