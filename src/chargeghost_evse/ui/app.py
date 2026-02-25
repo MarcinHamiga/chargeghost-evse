@@ -31,6 +31,7 @@ from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ui.bridge import QtSignalBridge
 from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.app_settings import AppSettings
+from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
 from chargeghost_evse.ui.widgets.collapsible_log import CollapsibleLogPanel
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.icons import get_icon
@@ -254,6 +255,10 @@ class SimulatorWidget(QWidget):
         self._btn_ocpp_keys.clicked.connect(lambda: self._on_nav_clicked(2))
         sidebar_layout.addWidget(self._btn_ocpp_keys)
 
+        self._btn_profiles = self._create_nav_btn("Profiles", "sliders")
+        self._btn_profiles.clicked.connect(lambda: self._on_nav_clicked(3))
+        sidebar_layout.addWidget(self._btn_profiles)
+
         sidebar_layout.addStretch()
 
         main_layout.addWidget(self._sidebar)
@@ -313,6 +318,16 @@ class SimulatorWidget(QWidget):
 
         self.stack.addWidget(ocpp_keys_tab)
 
+        profiles_tab = QWidget()
+        profiles_layout = QVBoxLayout(profiles_tab)
+        profiles_layout.setSpacing(0)
+        profiles_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.profiles_panel = ChargingProfilesPanel()
+        profiles_layout.addWidget(self.profiles_panel)
+
+        self.stack.addWidget(profiles_tab)
+
     def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
         btn = QPushButton(text)
         btn.setObjectName("sidebarNavBtn")
@@ -343,6 +358,9 @@ class SimulatorWidget(QWidget):
         )
         self._btn_ocpp_keys.setIcon(
             get_icon("key", colors.ACCENT_TEAL if index == 2 else colors.TEXT_SECONDARY)
+        )
+        self._btn_profiles.setIcon(
+            get_icon("sliders", colors.ACCENT_TEAL if index == 3 else colors.TEXT_SECONDARY)
         )
 
         # Fade animation
@@ -378,6 +396,7 @@ class SimulatorWidget(QWidget):
     def update_ui(self) -> None:
         self._ensure_valid_selection()
         self.dashboard.update_from_engine(self.engine)
+        self.profiles_panel.update_from_engine(self.engine, self.bridge)
 
     def action_plug_in(self) -> None:
         for conn in self.engine.connectors:

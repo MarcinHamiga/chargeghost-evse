@@ -1137,3 +1137,104 @@ QComboBox#recentTagsCombo:hover {
 	border: 1px solid #1EAD98;
 }
 
+/* ============================================
+   CHARGING PROFILES PANEL
+   ============================================ */
+
+QLabel#profileCount {
+	color: #8b949e;
+	font-size: 12px;
+	font-weight: 500;
+}
+
+QLabel#subsectionHeader {
+	color: #e6edf3;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+QLabel#emptyMessage {
+	color: #6e7681;
+	font-size: 13px;
+	font-style: italic;
+	padding: 16px;
+}
+
+/* Effective Limit Card */
+QLabel[connectorLabel="true"] {
+	color: #1EAD98;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+QLabel[maxCurrentLabel="true"] {
+	color: #8b949e;
+	font-size: 12px;
+}
+
+QLabel[limitLabel="true"] {
+	color: #1EAD98;
+	font-weight: 600;
+	font-size: 12px;
+}
+
+QLabel[limitLabel="true"][limited="true"] {
+	color: #f59e0b;
+}
+
+QLabel[noLimitLabel="true"] {
+	color: #6e7681;
+	font-size: 12px;
+}
+
+/* Profile Card */
+QLabel[profileIdLabel="true"] {
+	color: #e6edf3;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+QLabel[purposeBadge="true"] {
+	font-size: 11px;
+	font-weight: 500;
+	padding: 2px 6px;
+	background-color: rgba(255, 255, 255, 0.05);
+	border-radius: 4px;
+}
+
+QLabel[profileDetail="true"] {
+	color: #8b949e;
+	font-size: 11px;
+}
+
+QLabel[scheduleTitle="true"] {
+	color: #6e7681;
+	font-size: 11px;
+	font-weight: 500;
+}
+
+QLabel[periodBadge="true"] {
+	color: #1EAD98;
+	font-size: 11px;
+	font-family: "JetBrains Mono", monospace;
+	background-color: rgba(30, 173, 152, 0.1);
+	padding: 2px 6px;
+	border-radius: 4px;
+}
+
+QLabel[periodSeparator="true"] {
+	color: #30363d;
+	font-size: 11px;
+}
+
+QLabel[morePeriods="true"] {
+	color: #6e7681;
+	font-size: 11px;
+	font-style: italic;
+}
+
+/* Scroll area for profiles */
+QScrollArea#profileScrollArea {
+	background-color: transparent;
+	border: none;
+}

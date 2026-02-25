@@ -24,7 +24,7 @@ dependencies = [
 packages = [{ include = "chargeghost_evse", from = "src" }]
 
 [tool.poetry.scripts]
-chargeghost-evse = "chargeghost_evse.main:main_entry"
+dev = "chargeghost_evse.main:main_entry"
 build-icons = "chargeghost_evse.build_tools.icons:main"
 build = "chargeghost_evse.build_tools.binary:main"
 

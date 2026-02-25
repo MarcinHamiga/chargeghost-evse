@@ -1,7 +1,7 @@
 import queue
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
@@ -35,6 +35,8 @@ class Engine(Subscriber):
 
         self.simulation_time_step: float = 0.1
         self.display_time_step: float = 1.0
+
+        self.get_limit: Optional[Callable[[int, Optional[int]], Optional[float]]] = None
 
     @property
     def connectors(self) -> list[Connector]:
@@ -219,9 +221,15 @@ class Engine(Subscriber):
             if connector is None:
                 return
 
+            effective_current = connector.current
+            if self.get_limit is not None:
+                limit = self.get_limit(self.session.connector_id, self.session.transaction_id)
+                if limit is not None and limit >= 0:
+                    effective_current = min(connector.current, limit)
+
             self.energy_meter.update(
                 connector.voltage,
-                connector.current,
+                effective_current,
                 connector.phase,
                 interval_seconds=interval_seconds,
             )

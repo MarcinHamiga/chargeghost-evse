@@ -137,6 +137,62 @@ ICONS = {
 			<circle cx="12" cy="7" r="4"/>
 		</svg>
 	""",
+    "arrow_down": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<line x1="12" y1="5" x2="12" y2="19"/>
+			<polyline points="19,12 12,19 5,12"/>
+		</svg>
+	""",
+    "infinity": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>
+		</svg>
+	""",
+    "tag": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+			<line x1="7" y1="7" x2="7.01" y2="7"/>
+		</svg>
+	""",
+    "clock": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<circle cx="12" cy="12" r="10"/>
+			<polyline points="12,6 12,12 16,14"/>
+		</svg>
+	""",
+    "layers": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<polygon points="12,2 2,7 12,12 22,7 12,2"/>
+			<polyline points="2,17 12,22 22,17"/>
+			<polyline points="2,12 12,17 22,12"/>
+		</svg>
+	""",
+    "hash": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<line x1="4" y1="9" x2="20" y2="9"/>
+			<line x1="4" y1="15" x2="20" y2="15"/>
+			<line x1="10" y1="3" x2="8" y2="21"/>
+			<line x1="16" y1="3" x2="14" y2="21"/>
+		</svg>
+	""",
+    "sliders": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<line x1="4" y1="21" x2="4" y2="14"/>
+			<line x1="4" y1="10" x2="4" y2="3"/>
+			<line x1="12" y1="21" x2="12" y2="12"/>
+			<line x1="12" y1="8" x2="12" y2="3"/>
+			<line x1="20" y1="21" x2="20" y2="16"/>
+			<line x1="20" y1="12" x2="20" y2="3"/>
+			<line x1="1" y1="14" x2="7" y2="14"/>
+			<line x1="9" y1="8" x2="15" y2="8"/>
+			<line x1="17" y1="16" x2="23" y2="16"/>
+		</svg>
+	""",
+    "key": """
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+		</svg>
+	""",
 }
 
 

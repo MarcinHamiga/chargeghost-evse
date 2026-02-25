@@ -1,4 +1,5 @@
 from chargeghost_evse.ui.widgets.app_settings import AppSettings
+from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
 from chargeghost_evse.ui.widgets.collapsible_log import CollapsibleLogPanel
 from chargeghost_evse.ui.widgets.connector_panel import (
     ConnectorEditorCard,
@@ -23,6 +24,7 @@ from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatus
 
 __all__ = [
     "AppSettings",
+    "ChargingProfilesPanel",
     "CollapsibleDetails",
     "CollapsibleLogPanel",
     "ConnectorEditorCard",

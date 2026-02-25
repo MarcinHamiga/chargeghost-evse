@@ -7,12 +7,24 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
+    ChargingProfileKindType,
+    ChargingProfilePurposeType,
+    ChargingProfileStatus,
+    ChargingRateUnitType,
+    ClearChargingProfileStatus,
     DiagnosticsStatus,
     FirmwareStatus,
+    RecurrencyKind,
     RegistrationStatus,
     RemoteStartStopStatus,
     UpdateStatus,
     UpdateType,
+)
+from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
+    ChargingProfileManager,
+    ChargingProfileData,
+    ChargingScheduleData,
+    ChargingSchedulePeriodData,
 )
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
@@ -61,6 +73,21 @@ class Adapter(cp):
             "LocalAuthListEnabled", False
         )
         self.local_auth_list.enabled = local_auth_enabled
+
+        max_profiles = self.config_manager.get_int_value(
+            "MaxChargingProfilesInstalled", 20
+        )
+        max_stack_level = self.config_manager.get_int_value(
+            "ChargeProfileMaxStackLevel", 5
+        )
+        max_periods = self.config_manager.get_int_value(
+            "ChargingScheduleMaxPeriods", 10
+        )
+        self.charging_profile_manager = ChargingProfileManager(
+            max_profiles=max_profiles,
+            max_stack_level=max_stack_level,
+            max_schedule_periods=max_periods,
+        )
 
         self.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
 
@@ -744,3 +771,204 @@ class Adapter(cp):
 
         response: call_result.FirmwareStatusNotification = await self.call(request)
         return response
+
+    @on("SetChargingProfile")
+    async def on_set_charging_profile(
+        self,
+        connector_id: int,
+        cs_charging_profiles: dict,
+        **kwargs,
+    ) -> call_result.SetChargingProfile:
+        """Handle SetChargingProfile request from CSMS."""
+        self._log(
+            f"SetChargingProfile: connector_id={connector_id}, profile_id={cs_charging_profiles.get('chargingProfileId')}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        try:
+            profile = self._parse_charging_profile(cs_charging_profiles)
+        except (KeyError, ValueError, TypeError) as e:
+            self._log(
+                f"Failed to parse charging profile: {e}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
+
+        error = self.charging_profile_manager.set_profile(connector_id, profile)
+        if error:
+            self._log(
+                f"Charging profile rejected: {error}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
+
+        self._log(
+            f"Charging profile {profile.charging_profile_id} accepted",
+            is_ocpp_message=False,
+            is_important=True,
+        )
+        return call_result.SetChargingProfile(status=ChargingProfileStatus.accepted)
+
+    @on("ClearChargingProfile")
+    async def on_clear_charging_profile(
+        self,
+        id: Optional[int] = None,
+        connector_id: Optional[int] = None,
+        charging_profile_purpose: Optional[str] = None,
+        stack_level: Optional[int] = None,
+        **kwargs,
+    ) -> call_result.ClearChargingProfile:
+        """Handle ClearChargingProfile request from CSMS."""
+        self._log(
+            f"ClearChargingProfile: id={id}, connector_id={connector_id}, purpose={charging_profile_purpose}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        purpose_enum = None
+        if charging_profile_purpose:
+            try:
+                purpose_enum = ChargingProfilePurposeType(charging_profile_purpose)
+            except ValueError:
+                return call_result.ClearChargingProfile(
+                    status=ClearChargingProfileStatus.unknown
+                )
+
+        cleared = self.charging_profile_manager.clear_profiles(
+            profile_id=id,
+            connector_id=connector_id,
+            purpose=purpose_enum,
+            stack_level=stack_level,
+        )
+
+        if cleared > 0:
+            self._log(
+                f"Cleared {cleared} charging profile(s)",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.ClearChargingProfile(
+                status=ClearChargingProfileStatus.accepted
+            )
+        else:
+            return call_result.ClearChargingProfile(
+                status=ClearChargingProfileStatus.unknown
+            )
+
+    @on("GetCompositeSchedule")
+    async def on_get_composite_schedule(
+        self,
+        connector_id: int,
+        duration: int,
+        charging_rate_unit: Optional[str] = None,
+        **kwargs,
+    ) -> call_result.GetCompositeSchedule:
+        """Handle GetCompositeSchedule request from CSMS."""
+        self._log(
+            f"GetCompositeSchedule: connector_id={connector_id}, duration={duration}s",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        transaction_id = self.active_transactions.get(connector_id)
+        now = datetime.now(timezone.utc)
+
+        connector_voltage = 230.0
+        phases = 1
+
+        schedule_periods = self.charging_profile_manager.get_composite_schedule(
+            connector_id=connector_id,
+            transaction_id=transaction_id,
+            start_time=now,
+            duration=duration,
+            connector_voltage=connector_voltage,
+            phases=phases,
+        )
+
+        if not schedule_periods:
+            return call_result.GetCompositeSchedule(status="Rejected")
+
+        ocpp_periods = []
+        for period in schedule_periods:
+            period_dict = {
+                "startPeriod": period.start_period,
+                "limit": period.limit,
+            }
+            if period.number_phases is not None:
+                period_dict["numberPhases"] = period.number_phases
+            ocpp_periods.append(period_dict)
+
+        rate_unit = charging_rate_unit or "Current"
+
+        return call_result.GetCompositeSchedule(
+            status="Accepted",
+            connector_id=connector_id,
+            schedule_start=now.isoformat(),
+            charging_schedule={
+                "duration": duration,
+                "chargingRateUnit": rate_unit,
+                "chargingSchedulePeriod": ocpp_periods,
+            },
+        )
+
+    def _parse_charging_profile(self, cs_profile: dict) -> ChargingProfileData:
+        """Parse OCPP CsChargingProfile to internal ChargingProfileData."""
+        cs_schedule = cs_profile["chargingSchedule"]
+
+        periods = []
+        for p in cs_schedule["chargingSchedulePeriod"]:
+            period = ChargingSchedulePeriodData(
+                start_period=p["startPeriod"],
+                limit=float(p["limit"]),
+                number_phases=p.get("numberPhases"),
+            )
+            periods.append(period)
+
+        schedule = ChargingScheduleData(
+            charging_rate_unit=ChargingRateUnitType(cs_schedule["chargingRateUnit"]),
+            charging_schedule_period=tuple(periods),
+            duration=cs_schedule.get("duration"),
+            start_schedule=(
+                datetime.fromisoformat(
+                    cs_schedule["startSchedule"].replace("Z", "+00:00")
+                )
+                if cs_schedule.get("startSchedule")
+                else None
+            ),
+            min_charging_rate=cs_schedule.get("minChargingRate"),
+        )
+
+        recurrency = None
+        if cs_profile.get("recurrencyKind"):
+            recurrency = RecurrencyKind(cs_profile["recurrencyKind"])
+
+        valid_from = None
+        if cs_profile.get("validFrom"):
+            valid_from = datetime.fromisoformat(
+                cs_profile["validFrom"].replace("Z", "+00:00")
+            )
+
+        valid_to = None
+        if cs_profile.get("validTo"):
+            valid_to = datetime.fromisoformat(
+                cs_profile["validTo"].replace("Z", "+00:00")
+            )
+
+        return ChargingProfileData(
+            charging_profile_id=cs_profile["chargingProfileId"],
+            stack_level=cs_profile["stackLevel"],
+            charging_profile_purpose=ChargingProfilePurposeType(
+                cs_profile["chargingProfilePurpose"]
+            ),
+            charging_profile_kind=ChargingProfileKindType(
+                cs_profile["chargingProfileKind"]
+            ),
+            charging_schedule=schedule,
+            transaction_id=cs_profile.get("transactionId"),
+            recurrency_kind=recurrency,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
