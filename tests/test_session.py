@@ -1,4 +1,3 @@
-import pytest
 import time
 from chargeghost_evse.engine.session import Session
 

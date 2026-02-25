@@ -1,4 +1,3 @@
-import pytest
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 
 

@@ -229,7 +229,10 @@ class Bridge:
 
         threading.Thread(target=self._initial_status_loop, daemon=True).start()
 
+        threading.Thread(target=self._inject_limit_getter_loop, daemon=True).start()
+
     def shutdown(self) -> None:
+        self._remove_limit_getter()
         self._shutdown_event.set()
         self.runner.shutdown()
 
@@ -240,6 +243,55 @@ class Bridge:
                     self._send_initial_status_notifications()
                     break
             self._shutdown_event.wait(timeout=0.5)
+
+    def _inject_limit_getter_loop(self) -> None:
+        last_injected_adapter = None
+        while not self._shutdown_event.is_set():
+            adapter = self.runner.adapter
+            if self.runner.is_connected and adapter and adapter is not last_injected_adapter:
+                self._inject_limit_getter()
+                self._log(message="Charging profile limit enforcement enabled")
+                last_injected_adapter = adapter
+            self._shutdown_event.wait(timeout=0.5)
+
+    def _inject_limit_getter(self) -> None:
+        def get_limit(connector_id: int, transaction_id: Optional[int]) -> Optional[float]:
+            if not self.runner.adapter or not self.runner.adapter.charging_profile_manager:
+                return None
+
+            connector = self.engine.get_connector(connector_id)
+            if not connector:
+                return None
+
+            session = self.engine.session
+            transaction_start = None
+            if session and session.connector_id == connector_id:
+                transaction_start = datetime.fromtimestamp(session.start_time, tz=timezone.utc)
+
+            return self.runner.adapter.charging_profile_manager.get_composite_limit(
+                connector_id=connector_id,
+                transaction_id=transaction_id,
+                now=datetime.now(timezone.utc),
+                connector_voltage=connector.voltage,
+                transaction_start=transaction_start,
+                phases=connector.phase,
+            )
+
+        self.engine.get_limit = get_limit
+
+        def get_connector_info(connector_id: int) -> Optional[tuple[float, int]]:
+            connector = self.engine.get_connector(connector_id)
+            if not connector:
+                return None
+            return (connector.voltage, connector.phase)
+
+        if self.runner.adapter:
+            self.runner.adapter.get_connector_info = get_connector_info
+
+    def _remove_limit_getter(self) -> None:
+        self.engine.get_limit = None
+        if self.runner.adapter:
+            self.runner.adapter.get_connector_info = None
 
     def _send_initial_status_notifications(self) -> None:
         if not self.runner.adapter or not self.runner.loop:
