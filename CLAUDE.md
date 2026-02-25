@@ -44,9 +44,9 @@ UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCP
 
 **OCPP Adapter** (`ocpp_adapter/adapter.py`) — extends `ocpp.v16.ChargePoint`. Handles all inbound OCPP message handlers (`@on(...)`) and outbound sends. Owns `ConfigurationKeyManager`, `LocalAuthListManager`, `FirmwareManager`, and `ChargingProfileManager`.
 
-**UI** (`ui/`) — `app.py` holds the main window. `ui/bridge.py` (`QtSignalBridge`) translates domain events into Qt signals so the UI always runs on the main thread. Widgets live in `ui/widgets/`. QSS styles in `ui/styles/e_mobility.qss`.
+**UI** (`ui/`) — `app.py` holds the main window. `ui/bridge.py` (`QtSignalBridge`) translates domain events into Qt signals so the UI always runs on the main thread. Widgets live in `ui/widgets/`: `ChargingProfilesPanel` displays active profiles, `UpdateDialog`/`UpdateStatusChip` handle update UI, `icons.py` provides SVG icons. QSS styles in `ui/styles/e_mobility.qss`.
 
-**Util** (`util/`) — `Event` (thread-safe, weak-reference observer), `Subscriber` (mixin for auto-cleanup), `SimulationConfig` (dataclass, persisted to `~/.chargeghost/config.json`, password stored in system keyring).
+**Util** (`util/`) — `Event` (thread-safe, weak-reference observer), `Subscriber` (mixin for auto-cleanup), `SimulationConfig` (dataclass, persisted to `~/.chargeghost/config.json`, password stored in system keyring). `UpdateManager` checks GitHub releases for updates; `HandoverManager` handles app replacement during updates (used by standalone binary builds).
 
 ## Code Conventions
 
@@ -59,10 +59,12 @@ UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCP
 - **Threading**: all Qt UI operations must occur on the main thread. Cross-thread OCPP calls use `asyncio.run_coroutine_threadsafe`.
 - **QSS**: `opacity` property is **not** supported in PySide6 QSS — use `rgba()` for transparency in `:disabled` states instead.
 - **Config**: use `SimulationConfig.load()` / `config.save()`; `ocpp_password` is not written to JSON, only to the system keyring.
+- **ChargingProfileManager**: thread-safe via `RLock`; inject into Engine via `get_limit` callback from Bridge.
+- **Update system**: `UpdateManager` runs GitHub API checks off-main-thread; `HandoverManager` handles atomic app replacement for standalone binaries.
 
 ## Key Constraints
 
 - Single active transaction at a time (mirrors real hardware).
 - OCPP 1.6J only.
-- Smart Charging profile (SetChargingProfile, ClearChargingProfile) is implemented in `ChargingProfileManager` but was not fully wired at the time of writing — see `docs/plans/` for current work.
+- Smart Charging is fully implemented via `ChargingProfileManager`: supports `SetChargingProfile`, `ClearChargingProfile`, `GetCompositeSchedule` with `ChargePointMaxProfile`, `TxDefaultProfile`, `TxProfile` purposes and `Absolute`, `Recurring`, `Relative` kinds. Composite limits are calculated with stack level resolution.
 - `pyyaml` and `pydantic`/`pydantic-settings` are listed as dependencies but not used in application logic (config uses plain `dataclasses` + `json`).

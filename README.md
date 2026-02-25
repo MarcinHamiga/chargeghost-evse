@@ -24,7 +24,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Features
 
-- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication including Core (Partial), Firmware Management, and Local Auth List profiles.
+- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication including Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
@@ -35,6 +35,8 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 - **Firmware Management**: Simulated firmware updates and diagnostics upload with full status reporting.
 - **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
 - **Resilient Connectivity**: Automatic reconnection with exponential backoff and periodic heartbeat/meter values.
+- **Smart Charging**: Full OCPP 1.6 Smart Charging profile support with charging profile management, composite schedule calculation, and real-time power limit visualization.
+- **Auto-Update System**: Automatic update checking from GitHub releases with platform-specific handling for Windows and macOS.
 
 ## Requirements
 
@@ -129,6 +131,15 @@ Each connector can be individually tuned:
 - **Current Limit**: 6A - 63A
 - **Phases**: 1 or 3 Phase simulation.
 
+#### Charging Profiles
+
+The **Charging Profiles** panel displays active charging profiles received from the CSMS:
+
+- **Profile List**: Shows all installed charging profiles with their stack level, purpose, and kind.
+- **Composite Limit**: Displays the effective power/current limit after combining all applicable profiles.
+- **Profile Purposes**: Supports ChargePointMaxProfile (station-wide), TxDefaultProfile (default for transactions), and TxProfile (transaction-specific).
+- **Profile Kinds**: Handles Absolute (fixed schedule), Recurring (repeating schedule), and Relative (offset from transaction start) profiles.
+
 ## Architecture
 
 ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiveness and simulation accuracy.
@@ -146,7 +157,8 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
                           │ (Domain Events)
 ┌─────────────────────────▼───────────────────────────────────┐
 │                     Simulation Core                         │
-│  (Engine, Connector, Session, EnergyMeter, LocalAuthList)   │
+│  (Engine, Connector, Session, EnergyMeter, LocalAuthList,   │
+│                    ChargingProfileManager)                   │
 └───────────┬─────────────────────────────────────┬───────────┘
             │                                     │
 ┌───────────▼─────────────────────────────────────▼───────────┐
@@ -159,6 +171,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 - **Bridge**: Orchestrates communication between the Engine and the OCPP Adapter.
 - **OCPP Adapter**: Runs in a dedicated background thread to handle asynchronous network I/O without blocking the UI.
 - **LocalAuthList**: Handles offline authorization and CSMS list synchronization.
+- **ChargingProfileManager**: Manages charging profiles, calculates composite schedules, and enforces power/current limits.
 
 ## OCPP 1.6 Support
 
@@ -167,7 +180,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 | **Core** | Partial | `BootNotification`, `Heartbeat`, `Authorize`, `StartTransaction`, `StopTransaction`, `StatusNotification`, `ChangeConfiguration`, `GetConfiguration` |
 | **Firmware** | Full | `GetDiagnostics`, `DiagnosticsStatusNotification`, `UpdateFirmware`, `FirmwareStatusNotification` |
 | **Local Auth** | Full | `SendLocalList`, `GetLocalListVersion` |
-| **Smart Charging** | Missing | - |
+| **Smart Charging** | Full | `SetChargingProfile`, `ClearChargingProfile`, `GetCompositeSchedule` |
 
 For a detailed roadmap and missing features, see [OCPP_MISSING_FEATURES.md](OCPP_MISSING_FEATURES.md).
 

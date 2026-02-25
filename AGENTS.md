@@ -41,10 +41,11 @@ poetry run ruff check src/ --fix  # Auto-fix lint issues
 src/chargeghost_evse/
 ├── main.py              # Application entry point
 ├── engine/              # Core simulation (Engine, Connector, Session, EnergyMeter)
-├── ocpp_adapter/        # OCPP 1.6 protocol handling (Adapter)
+├── ocpp_adapter/        # OCPP 1.6 protocol handling (Adapter, ChargingProfileManager)
 ├── bridge/              # Connects engine to OCPP adapter (AsyncRunner, Bridge)
 ├── ui/                  # PySide6 Qt widgets and main window
-└── util/                # Shared utilities (Event, Subscriber, config)
+│   └── widgets/         # Reusable UI components (ChargingProfilesPanel, UpdateDialog, icons)
+└── util/                # Shared utilities (Event, Subscriber, config, UpdateManager, HandoverManager)
 ```
 
 ## Code Style Guidelines
@@ -158,16 +159,32 @@ async def on_remote_start_transaction(
 - Config stored in `~/.chargeghost/config.json`
 - Load with `SimulationConfig.load()`, save with `config.save()`
 
+### Injectable Callbacks
+- Use callable callbacks to decouple components while maintaining flexibility
+- Engine accepts optional `get_limit` callback for external charging limit control
+- Bridge connects callbacks to appropriate managers (e.g., ChargingProfileManager)
+
+```python
+def __init__(self, get_limit: Optional[Callable[[int], Optional[float]]] = None) -> None:
+	self._get_limit = get_limit
+
+def get_charging_limit(self, connector_id: int) -> Optional[float]:
+	if self._get_limit:
+		return self._get_limit(connector_id)
+	return None
+```
+
 ## Key Dependencies
 
 - **PySide6**: Qt GUI framework (>=6.8.0)
 - **ocpp**: OCPP protocol implementation (>=2.1.0)
 - **websockets**: WebSocket client (>=16.0)
+- **aiohttp**: Async HTTP client for GitHub API and update downloads (>=3.13.3)
 - **pydantic/pydantic-settings**: Configuration validation
 
 ## Important Notes
 
 - Single-session EVSE: Only one transaction active at a time
-- OCPP 1.6 protocol only
+- OCPP 1.6 protocol only (with Smart Charging profile support)
 - The Bridge connects engine events to OCPP messages automatically
 - WebSocket runs in a background daemon thread with its own asyncio event loop
