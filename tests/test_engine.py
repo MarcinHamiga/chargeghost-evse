@@ -313,3 +313,21 @@ class TestEngine:
 
 		# 4. Assert Session did NOT start
 		assert engine.session is None
+
+
+def test_energy_meter_stops_when_ev_max_charge_reached():
+	"""EnergyMeter must stop charging when ev_max_charge_reached fires."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	connector_id = engine.connectors[0].id
+
+	engine.plug_in(connector_id)
+	engine.start_session(connector_id=connector_id, transaction_id=1)
+	engine.energy_meter.is_charging = True  # simulate active charging
+
+	assert engine.session is not None
+	# Firing ev_max_charge_reached with connector_id — this should NOT crash
+	# and should stop the energy meter
+	engine.session.ev_max_charge_reached.emit(connector_id=connector_id)
+
+	assert engine.energy_meter.is_charging is False
