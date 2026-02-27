@@ -96,3 +96,25 @@ def test_start_time_is_posix_timestamp():
     # Must convert to a valid datetime without producing a 1970-era date
     dt = datetime.fromtimestamp(session.start_time, tz=timezone.utc)
     assert dt.year >= 2024
+
+
+def test_ev_max_charge_reached_fires_only_once():
+    """ev_max_charge_reached must emit exactly once even with repeated calls after max."""
+    session = Session(connector_id=1, id_tag="TAG", transaction_id=1, max_energy=1.0)
+
+    fired_count = 0
+
+    def on_max_reached(connector_id):
+        nonlocal fired_count
+        fired_count += 1
+
+    session.ev_max_charge_reached.subscribe(on_max_reached)
+
+    # First delivery reaches max
+    session.process_energy_delivery(1.0, connector_id=1)
+    assert fired_count == 1
+
+    # Subsequent calls must not re-fire
+    session.process_energy_delivery(0.0, connector_id=1)
+    session.process_energy_delivery(0.0, connector_id=1)
+    assert fired_count == 1
