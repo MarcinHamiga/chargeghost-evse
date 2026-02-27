@@ -6,51 +6,81 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 | Profile | Status | Description |
 | :--- | :--- | :--- |
-| **Core** | Partial | Basic charging loop and heartbeat are implemented. Administrative commands like Reset and UnlockConnector are missing. |
-| **Firmware Management** | Implemented | Simulated diagnostics upload and firmware updates. |
+| **Core** | Partial | Basic charging loop, heartbeat, and transaction management are implemented. Administrative commands like Reset, ChangeAvailability, and UnlockConnector are missing. |
+| **Firmware Management** | Implemented | Full support for diagnostics upload and firmware updates with complete status reporting. |
 | **Local Auth List** | Implemented | Full support for local authorization lists, caching, and list updates. |
-| **Smart Charging** | Missing | No support for charging profiles or load balancing. |
-| **Reservation** | Missing | No support for connector reservations. |
-| **Remote Trigger** | Missing | No support for Central System triggered messages. |
+| **Smart Charging** | Implemented | Full support for SetChargingProfile, ClearChargingProfile, and GetCompositeSchedule with all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative). |
+| **Reservation** | Missing | No support for connector reservations (ReserveNow, CancelReservation). |
+| **Remote Trigger** | Missing | No support for Central System triggered messages (TriggerMessage). |
 
 ---
 
-## 2. Detailed Unimplemented Messages
+## 2. Implemented Messages
 
-### Core Profile
-- [ ] **ChangeAvailability**: Allows CS to set a connector (or the whole CP) to `Inoperative` or `Operative`.
-- [x] **ChangeConfiguration**: Critical for updating system settings (e.g., `HeartbeatInterval`, `ConnectionTimeout`).
-- [x] **GetConfiguration**: Allows the CS to retrieve current configuration key values.
-- [ ] **Reset**: Support for `Soft` (application restart) and `Hard` (reboot) reset commands.
-- [ ] **ClearCache**: Command to clear the local authorization cache.
-- [ ] **UnlockConnector**: Remote command to release the locking mechanism on a connector.
+### Inbound Messages (Central System → Charge Point)
+
+**Core Profile**
+- [x] **RemoteStartTransaction**: Start a transaction on a connector with an ID tag.
+- [x] **RemoteStopTransaction**: Stop an active transaction on a connector.
+- [x] **ChangeConfiguration**: Update OCPP configuration keys.
+- [x] **GetConfiguration**: Retrieve OCPP configuration key values.
+
+**Firmware Management Profile**
+- [x] **GetDiagnostics**: Request diagnostics log file upload (simulated).
+- [x] **UpdateFirmware**: Request firmware download and installation (simulated).
+
+**Local Auth List Management Profile**
+- [x] **SendLocalList**: Receive and store authorized ID tags for offline operation.
+- [x] **GetLocalListVersion**: Query the version of the current local authorization list.
+
+**Smart Charging Profile**
+- [x] **SetChargingProfile**: Receive and enforce charging schedules with power/current limits over time.
+- [x] **ClearChargingProfile**: Remove active or scheduled charging constraints.
+- [x] **GetCompositeSchedule**: Calculate the effective charging limit for a specific time window.
+
+### Outbound Messages (Charge Point → Central System)
+
+**Core Profile**
+- [x] **BootNotification**: Announce system startup and device information.
+- [x] **Heartbeat**: Send periodic keep-alive messages.
+- [x] **Authorize**: Request authorization for an ID tag before transaction start.
+- [x] **StartTransaction**: Report transaction initiation with meter value.
+- [x] **StopTransaction**: Report transaction termination with final meter value.
+- [x] **StatusNotification**: Report connector status changes.
+- [x] **MeterValues**: Send periodic or on-demand meter readings.
+
+**Firmware Management Profile**
+- [x] **DiagnosticsStatusNotification**: Report progress of diagnostics upload (Uploading, Uploaded, UploadFailed).
+- [x] **FirmwareStatusNotification**: Report firmware update progress (Downloading, Downloaded, Installing, Installed, InstallationFailed).
+
+---
+
+## 3. Missing Messages
+
+### Inbound Messages Not Yet Implemented
+
+**Core Profile**
+- [ ] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
+- [ ] **Reset**: Trigger a Soft (application restart) or Hard (reboot) reset.
+- [ ] **ClearCache**: Clear the local authorization cache.
+- [ ] **UnlockConnector**: Remotely unlock a connector's physical lock.
 - [ ] **DataTransfer**: Generic message for vendor-specific extensions.
 
-### Firmware Management Profile
-- [x] **GetDiagnostics**: Request for the CP to upload log files to a specified location. (Simulated)
-- [x] **DiagnosticsStatusNotification**: Reporting the progress/status of a log upload.
-- [x] **UpdateFirmware**: Command to download and install a firmware image from a URI. (Simulated)
-- [x] **FirmwareStatusNotification**: Reporting stages: `Downloading`, `Downloaded`, `Installing`, `Installed`, `InstallationFailed`.
+**Reservation Profile**
+- [ ] **ReserveNow**: Reserve a connector for a specific `idTag` until an `expiryDate`.
+- [ ] **CancelReservation**: Cancel a previously made reservation.
 
-### Smart Charging Profile
-- [ ] **SetChargingProfile**: Receiving and enforcing complex charging schedules (Power/Current limits over time).
-- [ ] **ClearChargingProfile**: Removing active or scheduled charging constraints.
-- [ ] **GetCompositeSchedule**: Calculating the effective charging limit for a specific time window.
+**Remote Trigger Profile**
+- [ ] **TriggerMessage**: Request the Charge Point to send a specific message immediately (e.g., Heartbeat, StatusNotification, MeterValues).
 
-### Reservation Profile
-- [ ] **ReserveNow**: Reserving a connector for a specific `idTag` until an `expiryDate`.
-- [ ] **CancelReservation**: Releasing a previously held reservation.
+### Outbound Messages Not Yet Implemented
 
-### Local Auth List Management Profile
-- [x] **SendLocalList**: Receiving a batch of authorized tags for offline operation.
-- [x] **GetLocalListVersion**: Querying the version of the currently stored local list.
-
-### Remote Trigger Profile
-- [ ] **TriggerMessage**: CS request for the CP to send a specific message immediately (e.g., `Heartbeat`, `StatusNotification`, `MeterValues`).
+**Security Profile**
+- [ ] **SecurityEventNotification**: Report security-related events (e.g., failed authentication, invalid certificates, unauthorized access attempts).
 
 ---
 
-## 3. Configuration Keys
+## 4. Configuration Keys
 
 OCPP 1.6 defines mandatory and optional configuration keys. The following are implemented with GUI support:
 
@@ -92,7 +122,7 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 
 ---
 
-## 4. Architectural & Infrastructure Gaps
+## 5. Architectural & Infrastructure Gaps
 
 ### Persistence Layer
 - [ ] **Configuration Store**: Persistent storage (JSON/SQLite) to retain OCPP configuration keys across restarts.
@@ -108,3 +138,14 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 - [ ] **Message Queuing (Offline)**: Buffering mandatory messages (like `MeterValues`, `StopTransaction`) when the connection is lost and re-sending them upon reconnection.
 - [ ] **CallError Handling**: Gracefully handling error responses from the Central System for all message types.
 - [ ] **State Machine Validation**: Ensuring strict adherence to connector states (e.g., not allowing a transaction to start if the connector is `Faulted` or `Inoperative`).
+
+---
+
+## 6. Summary Statistics
+
+- **Inbound Messages**: 11 of 19 implemented (58%)
+- **Outbound Messages**: 9 of 10 implemented (90%)
+- **Feature Profiles**: 4 of 6 implemented (67%)
+- **Configuration Keys**: 16 of 19 implemented (84%)
+
+**Last Updated**: February 26, 2026

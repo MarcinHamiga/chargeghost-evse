@@ -124,7 +124,6 @@ class ConnectorEditorCard(QFrame):
         self.power_label.setText(f"Power: {power_kw:.2f} kW")
 
     def _on_apply_clicked(self) -> None:
-        self._update_power_display()
         self.on_apply.emit(
             self.connector_id,
             self.voltage_spin.value(),

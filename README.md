@@ -24,7 +24,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Features
 
-- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication including Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
+- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication with 11 inbound and 9 outbound messages implemented across Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
@@ -35,7 +35,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 - **Firmware Management**: Simulated firmware updates and diagnostics upload with full status reporting.
 - **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
 - **Resilient Connectivity**: Automatic reconnection with exponential backoff and periodic heartbeat/meter values.
-- **Smart Charging**: Full OCPP 1.6 Smart Charging profile support with charging profile management, composite schedule calculation, and real-time power limit visualization.
+- **Smart Charging**: Full OCPP 1.6 Smart Charging profile support with charging profile management, composite schedule calculation, and real-time power limit visualization. Supports all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative).
 - **Auto-Update System**: Automatic update checking from GitHub releases with platform-specific handling for Windows and macOS.
 
 ## Requirements
@@ -62,7 +62,7 @@ poetry install
 6. Go to Settings -> Privacy & Security -> Open Anyway
 7. Click on Open Anyway
 8. ChargeGhost is installed
-   
+
 ### From Source (pip)
 
 ```bash
@@ -175,14 +175,36 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 
 ## OCPP 1.6 Support
 
-| Profile | Status | Implemented Messages |
-| :--- | :--- | :--- |
-| **Core** | Partial | `BootNotification`, `Heartbeat`, `Authorize`, `StartTransaction`, `StopTransaction`, `StatusNotification`, `ChangeConfiguration`, `GetConfiguration` |
-| **Firmware** | Full | `GetDiagnostics`, `DiagnosticsStatusNotification`, `UpdateFirmware`, `FirmwareStatusNotification` |
-| **Local Auth** | Full | `SendLocalList`, `GetLocalListVersion` |
-| **Smart Charging** | Full | `SetChargingProfile`, `ClearChargingProfile`, `GetCompositeSchedule` |
+### Coverage Summary
 
-For a detailed roadmap and missing features, see [OCPP_MISSING_FEATURES.md](OCPP_MISSING_FEATURES.md).
+| Metric | Coverage |
+| :--- | :--- |
+| **Inbound Messages** | 11 of 19 (58%) |
+| **Outbound Messages** | 9 of 10 (90%) |
+| **Feature Profiles** | 4 of 6 (67%) |
+| **Configuration Keys** | 16 of 19 (84%) |
+
+### Implemented Profiles
+
+| Profile | Status | Inbound Messages | Outbound Messages |
+| :--- | :--- | :--- | :--- |
+| **Core** | Partial | RemoteStart/StopTransaction, ChangeConfiguration, GetConfiguration | BootNotification, Heartbeat, Authorize, StartTransaction, StopTransaction, StatusNotification, MeterValues |
+| **Firmware** | Full | GetDiagnostics, UpdateFirmware | DiagnosticsStatusNotification, FirmwareStatusNotification |
+| **Local Auth** | Full | SendLocalList, GetLocalListVersion | — |
+| **Smart Charging** | Full | SetChargingProfile, ClearChargingProfile, GetCompositeSchedule | — |
+| **Reservation** | Missing | ReserveNow, CancelReservation | — |
+| **Remote Trigger** | Missing | TriggerMessage | — |
+
+### Missing Features
+
+Key features not yet implemented:
+- **Administrative**: Reset, ChangeAvailability, UnlockConnector, ClearCache, DataTransfer
+- **Reservations**: ReserveNow, CancelReservation
+- **Remote Triggers**: TriggerMessage
+- **Security**: SecurityEventNotification
+- **Offline Queuing**: Message buffering and replay for disconnected operation
+
+For a comprehensive breakdown of implemented and missing messages, configuration keys, and architectural gaps, see [OCPP_MISSING_FEATURES.md](OCPP_MISSING_FEATURES.md).
 
 ## Development
 

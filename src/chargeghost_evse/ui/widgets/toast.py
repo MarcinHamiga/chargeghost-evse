@@ -79,6 +79,8 @@ class ToastNotification(QWidget):
         self._animate_out()
 
     def _animate_out(self) -> None:
+        if hasattr(self, "_anim"):
+            return
         effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(effect)
         self._anim = QPropertyAnimation(effect, b"opacity")
