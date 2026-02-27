@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, QTimer, Slot, QPropertyAnimation, QEasingCurve, QSize
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPropertyAnimation, QEasingCurve, QSize
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -218,6 +218,8 @@ class ModeSelectWidget(QWidget):
 
 
 class SimulatorWidget(QWidget):
+    connector_range_changed = Signal(int, int)
+
     def __init__(self, main_window: "MainWindow"):
         super().__init__()
         self.main_window = main_window
@@ -499,15 +501,14 @@ class SimulatorWidget(QWidget):
             f"[yellow]Connector:[/yellow] Removed connector {connector_id}"
         )
         self._save_connector_config()
-        # Keep the cross-sibling call for now — Task 19 will fix it with a signal
-        self.main_window.manual.update_connector_range()
+        self.connector_range_changed.emit(1, max(len(self.engine.connectors), 1))
 
     def _on_connector_add(self) -> None:
         connector = self.engine.add_connector()
         self.settings_panel.rebuild_connector_cards()
         self._selected_connector_id = connector.id
         self.dashboard.set_selected_connector(connector.id)
-        self.main_window.manual.update_connector_range()
+        self.connector_range_changed.emit(1, max(len(self.engine.connectors), 1))
         self.main_window.log_message(
             f"[green]Connector:[/green] Added connector {connector.id}"
         )
@@ -659,9 +660,11 @@ class ManualWidget(QWidget):
         self.main_window._global_log_panel.btn_log_mode.setChecked(is_detailed)
         self.main_window._global_log_panel.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
 
-    def update_connector_range(self) -> None:
+    def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
-        self.input_connector_id.setRange(1, max(len(self.engine.connectors), 1))
+        if max_id is None:
+            max_id = max(len(self.engine.connectors), 1)
+        self.input_connector_id.setRange(min_id, max_id)
 
     def action_boot(self) -> None:
         adapter = self.bridge.runner.adapter
@@ -859,6 +862,8 @@ class MainWindow(QMainWindow):
         self.mode_select = ModeSelectWidget(self)
         self.simulator = SimulatorWidget(self)
         self.manual = ManualWidget(self)
+
+        self.simulator.connector_range_changed.connect(self.manual.update_connector_range)
 
         self.stack.addWidget(self.mode_select)
         self.stack.addWidget(self.simulator)
