@@ -471,7 +471,6 @@ class SimulatorWidget(QWidget):
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
             for c in self.engine.connectors
         ]
-        self.config.num_connectors = len(self.engine.connectors)
         self.config.save()
         self.main_window.log_message("[green]Config:[/green] Configuration saved.")
         self.main_window.show_toast("Configuration saved", "success")
@@ -498,7 +497,6 @@ class SimulatorWidget(QWidget):
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
             for c in self.engine.connectors
         ]
-        self.config.num_connectors = len(self.engine.connectors)
         self.config.save()
 
     def _on_connector_remove(self, connector_id: int) -> None:
@@ -1359,7 +1357,6 @@ class MainWindow(QMainWindow):
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
             for c in self.engine.connectors
         ]
-        self.config.num_connectors = len(self.engine.connectors)
         self.config.save()
         self.bridge.shutdown()
         event.accept()
