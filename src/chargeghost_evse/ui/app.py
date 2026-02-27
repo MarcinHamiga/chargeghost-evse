@@ -405,13 +405,6 @@ class SimulatorWidget(QWidget):
             self.profiles_panel.update_from_engine(self.engine, self.bridge)
 
     def action_plug_in(self) -> None:
-        for conn in self.engine.connectors:
-            if conn.is_plugged_in and conn.id != self._selected_connector_id:
-                self.engine.unplug(conn.id)
-                self.main_window.log_message(
-                    f"[yellow]UI:[/yellow] Auto-unplugged Connector {conn.id}"
-                )
-
         self.engine.plug_in(self._selected_connector_id)
         self.main_window.log_message(
             f"[green]UI:[/green] Plugged In to Connector {self._selected_connector_id}"
@@ -495,22 +488,19 @@ class SimulatorWidget(QWidget):
         self.config.save()
 
     def _on_connector_remove(self, connector_id: int) -> None:
-        if len(self.engine.connectors) <= 1:
-            self._show_error("Cannot remove the last connector")
+        try:
+            self.engine.remove_connector(connector_id)
+        except ValueError as e:
+            self._show_error(str(e))
             return
-
-        if self.engine.session and self.engine.session.connector_id == connector_id:
-            self._show_error("Cannot remove connector with active session")
-            return
-
-        self.engine.remove_connector(connector_id)
         self.settings_panel.rebuild_connector_cards()
         self._ensure_valid_selection()
-        self.main_window.manual.update_connector_range()
         self.main_window.log_message(
             f"[yellow]Connector:[/yellow] Removed connector {connector_id}"
         )
         self._save_connector_config()
+        # Keep the cross-sibling call for now — Task 19 will fix it with a signal
+        self.main_window.manual.update_connector_range()
 
     def _on_connector_add(self) -> None:
         connector = self.engine.add_connector()

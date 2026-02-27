@@ -164,15 +164,21 @@ class Engine(Subscriber):
         """
         Remove a connector from the EVSE.
 
-        Cannot remove a connector with an active session.
+        Raises ValueError if this is the last connector, or if there is an
+        active session on the specified connector.
 
         Args:
             connector_id: ID of the connector to remove.
+
+        Raises:
+            ValueError: If removing would leave zero connectors, or if the
+                connector has an active charging session.
         """
+        if len(self._connectors) <= 1:
+            raise ValueError("Cannot remove the last connector")
+        if self.session and self.session.connector_id == connector_id:
+            raise ValueError("Cannot remove connector with active session")
         if connector_id in self._connectors:
-            # Prevent removal during active session
-            if self.session and self.session.connector_id == connector_id:
-                return
             self._connectors[connector_id].unsubscribe_all()
             del self._connectors[connector_id]
 
@@ -262,9 +268,18 @@ class Engine(Subscriber):
         """
         Simulate an EV being plugged into a connector.
 
+        Enforces the single-plug-in policy: any other currently plugged-in
+        connector is automatically unplugged before the target connector is
+        plugged in.
+
         Args:
             connector_id: ID of the connector to plug into.
         """
+        # Auto-unplug any other plugged-in connector (single plug-in policy)
+        for conn in self._connectors.values():
+            if conn.is_plugged_in and conn.id != connector_id:
+                conn.unplug()
+
         connector = self._connectors.get(connector_id)
         if connector:
             connector.plug_in()

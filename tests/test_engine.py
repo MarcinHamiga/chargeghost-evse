@@ -331,3 +331,45 @@ def test_energy_meter_stops_when_ev_max_charge_reached():
 	engine.session.ev_max_charge_reached.emit(connector_id=connector_id)
 
 	assert engine.energy_meter.is_charging is False
+
+
+def test_plug_in_unplugs_other_connectors():
+	"""Engine.plug_in() must auto-unplug any other plugged-in connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	id1 = engine.connectors[0].id
+	id2 = engine.connectors[1].id
+
+	engine.plug_in(id1)
+	assert engine.connectors[0].is_plugged_in
+
+	# Plugging in connector 2 must auto-unplug connector 1
+	engine.plug_in(id2)
+	assert engine.connectors[1].is_plugged_in
+	assert not engine.connectors[0].is_plugged_in
+
+
+def test_remove_connector_raises_on_last():
+	"""Engine.remove_connector() must raise ValueError if only one connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	connector_id = engine.connectors[0].id
+
+	with pytest.raises(ValueError, match="last connector"):
+		engine.remove_connector(connector_id)
+
+
+def test_remove_connector_raises_on_active_session():
+	"""Engine.remove_connector() must raise ValueError if session active on that connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	id1 = engine.connectors[0].id
+
+	engine.plug_in(id1)
+	engine.start_session(connector_id=id1, transaction_id=1)
+
+	with pytest.raises(ValueError, match="active session"):
+		engine.remove_connector(id1)
