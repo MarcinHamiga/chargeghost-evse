@@ -253,7 +253,7 @@ class Connector(Subscriber):
         Transitions to FINISHING if plugged in, or AVAILABLE if unplugged.
         Called by Engine when a charging session ends.
         """
-        if self.status == ConnectorState.CHARGING:
+        if self.status in (ConnectorState.CHARGING, ConnectorState.SUSPENDED_EV):
             if self.is_plugged_in:
                 self.status = ConnectorState.FINISHING
             else:

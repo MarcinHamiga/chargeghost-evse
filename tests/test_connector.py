@@ -164,3 +164,16 @@ class TestConnector:
 
 		connector.set_parameters(voltage=400.0, current=32.0, phase=3)
 		assert connector.power == 38400.0
+
+	def test_stop_charging_from_suspended_ev(self):
+		"""stop_charging() must work when connector is in SUSPENDED_EV state."""
+		connector = Connector(id=1, voltage=230.0, current=32.0, phase=1)
+		connector.plug_in()
+
+		# Manually force SUSPENDED_EV status (battery full scenario)
+		connector._status = ConnectorState.SUSPENDED_EV
+
+		connector.stop_charging()
+
+		# Must transition to FINISHING (still plugged in), same as a normal stop
+		assert connector.status == ConnectorState.FINISHING
