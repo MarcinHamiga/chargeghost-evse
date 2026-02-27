@@ -514,9 +514,6 @@ class SimulatorWidget(QWidget):
         self._save_connector_config()
 
     def action_toggle_log_mode(self, is_detailed: bool) -> None:
-        self.main_window.signal_bridge.log_mode = (
-            "verbose" if is_detailed else "compact"
-        )
         self.main_window.app_settings.log_mode = "verbose" if is_detailed else "compact"
 
     def load_ocpp_config_keys(self) -> None:
@@ -654,11 +651,9 @@ class ManualWidget(QWidget):
     def action_toggle_log_mode(self) -> None:
         is_detailed = self.btn_log_mode.isChecked()
         if is_detailed:
-            self.main_window.signal_bridge.log_mode = "verbose"
             self.main_window.app_settings.log_mode = "verbose"
             self.btn_log_mode.setText("Compact")
         else:
-            self.main_window.signal_bridge.log_mode = "compact"
             self.main_window.app_settings.log_mode = "compact"
             self.btn_log_mode.setText("Detailed")
 
@@ -936,11 +931,6 @@ class MainWindow(QMainWindow):
             self._global_log_panel.expand()
             self._btn_toggle_log.setChecked(True)
 
-        saved_log_mode = self.app_settings.log_mode
-        self.signal_bridge.log_mode = (
-            "verbose" if saved_log_mode == "verbose" else "compact"
-        )
-
         saved_ui_mode = self.app_settings.last_mode
         if saved_ui_mode in ("simulator", "manual"):
             self.switch_to_mode(saved_ui_mode)
@@ -1000,7 +990,6 @@ class MainWindow(QMainWindow):
 
     def _on_global_log_mode_toggle(self, is_detailed: bool) -> None:
         mode: LogMode = "verbose" if is_detailed else "compact"
-        self.signal_bridge.log_mode = mode
         self.app_settings.log_mode = mode
         self.manual.btn_log_mode.setChecked(is_detailed)
         self.manual.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
@@ -1042,7 +1031,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str, bool)
     def on_log_received(self, source: str, message: str, is_important: bool) -> None:
-        if self.signal_bridge.log_mode == "compact" and not is_important:
+        if self.app_settings.log_mode == "compact" and not is_important:
             return
 
         tag_map = {

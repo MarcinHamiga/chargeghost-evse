@@ -2,8 +2,6 @@ import weakref
 
 from PySide6.QtCore import QObject, Signal
 
-from chargeghost_evse.util.config import LogMode
-
 
 class QtSignalBridge(QObject):
     """Bridges internal Event emissions to Qt Signals for thread-safe UI updates."""
@@ -14,7 +12,6 @@ class QtSignalBridge(QObject):
     session_started = Signal(int)
     session_stopped = Signal(int)
     connection_status_changed = Signal(bool)
-    log_mode_changed = Signal()
     ocpp_config_key_changed = Signal(str, str)
 
     def __init__(self, engine, bridge):
@@ -22,23 +19,12 @@ class QtSignalBridge(QObject):
         self._engine = weakref.ref(engine)
         self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
-        self._log_mode: LogMode = "compact"
 
         engine.on_log.subscribe(self._on_engine_log)
         bridge.on_log.subscribe(self._on_bridge_log)
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
         engine.session_stopped.subscribe(self._on_session_stopped)
-
-    @property
-    def log_mode(self) -> LogMode:
-        return self._log_mode
-
-    @log_mode.setter
-    def log_mode(self, value: LogMode) -> None:
-        if self._log_mode != value:
-            self._log_mode = value
-            self._safe_emit(self.log_mode_changed)
 
     def check_connection_status(self):
         bridge = self._bridge_ref()
