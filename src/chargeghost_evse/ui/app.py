@@ -403,6 +403,7 @@ class SimulatorWidget(QWidget):
     def update_ui(self) -> None:
         self._ensure_valid_selection()
         self.dashboard.update_from_engine(self.engine)
+        # Throttle profiles panel updates (10 ticks × 100 ms timer ≈ 1 s).
         self._profiles_tick_counter += 1
         if self._profiles_tick_counter >= 10:
             self._profiles_tick_counter = 0
@@ -512,6 +513,7 @@ class SimulatorWidget(QWidget):
         self.engine.remove_connector(connector_id)
         self.settings_panel.rebuild_connector_cards()
         self._ensure_valid_selection()
+        self.main_window.manual.update_connector_range()
         self.main_window.log_message(
             f"[yellow]Connector:[/yellow] Removed connector {connector_id}"
         )
@@ -522,6 +524,7 @@ class SimulatorWidget(QWidget):
         self.settings_panel.rebuild_connector_cards()
         self._selected_connector_id = connector.id
         self.dashboard.set_selected_connector(connector.id)
+        self.main_window.manual.update_connector_range()
         self.main_window.log_message(
             f"[green]Connector:[/green] Added connector {connector.id}"
         )
@@ -573,8 +576,8 @@ class ManualWidget(QWidget):
         connector_label = QLabel("Connector:")
         connector_row.addWidget(connector_label)
         self.input_connector_id = QSpinBox()
-        self.input_connector_id.setRange(1, max(len(self.engine.connectors), 1))
         connector_row.addWidget(self.input_connector_id)
+        self.update_connector_range()
         connector_row.addStretch()
         controls.addLayout(connector_row)
 
@@ -675,6 +678,10 @@ class ManualWidget(QWidget):
             self.main_window.signal_bridge.log_mode = "compact"
             self.main_window.app_settings.log_mode = "compact"
             self.btn_log_mode.setText("Detailed")
+
+    def update_connector_range(self) -> None:
+        """Sync the connector spinner's upper bound to the current connector count."""
+        self.input_connector_id.setRange(1, max(len(self.engine.connectors), 1))
 
     def action_boot(self) -> None:
         adapter = self.bridge.runner.adapter
