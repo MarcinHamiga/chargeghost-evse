@@ -351,6 +351,27 @@ def test_plug_in_unplugs_other_connectors():
 	assert not engine.connectors[0].is_plugged_in
 
 
+def test_plug_in_stops_session_on_other_connector():
+	"""Engine.plug_in() must stop an active session when auto-unplugging another connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	id1 = engine.connectors[0].id
+	id2 = engine.connectors[1].id
+
+	# Set up an active session on connector 1
+	engine.plug_in(id1)
+	engine.start_session(connector_id=id1, transaction_id=1)
+	assert engine.session is not None
+
+	# Plug into connector 2 — should auto-unplug connector 1 AND stop its session
+	engine.plug_in(id2)
+	assert engine.connectors[1].is_plugged_in
+	assert not engine.connectors[0].is_plugged_in
+	assert engine.session is None
+
+
 def test_remove_connector_raises_on_last():
 	"""Engine.remove_connector() must raise ValueError if only one connector."""
 	engine = Engine()

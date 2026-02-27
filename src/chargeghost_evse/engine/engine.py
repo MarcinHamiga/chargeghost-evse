@@ -178,9 +178,10 @@ class Engine(Subscriber):
             raise ValueError("Cannot remove the last connector")
         if self.session and self.session.connector_id == connector_id:
             raise ValueError("Cannot remove connector with active session")
-        if connector_id in self._connectors:
-            self._connectors[connector_id].unsubscribe_all()
-            del self._connectors[connector_id]
+        if connector_id not in self._connectors:
+            raise ValueError(f"Connector {connector_id} not found")
+        self._connectors[connector_id].unsubscribe_all()
+        del self._connectors[connector_id]
 
     def update_connector(
         self,
@@ -278,7 +279,7 @@ class Engine(Subscriber):
         # Auto-unplug any other plugged-in connector (single plug-in policy)
         for conn in self._connectors.values():
             if conn.is_plugged_in and conn.id != connector_id:
-                conn.unplug()
+                self.unplug(conn.id)
 
         connector = self._connectors.get(connector_id)
         if connector:
