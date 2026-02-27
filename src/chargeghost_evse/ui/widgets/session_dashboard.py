@@ -1,3 +1,25 @@
+"""
+Session Dashboard Widget Module.
+
+This module provides the main charging session dashboard for the ChargeGhost
+EVSE simulator. It includes real-time telemetry visualization, session metrics,
+connector selection, and charging controls.
+
+Classes:
+    TelemetryChart: Real-time power telemetry line chart.
+    MetricCard: Display card for a single metric value.
+    CollapsibleDetails: Expandable details panel with additional metrics.
+    IdTagInput: ID tag input field with recent tags dropdown.
+    SessionDashboard: Main dashboard widget combining all components.
+
+Example:
+    >>> from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard
+    >>> 
+    >>> dashboard = SessionDashboard()
+    >>> dashboard.connector_selected.connect(self._on_connector_selected)
+    >>> dashboard.start_charging_clicked.connect(self._start_session)
+"""
+
 import time
 from collections import deque
 from typing import TYPE_CHECKING, Optional
@@ -26,10 +48,6 @@ if TYPE_CHECKING:
 
 
 class TelemetryChart(QFrame):
-    # Must match the QTimer interval in app.py (100 ms → 10 Hz).
-    # Used to derive _max_points and to debounce Y-axis downscaling.
-    _SAMPLE_RATE_HZ: int = 10
-
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("telemetryChartFrame")
@@ -37,32 +55,34 @@ class TelemetryChart(QFrame):
         self.setMinimumHeight(200)
 
         self._window_seconds = 60.0
-        # Safety cap: 2× the expected points per window so the deque never
-        # silently drops samples when the timer fires slightly faster.
-        _max_points = int(self._window_seconds * self._SAMPLE_RATE_HZ) * 2
-        self._data: deque[QPointF] = deque(maxlen=_max_points)
-        self._session_start: float = time.monotonic()
-        self._running_max: float = 0.0
-        # Ticks since the last full Y-axis downscale recalculation.
-        self._downscale_counter: int = 0
+        self._max_points = 600
+        self._power_data: list[QPointF] = []
+        self._current_data: list[QPointF] = []
+        self._start_time = time.monotonic()
 
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        """
+        Build and configure the chart UI components.
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # Create chart with transparent background
         self.chart = QChart()
         self.chart.setBackgroundVisible(False)
         self.chart.layout().setContentsMargins(0, 0, 0, 0)
         self.chart.legend().hide()
 
+        # Power line series (cyan color)
         self.series_power = QLineSeries()
         power_pen = QPen(QColor(colors.ACCENT_TEAL))
         power_pen.setWidth(2)
         self.series_power.setPen(power_pen)
         self.chart.addSeries(self.series_power)
 
+        # X-axis: Time in seconds
         self.axis_x = QValueAxis()
         self.axis_x.setRange(0, self._window_seconds)
         self.axis_x.setLabelFormat("%.0f s")
@@ -72,8 +92,9 @@ class TelemetryChart(QFrame):
         self.chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
         self.series_power.attachAxis(self.axis_x)
 
+        # Y-axis: Power in kW
         self.axis_y = QValueAxis()
-        self.axis_y.setRange(0, 25)
+        self.axis_y.setRange(0, 25)  # 22kW is common max
         self.axis_y.setLabelFormat("%.1f kW")
         self.axis_y.setTitleText("Power (kW)")
         self.axis_y.setGridLineVisible(True)
@@ -81,66 +102,70 @@ class TelemetryChart(QFrame):
         self.chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
         self.series_power.attachAxis(self.axis_y)
 
+        # Chart view with antialiasing
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.chart_view.setBackgroundRole(self.backgroundRole())
         layout.addWidget(self.chart_view)
 
-    def record_point(self, power_kw: float) -> None:
-        """Append a sample to the internal buffer. Does not touch Qt series."""
-        elapsed = time.monotonic() - self._session_start
-        self._data.append(QPointF(elapsed, power_kw))
-        if power_kw > self._running_max:
-            self._running_max = power_kw
+    def add_point(self, power_kw: float) -> None:
+        current_time = time.monotonic() - self._start_time
+        if current_time >= self._window_seconds:
+            self._start_time = time.monotonic()
+            self._power_data.clear()
+            current_time = 0.0
+            self.axis_x.setRange(0, self._window_seconds)
 
-    def refresh(self) -> None:
-        """Sync buffered data to the visible chart. Call only from the main thread."""
-        if not self._data:
-            return
+        self._power_data.append(QPointF(current_time, power_kw))
 
-        latest_t = self._data[-1].x()
-        x_min = max(0.0, latest_t - self._window_seconds)
-        # Always show at least one full window width so early data isn't squashed.
-        x_max = max(latest_t, self._window_seconds)
+        if len(self._power_data) > self._max_points:
+            self._power_data.pop(0)
 
-        # Build the visible slice without mutating the deque.
-        visible: list[QPointF] = [p for p in self._data if p.x() >= x_min]
-        self.series_power.replace(visible)
-        self.axis_x.setRange(x_min, x_max)
-        self._update_y_axis(self._data[-1].y(), x_min)
+        self.series_power.replace(self._power_data)
 
-    def _update_y_axis(self, latest_power: float, x_min: float) -> None:
-        # Upscale immediately when a new peak arrives.
-        if latest_power > self.axis_y.max():
-            self.axis_y.setRange(0, latest_power * 1.2)
-            return
-
-        # Downscale is expensive (O(n) scan) — only recalculate every ~5 s.
-        self._downscale_counter += 1
-        if self._downscale_counter < self._SAMPLE_RATE_HZ * 5:
-            return
-        self._downscale_counter = 0
-
-        visible_max = max((p.y() for p in self._data if p.x() >= x_min), default=0.0)
-        self._running_max = visible_max
-        ceiling = self.axis_y.max()
-        if visible_max < ceiling * 0.6 and ceiling > 25.0:
-            self.axis_y.setRange(0, max(25.0, visible_max * 1.5))
-        elif ceiling < 25.0:
-            self.axis_y.setRange(0, 25.0)
+        # Auto-scale Y axis
+        max_power = max((p.y() for p in self._power_data), default=25)
+        if max_power > self.axis_y.max():
+            self.axis_y.setRange(0, max_power * 1.2)
+        elif max_power < self.axis_y.max() * 0.5 and self.axis_y.max() > 25:
+            self.axis_y.setRange(0, max(25, max_power * 1.5))
 
     def clear(self) -> None:
-        self._data.clear()
-        self._session_start = time.monotonic()
-        self._running_max = 0.0
-        self._downscale_counter = 0
+        self._power_data.clear()
         self.series_power.clear()
         self.axis_x.setRange(0, self._window_seconds)
         self.axis_y.setRange(0, 25)
 
 
 class MetricCard(QFrame):
-    def __init__(self, title: str, unit: str = "", parent: Optional[QWidget] = None):
+    """
+    Display card for a single metric value.
+
+    Shows a title, value, and optional unit in a styled card format.
+    Used for displaying session metrics like energy, power, voltage.
+
+    Attributes:
+        _title_label: Label showing the metric title.
+        _value_label: Label showing the metric value.
+        _unit_label: Optional label showing the unit.
+
+    Example:
+        >>> card = MetricCard("Energy", "kWh")
+        >>> card.set_value("45.2")
+        >>> card.clear()  # Shows "--"
+    """
+
+    def __init__(
+        self, title: str, unit: str = "", parent: Optional[QWidget] = None
+    ) -> None:
+        """
+        Initialize the metric card.
+
+        Args:
+            title: The metric title/label.
+            unit: Optional unit suffix to display.
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.setObjectName("metricCard")
         self.setProperty("card", True)
@@ -150,10 +175,12 @@ class MetricCard(QFrame):
         layout.setSpacing(2)
         layout.setContentsMargins(12, 8, 12, 8)
 
+        # Title label
         self._title_label = QLabel(title)
         self._title_label.setObjectName("metricTitle")
         layout.addWidget(self._title_label)
 
+        # Value layout with optional unit
         value_layout = QHBoxLayout()
         value_layout.setSpacing(4)
         value_layout.setAlignment(
@@ -175,37 +202,74 @@ class MetricCard(QFrame):
         layout.addLayout(value_layout)
 
     def set_value(self, value: str) -> None:
+        """
+        Set the metric value.
+
+        Args:
+            value: The value string to display.
+        """
         self._value_label.setText(value)
 
     def clear(self) -> None:
+        """
+        Clear the metric value (shows "--").
+        """
         self._value_label.setText("--")
 
 
 class CollapsibleDetails(QWidget):
+    """
+    Expandable details panel with additional session metrics.
+
+    Provides a toggle button to show/hide detailed metrics like
+    transaction ID, voltage, current, and meter reading.
+
+    Signals:
+        toggled: Emitted when expanded/collapsed.
+            Parameters: is_expanded (bool)
+
+    Attributes:
+        metric_tx_id: Transaction ID metric card.
+        metric_voltage: Voltage metric card.
+        metric_current: Current metric card.
+        metric_meter: Total meter metric card.
+    """
+
     toggled = Signal(bool)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the collapsible details panel.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self._is_expanded = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        """
+        Build the UI with toggle button and metric cards.
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._toggle_btn = QPushButton("Show Details")
+        self._toggle_btn = QPushButton("Details")
         self._toggle_btn.setObjectName("toggleDetailsBtn")
         self._toggle_btn.setProperty("flat", True)
         self._toggle_btn.clicked.connect(self._toggle)
         layout.addWidget(self._toggle_btn)
 
+        # Content container (initially hidden)
         self._content = QWidget()
         self._content.setObjectName("detailsContent")
         content_layout = QGridLayout(self._content)
         content_layout.setSpacing(12)
         content_layout.setContentsMargins(8, 8, 8, 8)
 
+        # Metric cards in 2x2 grid
         self.metric_tx_id = MetricCard("Transaction ID")
         self.metric_voltage = MetricCard("Voltage", "V")
         self.metric_current = MetricCard("Current", "A")
@@ -220,6 +284,9 @@ class CollapsibleDetails(QWidget):
         layout.addWidget(self._content)
 
     def _toggle(self) -> None:
+        """
+        Toggle the expanded state.
+        """
         self._is_expanded = not self._is_expanded
         self._toggle_btn.setText(
             "Hide Details" if self._is_expanded else "Show Details"
@@ -231,6 +298,12 @@ class CollapsibleDetails(QWidget):
         self.toggled.emit(self._is_expanded)
 
     def is_expanded(self) -> bool:
+        """
+        Check if the details panel is expanded.
+
+        Returns:
+            True if expanded, False if collapsed.
+        """
         return self._is_expanded
 
     def update_metrics(
@@ -240,12 +313,24 @@ class CollapsibleDetails(QWidget):
         current: float,
         meter: float,
     ) -> None:
+        """
+        Update all metric values.
+
+        Args:
+            tx_id: Transaction ID, or None if no active transaction.
+            voltage: Voltage in volts.
+            current: Current in amperes.
+            meter: Meter reading in Watt-hours.
+        """
         self.metric_tx_id.set_value(str(tx_id) if tx_id else "--")
         self.metric_voltage.set_value(f"{voltage:.1f}")
         self.metric_current.set_value(f"{current:.1f}")
         self.metric_meter.set_value(f"{meter:.1f}")
 
     def clear(self) -> None:
+        """
+        Clear all metric values.
+        """
         for metric in [
             self.metric_tx_id,
             self.metric_voltage,
@@ -256,23 +341,51 @@ class CollapsibleDetails(QWidget):
 
 
 class IdTagInput(QWidget):
+    """
+    ID tag input widget with recent tags dropdown.
+
+    Provides a text input for entering RFID tags with a dropdown
+    for quickly selecting recently used tags.
+
+    Signals:
+        tag_applied: Emitted when user applies a tag.
+            Parameters: tag (str)
+        recent_tags_changed: Emitted when recent tags list changes.
+
+    Example:
+        >>> input_widget = IdTagInput()
+        >>> input_widget.set_recent_tags(["RFID-001", "RFID-002"])
+        >>> input_widget.tag_applied.connect(self._on_tag_applied)
+    """
+
     tag_applied = Signal(str)
     recent_tags_changed = Signal()
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the ID tag input.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self._recent_tags: list[str] = []
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        """
+        Build the UI with label, combo box, input, and apply button.
+        """
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
+        # Label
         id_tag_label = QLabel("ID Tag")
         id_tag_label.setObjectName("idTagLabel")
         layout.addWidget(id_tag_label)
 
+        # Recent tags dropdown (hidden when empty)
         self._recent_combo = QComboBox()
         self._recent_combo.setObjectName("recentTagsCombo")
         self._recent_combo.setPlaceholderText("Recent tags...")
@@ -281,26 +394,43 @@ class IdTagInput(QWidget):
         self._recent_combo.hide()
         layout.addWidget(self._recent_combo)
 
+        # Text input
         self._input = QLineEdit()
         self._input.setPlaceholderText("Enter RFID tag (e.g., RFID-001)")
         self._input.returnPressed.connect(self._on_apply)
         layout.addWidget(self._input, 1)
 
+        # Apply button
         self._apply_btn = QPushButton("Apply")
         self._apply_btn.setObjectName("btnApplyTag")
         self._apply_btn.clicked.connect(self._on_apply)
         layout.addWidget(self._apply_btn)
 
     def _on_recent_selected(self, tag: str) -> None:
+        """
+        Handle selection from recent tags dropdown.
+
+        Args:
+            tag: The selected tag.
+        """
         if tag:
             self._input.setText(tag)
 
     def _on_apply(self) -> None:
+        """
+        Handle apply button click or Enter key.
+        """
         tag = self._input.text().strip()
         if tag:
             self.tag_applied.emit(tag)
 
     def set_recent_tags(self, tags: list[str]) -> None:
+        """
+        Set the list of recent tags for the dropdown.
+
+        Args:
+            tags: List of recent tag strings (max 10).
+        """
         self._recent_tags = tags[:10]
         self._recent_combo.clear()
         if self._recent_tags:
@@ -310,9 +440,21 @@ class IdTagInput(QWidget):
             self._recent_combo.hide()
 
     def get_tag(self) -> str:
+        """
+        Get the current tag text.
+
+        Returns:
+            Current text in the input field.
+        """
         return self._input.text().strip()
 
     def set_tag(self, tag: str) -> None:
+        """
+        Set the tag text in the input field.
+
+        Args:
+            tag: The tag string to set.
+        """
         self._input.setText(tag)
 
 
@@ -333,6 +475,32 @@ def _compute_effective_power_kw(engine: "Engine", connector_id: int) -> float:
 
 
 class SessionDashboard(QWidget):
+    """
+    Main charging session dashboard widget.
+
+    Combines all session-related UI components into a single dashboard:
+    - Connector strip for selection
+    - Primary metrics (energy, power, duration, SoC)
+    - Real-time telemetry chart
+    - Charging progress bar
+    - Collapsible details panel
+    - ID tag input
+    - Action buttons (Plug/Unplug/Charge)
+
+    Signals:
+        connector_selected: Emitted when a connector is selected.
+        plug_in_clicked: Emitted when plug in button is clicked.
+        unplug_clicked: Emitted when unplug button is clicked.
+        start_charging_clicked: Emitted when start charging is clicked.
+        stop_charging_clicked: Emitted when stop charging is clicked.
+        apply_id_tag_clicked: Emitted when ID tag is applied.
+
+    Example:
+        >>> dashboard = SessionDashboard()
+        >>> dashboard.start_charging_clicked.connect(engine.start_session)
+        >>> dashboard.update_from_engine(engine)  # Update display
+    """
+
     connector_selected = Signal(int)
     plug_in_clicked = Signal()
     unplug_clicked = Signal()
@@ -340,20 +508,31 @@ class SessionDashboard(QWidget):
     stop_charging_clicked = Signal()
     apply_id_tag_clicked = Signal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the session dashboard.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self._selected_connector_id: int = 1
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        """
+        Build the complete dashboard UI.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
         layout.setContentsMargins(16, 16, 16, 16)
 
+        # Connector selection strip
         self.connector_strip = ConnectorStrip()
         self.connector_strip.connector_selected.connect(self._on_connector_selected)
         layout.addWidget(self.connector_strip)
 
+        # Primary metrics row (4 cards)
         primary_metrics = QGridLayout()
         primary_metrics.setSpacing(8)
         primary_metrics.setContentsMargins(0, 0, 0, 0)
@@ -369,9 +548,11 @@ class SessionDashboard(QWidget):
         primary_metrics.addWidget(self.metric_soc, 0, 3)
         layout.addLayout(primary_metrics)
 
+        # Real-time telemetry chart
         self.telemetry_chart = TelemetryChart()
         layout.addWidget(self.telemetry_chart, 1)
 
+        # State of charge progress section
         soc_section = QFrame()
         soc_section.setObjectName("socSection")
         soc_layout = QVBoxLayout(soc_section)
@@ -397,9 +578,11 @@ class SessionDashboard(QWidget):
 
         layout.addWidget(soc_section)
 
+        # Collapsible details panel
         self.details = CollapsibleDetails()
         layout.addWidget(self.details)
 
+        # ID tag input section
         id_tag_section = QFrame()
         id_tag_section.setObjectName("idTagSection")
         id_tag_layout = QHBoxLayout(id_tag_section)
@@ -412,6 +595,7 @@ class SessionDashboard(QWidget):
 
         layout.addWidget(id_tag_section)
 
+        # Action buttons row
         actions = QHBoxLayout()
         actions.setSpacing(12)
 
@@ -447,38 +631,85 @@ class SessionDashboard(QWidget):
         layout.addStretch()
 
     def _on_connector_selected(self, connector_id: int) -> None:
+        """
+        Handle connector selection from the strip.
+
+        Args:
+            connector_id: The selected connector ID.
+        """
         self._selected_connector_id = connector_id
         self.connector_selected.emit(connector_id)
 
+    def _on_charge_clicked(self) -> None:
+        if self.btn_charge.text().startswith("Start"):
+            self.start_charging_clicked.emit()
+        else:
+            self.stop_charging_clicked.emit()
+
     def _on_apply_id_tag(self, tag: str) -> None:
+        """
+        Handle ID tag application.
+
+        Args:
+            tag: The applied tag string.
+        """
         self.apply_id_tag_clicked.emit(tag)
 
     def get_selected_connector_id(self) -> int:
+        """
+        Get the currently selected connector ID.
+
+        Returns:
+            The selected connector ID.
+        """
         return self._selected_connector_id
 
     def set_selected_connector(self, connector_id: int) -> None:
+        """
+        Set the selected connector.
+
+        Args:
+            connector_id: The connector ID to select.
+        """
         if self._selected_connector_id != connector_id:
             self.telemetry_chart.clear()
         self._selected_connector_id = connector_id
         self.connector_strip.set_selected_connector(connector_id)
 
     def set_recent_tags(self, tags: list[str]) -> None:
+        """
+        Set the list of recent ID tags.
+
+        Args:
+            tags: List of recent tag strings.
+        """
         self.id_tag_input.set_recent_tags(tags)
 
     def update_from_engine(self, engine: "Engine") -> None:
+        """
+        Update the dashboard display from the engine state.
+
+        Refreshes all metrics, chart, and button states based on
+        the current engine and session state.
+
+        Args:
+            engine: The Engine instance to read state from.
+        """
         self.connector_strip.update_connectors(engine)
 
         conn = engine.get_connector(self._selected_connector_id)
         if not conn:
             return
 
+        # Update button states based on plug status
         self.btn_plug.setEnabled(not conn.is_plugged_in)
         self.btn_unplug.setEnabled(conn.is_plugged_in)
 
-        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
+        power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
         self.metric_power.set_value(f"{power_kw:.2f}")
         self.telemetry_chart.refresh()
 
+        # Update session-specific metrics if active
         session = engine.session
         if session and session.connector_id == self._selected_connector_id:
             self.metric_energy.set_value(f"{session.energy_charged:.1f}")
@@ -499,6 +730,7 @@ class SessionDashboard(QWidget):
             self.btn_start_charge.setEnabled(False)
             self.btn_stop_charge.setEnabled(True)
         else:
+            # No active session - clear metrics
             self.metric_energy.clear()
             self.metric_soc.clear()
             self.metric_duration.clear()
@@ -508,6 +740,7 @@ class SessionDashboard(QWidget):
             self.btn_start_charge.setEnabled(conn.is_plugged_in)
             self.btn_stop_charge.setEnabled(False)
 
+        # Update details panel
         self.details.update_metrics(
             tx_id=session.transaction_id if session else None,
             voltage=conn.voltage,
@@ -515,10 +748,15 @@ class SessionDashboard(QWidget):
             meter=engine.energy_meter.get_meter_reading(),
         )
 
-    def record_telemetry(self, engine: "Engine") -> None:
-        """Record one chart sample. Called every simulation step, even when not visible."""
-        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
-        self.telemetry_chart.record_point(power_kw)
+    def _refresh_widget_style(self, widget: QWidget) -> None:
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
 
     def set_id_tag(self, tag: str) -> None:
+        """
+        Set the ID tag in the input field.
+
+        Args:
+            tag: The tag string to set.
+        """
         self.id_tag_input.set_tag(tag)

@@ -1,3 +1,40 @@
+"""
+Bridge Module - Engine to OCPP Adapter Integration.
+
+This module provides the bridge between the simulation Engine and the OCPP
+Adapter, enabling communication between the EVSE simulator and Central System.
+It handles WebSocket connection management, event forwarding, and message
+synchronization between threads.
+
+The bridge consists of two main components:
+- AsyncRunner: Manages the async WebSocket connection in a dedicated thread
+- Bridge: Coordinates events between Engine and AsyncRunner
+
+Threading Architecture:
+    - Main Thread: Qt UI and Engine simulation
+    - AsyncRunner Thread: WebSocket/OCPP communication with its own event loop
+    - Meter Values Thread: Periodic meter value sampling
+    - Status Thread: Initial status notification sending
+
+Classes:
+    AsyncRunner: WebSocket connection manager running in a dedicated thread.
+    Bridge: Event coordinator between Engine and OCPP adapter.
+
+Example:
+    >>> from chargeghost_evse.bridge.bridge import Bridge
+    >>> from chargeghost_evse.engine.engine import Engine
+    >>> 
+    >>> engine = Engine()
+    >>> bridge = Bridge(
+    ...     engine=engine,
+    ...     url="wss://csms.example.com/CP_1",
+    ...     charge_point_id="CP_1"
+    ... )
+    >>> bridge.setup()  # Start connection
+    >>> # ... run simulation ...
+    >>> bridge.shutdown()  # Clean up
+"""
+
 import asyncio
 import ssl
 import threading
@@ -5,12 +42,48 @@ import traceback
 import websockets
 from datetime import datetime, timezone
 from typing import Optional
-from chargeghost_evse.util.event import Event
-from chargeghost_evse.ocpp_adapter.adapter import Adapter
+
 from chargeghost_evse.engine.engine import Engine
+from chargeghost_evse.ocpp_adapter.adapter import Adapter
+from chargeghost_evse.util.event import Event
 
 
 class AsyncRunner:
+    """
+    Manages WebSocket connection and OCPP adapter in a dedicated thread.
+
+    Creates and manages an asyncio event loop in a daemon thread for
+    WebSocket communication. Handles connection establishment, reconnection
+    with exponential backoff, and graceful shutdown.
+
+    The runner automatically:
+    - Reconnects on connection failure with exponential backoff (1s to 60s)
+    - Sends BootNotification on connection
+    - Maintains heartbeat loop based on server-configured interval
+
+    Attributes:
+        charge_point_id: OCPP charge point identifier.
+        url: WebSocket URL (wss:// or ws://).
+        password: Optional HTTP Basic Auth password.
+        skip_tls_verify: Whether to skip TLS certificate verification.
+        charge_point_model: Model name for BootNotification.
+        charge_point_vendor: Vendor name for BootNotification.
+        command_queue: Queue for receiving commands from Engine.
+        loop: The asyncio event loop (created in worker thread).
+        adapter: The OCPP adapter instance (created on connection).
+        on_log: Event emitted for log messages.
+
+    Example:
+        >>> runner = AsyncRunner(
+        ...     charge_point_id="CP_1",
+        ...     url="wss://localhost:3000",
+        ...     command_queue=engine.command_queue
+        ... )
+        >>> runner.run_in_thread()  # Start in background
+        >>> # ... later ...
+        >>> runner.shutdown()  # Signal shutdown
+    """
+
     def __init__(
         self,
         charge_point_id: str,
@@ -20,9 +93,22 @@ class AsyncRunner:
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
-    ):
+    ) -> None:
+        """
+        Initialize the async runner.
+
+        Args:
+            charge_point_id: Unique identifier for this charge point.
+            url: WebSocket server URL (charge_point_id will be appended if not present).
+            command_queue: Queue for receiving commands from the Engine.
+            password: Optional password for HTTP Basic Authentication.
+            skip_tls_verify: If True, skip TLS certificate verification.
+            charge_point_model: Model name reported in BootNotification.
+            charge_point_vendor: Vendor name reported in BootNotification.
+        """
         self.charge_point_id = charge_point_id
 
+        # Ensure URL ends with charge_point_id
         stripped_url = url.rstrip("/")
         if stripped_url.split("/")[-1] != charge_point_id:
             self.url = f"{stripped_url}/{charge_point_id}"
@@ -34,34 +120,76 @@ class AsyncRunner:
         self.charge_point_model = charge_point_model
         self.charge_point_vendor = charge_point_vendor
         self.command_queue = command_queue
+
+        # Async resources (created in worker thread)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.adapter: Optional[Adapter] = None
+
+        # Event for log messages
         self.on_log = Event()
+
+        # Connection state
         self._connected = False
         self._heartbeat_task: Optional[asyncio.Task] = None
+
+        # Shutdown signaling
         self._shutdown_event: Optional[asyncio.Event] = None
         self._thread_shutdown = threading.Event()
 
     def _log(self, message: str, **kwargs) -> None:
+        """
+        Emit a log message event.
+
+        Args:
+            message: Log message text.
+            **kwargs: Additional parameters passed to the event.
+        """
         self.on_log.emit(message=message, **kwargs)
 
     def run_in_thread(self) -> threading.Thread:
+        """
+        Start the runner in a daemon thread.
+
+        Creates a new daemon thread and starts the asyncio event loop.
+        The thread will automatically exit when the main thread exits.
+
+        Returns:
+            The created Thread instance.
+        """
         thread = threading.Thread(target=self._start_loop, daemon=True)
         thread.start()
         return thread
 
     def shutdown(self) -> None:
+        """
+        Signal the runner to shut down.
+
+        Sets both the thread shutdown event and the async shutdown event
+        (if available) to signal graceful termination.
+        """
         self._thread_shutdown.set()
         if self._shutdown_event and self.loop:
             self.loop.call_soon_threadsafe(self._shutdown_event.set)
 
     def _start_loop(self) -> None:
+        """
+        Create and run the asyncio event loop (runs in worker thread).
+
+        This is the thread entry point that creates a new asyncio event
+        loop and runs the adapter connection loop until shutdown.
+        """
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self._shutdown_event = asyncio.Event()
         self.loop.run_until_complete(self._run_adapter())
 
     def _get_auth_header(self) -> dict:
+        """
+        Build HTTP Basic Authentication header if password is set.
+
+        Returns:
+            Dictionary with Authorization header, or empty dict if no password.
+        """
         if self.password:
             import base64
 
@@ -71,6 +199,12 @@ class AsyncRunner:
         return {}
 
     def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
+        """
+        Create SSL context for secure WebSocket connections.
+
+        Returns:
+            SSL context for wss:// URLs, None for ws:// URLs.
+        """
         if self.url.startswith("wss://"):
             ssl_context = ssl.create_default_context()
             if self.skip_tls_verify:
@@ -81,9 +215,27 @@ class AsyncRunner:
 
     @property
     def is_connected(self) -> bool:
+        """
+        Check if WebSocket is connected and adapter is ready.
+
+        Returns:
+            True if connected and adapter exists, False otherwise.
+        """
         return self._connected and self.adapter is not None
 
     async def _run_adapter(self) -> None:
+        """
+        Main connection loop with automatic reconnection.
+
+        Establishes WebSocket connection, creates the OCPP adapter, sends
+        BootNotification, and runs until disconnection or shutdown.
+        On connection failure, waits with exponential backoff before retrying.
+
+        Reconnection behavior:
+        - Initial retry delay: 1 second
+        - Maximum retry delay: 60 seconds
+        - Delay doubles on each failure, resets on success
+        """
         retry_delay = 1
         max_retry_delay = 60
 
@@ -99,6 +251,7 @@ class AsyncRunner:
                     additional_headers=extra_headers,
                     ssl=ssl_context,
                 ) as ws:
+                    # Create and configure the OCPP adapter
                     self.adapter = Adapter(
                         self.charge_point_id,
                         ws,
@@ -113,6 +266,7 @@ class AsyncRunner:
                     adapter_task = asyncio.create_task(self.adapter.start())
 
                     try:
+                        # Send BootNotification to register with Central System
                         await self.adapter.send_boot_notification()
 
                         if self.adapter.registration_status:
@@ -121,6 +275,7 @@ class AsyncRunner:
                                 reg_status = reg_status.value
                             self._log(message=f"Registration status: {reg_status}")
 
+                        # Run adapter and heartbeat concurrently
                         await asyncio.gather(adapter_task, self._heartbeat_loop())
                     finally:
                         if not adapter_task.done():
@@ -149,6 +304,7 @@ class AsyncRunner:
                 if self._heartbeat_task and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
 
+            # Exponential backoff before retry
             if self._shutdown_event is not None and not self._shutdown_event.is_set():
                 self._log(message=f"Retrying in {retry_delay}s...")
                 try:
@@ -160,21 +316,31 @@ class AsyncRunner:
                 retry_delay = min(retry_delay * 2, max_retry_delay)
 
     async def _heartbeat_loop(self) -> None:
+        """
+        Periodic heartbeat transmission loop.
+
+        Sends Heartbeat messages at the interval specified by the Central
+        System (via HeartbeatInterval configuration). Uses a default of
+        300 seconds if not configured.
+
+        The loop exits on shutdown signal or if heartbeat fails.
+        """
         while (
             self._connected
             and self.adapter
             and self._shutdown_event is not None
             and not self._shutdown_event.is_set()
         ):
+            # Get interval from adapter configuration
             interval = self.adapter.heartbeat_interval
             if interval <= 0:
-                interval = 300
+                interval = 300  # Default to 5 minutes
 
             try:
                 await asyncio.wait_for(self._shutdown_event.wait(), timeout=interval)
-                break
+                break  # Shutdown signaled
             except asyncio.TimeoutError:
-                pass
+                pass  # Interval elapsed, send heartbeat
 
             if (
                 self._connected
@@ -190,6 +356,43 @@ class AsyncRunner:
 
 
 class Bridge:
+    """
+    Coordinates events between the Engine and OCPP adapter.
+
+    The Bridge connects the simulation Engine to the OCPP communication
+    layer, translating Engine events into OCPP messages and vice versa.
+    It manages multiple background threads for different tasks.
+
+    Responsibilities:
+    - Forward session start/stop events to OCPP (StartTransaction/StopTransaction)
+    - Forward connector status changes to OCPP (StatusNotification)
+    - Send periodic MeterValues during charging sessions
+    - Inject charging profile limit callback into Engine
+    - Send initial status notifications on connection
+
+    Threading:
+    - AsyncRunner thread: WebSocket/OCPP communication
+    - Meter values thread: Periodic meter value sampling
+    - Initial status thread: One-time status notification sending
+    - Limit injection thread: Charging profile callback setup
+
+    Attributes:
+        engine: The simulation Engine instance.
+        url: WebSocket URL for OCPP connection.
+        runner: The AsyncRunner managing WebSocket connection.
+        on_log: Event for log messages (forwarded from runner).
+
+    Example:
+        >>> engine = Engine()
+        >>> bridge = Bridge(engine, url="wss://csms.example.com/CP_1")
+        >>> bridge.setup()
+        >>> 
+        >>> # Engine events automatically forwarded to OCPP
+        >>> engine.start_session(connector_id=1, transaction_id=123)
+        >>> 
+        >>> bridge.shutdown()
+    """
+
     def __init__(
         self,
         engine: Engine,
@@ -199,9 +402,23 @@ class Bridge:
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
-    ):
+    ) -> None:
+        """
+        Initialize the Bridge with Engine and connection parameters.
+
+        Args:
+            engine: The simulation Engine to bridge to OCPP.
+            url: WebSocket URL for the Central System.
+            charge_point_id: Unique identifier for this charge point.
+            password: Optional HTTP Basic Auth password.
+            skip_tls_verify: If True, skip TLS certificate verification.
+            charge_point_model: Model name for BootNotification.
+            charge_point_vendor: Vendor name for BootNotification.
+        """
         self.engine = engine
         self.url = url
+
+        # Create the async runner for WebSocket communication
         self.runner = AsyncRunner(
             charge_point_id=charge_point_id,
             url=url,
@@ -211,32 +428,60 @@ class Bridge:
             charge_point_model=charge_point_model,
             charge_point_vendor=charge_point_vendor,
         )
+
+        # Forward log events from runner
         self.on_log = self.runner.on_log
+
+        # Background threads
         self._meter_values_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
 
     def setup(self) -> None:
+        """
+        Start the bridge and all background threads.
+
+        Subscribes to Engine events, starts the WebSocket connection,
+        and launches background threads for meter values, status
+        notifications, and charging profile injection.
+        """
+        # Subscribe to Engine events
         self.engine.session_started.subscribe(self.on_engine_session_started)
         self.engine.session_stopped.subscribe(self.on_engine_session_stopped)
         self.engine.connector_status_changed.subscribe(self.on_connector_status_change)
 
+        # Start WebSocket connection in background thread
         self.runner.run_in_thread()
 
+        # Start meter values sampling thread
         self._meter_values_thread = threading.Thread(
             target=self._meter_values_loop, daemon=True
         )
         self._meter_values_thread.start()
 
+        # Start initial status notification thread
         threading.Thread(target=self._initial_status_loop, daemon=True).start()
 
+        # Start charging profile injection thread
         threading.Thread(target=self._inject_limit_getter_loop, daemon=True).start()
 
     def shutdown(self) -> None:
+        """
+        Shut down the bridge and all background threads.
+
+        Removes callbacks, signals shutdown to all threads, and waits
+        for them to terminate gracefully.
+        """
         self._remove_limit_getter()
         self._shutdown_event.set()
         self.runner.shutdown()
 
     def _initial_status_loop(self) -> None:
+        """
+        Send initial StatusNotification messages after connection.
+
+        Waits for the adapter to be connected and registered, then sends
+        StatusNotification for all connectors. Runs once and exits.
+        """
         while not self._shutdown_event.is_set():
             if self.runner.is_connected and self.runner.adapter:
                 if self.runner.adapter.registration_status:
@@ -245,6 +490,13 @@ class Bridge:
             self._shutdown_event.wait(timeout=0.5)
 
     def _inject_limit_getter_loop(self) -> None:
+        """
+        Inject charging profile limit callback when adapter connects.
+
+        Monitors the adapter connection and injects the limit getter
+        callback whenever a new adapter instance is created (after
+        reconnection). This enables charging profile enforcement.
+        """
         last_injected_adapter = None
         while not self._shutdown_event.is_set():
             adapter = self.runner.adapter
@@ -255,7 +507,24 @@ class Bridge:
             self._shutdown_event.wait(timeout=0.5)
 
     def _inject_limit_getter(self) -> None:
+        """
+        Inject callbacks for charging profile limits and connector info.
+
+        Sets up bidirectional callbacks between Engine and Adapter:
+        - Engine.get_limit: Returns charging current limit from profiles
+        - Adapter.get_connector_info: Returns connector voltage and phases
+        """
         def get_limit(connector_id: int, transaction_id: Optional[int]) -> Optional[float]:
+            """
+            Get charging current limit from charging profiles.
+
+            Args:
+                connector_id: ID of the connector.
+                transaction_id: Current transaction ID.
+
+            Returns:
+                Maximum current in amperes, or None for no limit.
+            """
             if not self.runner.adapter or not self.runner.adapter.charging_profile_manager:
                 return None
 
@@ -263,6 +532,7 @@ class Bridge:
             if not connector:
                 return None
 
+            # Get transaction start time for TxProfile matching
             session = self.engine.session
             transaction_start = None
             if session and session.connector_id == connector_id:
@@ -280,6 +550,15 @@ class Bridge:
         self.engine.get_limit = get_limit
 
         def get_connector_info(connector_id: int) -> Optional[tuple[float, int]]:
+            """
+            Get connector electrical parameters.
+
+            Args:
+                connector_id: ID of the connector.
+
+            Returns:
+                Tuple of (voltage, phases), or None if not found.
+            """
             connector = self.engine.get_connector(connector_id)
             if not connector:
                 return None
@@ -289,11 +568,22 @@ class Bridge:
             self.runner.adapter.get_connector_info = get_connector_info
 
     def _remove_limit_getter(self) -> None:
+        """
+        Remove injected callbacks during shutdown.
+
+        Clears the callbacks to prevent calls to disconnected adapter.
+        """
         self.engine.get_limit = None
         if self.runner.adapter:
             self.runner.adapter.get_connector_info = None
 
     def _send_initial_status_notifications(self) -> None:
+        """
+        Send StatusNotification for all connectors after registration.
+
+        Called once after successful BootNotification to report the
+        initial status of all connectors to the Central System.
+        """
         if not self.runner.adapter or not self.runner.loop:
             return
 
@@ -312,13 +602,21 @@ class Bridge:
             )
 
     def _meter_values_loop(self) -> None:
+        """
+        Periodic meter value sampling and transmission loop.
+
+        Samples the energy meter at the configured MeterValueSampleInterval
+        and sends MeterValues to the Central System during active sessions.
+        """
         while not self._shutdown_event.is_set():
-            interval = 60  # Default
+            # Get sampling interval from configuration
+            interval = 60  # Default to 60 seconds
             if self.runner.adapter:
                 interval = self.runner.adapter.config_manager.get_int_value(
                     "MeterValueSampleInterval", 60
                 )
 
+            # Send meter values if session is active and charging
             if (
                 interval > 0
                 and self.engine.session
@@ -335,15 +633,30 @@ class Bridge:
                         self.runner.loop,
                     )
 
-            # Wait for the interval or until shutdown.
-            # If interval is 0 or less, use a small default to avoid busy loop.
+            # Wait for the interval or until shutdown
             wait_interval = max(interval, 1) if interval > 0 else 1
             self._shutdown_event.wait(timeout=wait_interval)
 
     def _log(self, message: str, **kwargs) -> None:
+        """
+        Emit a log message event.
+
+        Args:
+            message: Log message text.
+            **kwargs: Additional parameters passed to the event.
+        """
         self.on_log.emit(message=message, **kwargs)
 
     def on_connector_status_change(self, connector_id: int, status) -> None:
+        """
+        Handle connector status change events from the Engine.
+
+        Forwards status changes to the Central System via StatusNotification.
+
+        Args:
+            connector_id: ID of the connector that changed.
+            status: New ConnectorState value.
+        """
         if self.runner.adapter and self.runner.loop:
             conn_status = status.value if hasattr(status, "value") else str(status)
 
@@ -360,6 +673,15 @@ class Bridge:
             )
 
     def on_engine_session_started(self, connector_id: int) -> None:
+        """
+        Handle session started events from the Engine.
+
+        Sends StartTransaction to the Central System and updates the
+        session with the assigned transaction ID.
+
+        Args:
+            connector_id: ID of the connector where session started.
+        """
         if not self.runner.adapter or not self.runner.loop:
             return
 
@@ -374,6 +696,7 @@ class Bridge:
         id_tag = session.id_tag or "UNKNOWN_TAG"
 
         async def send_start_tx() -> None:
+            """Send StartTransaction and update session with transaction ID."""
             response = await adapter.send_start_transaction(
                 connector_id=connector_id,
                 id_tag=id_tag,
@@ -387,6 +710,15 @@ class Bridge:
         asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
 
     def on_engine_session_stopped(self, connector_id: int) -> None:
+        """
+        Handle session stopped events from the Engine.
+
+        Sends StopTransaction to the Central System with the final
+        meter reading and stop reason.
+
+        Args:
+            connector_id: ID of the connector where session stopped.
+        """
         if not self.runner.adapter or not self.runner.loop:
             return
 
@@ -414,12 +746,24 @@ class Bridge:
         )
 
     def send_authorize(self, id_tag: str) -> None:
+        """
+        Send an Authorize request to the Central System.
+
+        Args:
+            id_tag: The identifier to authorize.
+        """
         if self.runner.adapter and self.runner.loop:
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_authorize(id_tag=id_tag), self.runner.loop
             )
 
     def send_heartbeat(self) -> None:
+        """
+        Send a manual Heartbeat to the Central System.
+
+        Note: Heartbeats are normally sent automatically by the AsyncRunner.
+        This method is for manual triggering if needed.
+        """
         if self.runner.adapter and self.runner.loop:
             asyncio.run_coroutine_threadsafe(
                 self.runner.adapter.send_heartbeat(), self.runner.loop
