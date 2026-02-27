@@ -656,6 +656,8 @@ class ManualWidget(QWidget):
         else:
             self.main_window.app_settings.log_mode = "compact"
             self.btn_log_mode.setText("Detailed")
+        self.main_window._global_log_panel.btn_log_mode.setChecked(is_detailed)
+        self.main_window._global_log_panel.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
 
     def update_connector_range(self) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
@@ -861,6 +863,10 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.mode_select)
         self.stack.addWidget(self.simulator)
         self.stack.addWidget(self.manual)
+
+        if self.app_settings.log_mode == "verbose":
+            self.manual.btn_log_mode.setChecked(True)
+            self.manual.btn_log_mode.setText("Compact")
 
         self.stack.setCurrentWidget(self.mode_select)
 
