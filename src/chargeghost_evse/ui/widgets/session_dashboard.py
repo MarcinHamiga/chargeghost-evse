@@ -640,12 +640,6 @@ class SessionDashboard(QWidget):
         self._selected_connector_id = connector_id
         self.connector_selected.emit(connector_id)
 
-    def _on_charge_clicked(self) -> None:
-        if self.btn_charge.text().startswith("Start"):
-            self.start_charging_clicked.emit()
-        else:
-            self.stop_charging_clicked.emit()
-
     def _on_apply_id_tag(self, tag: str) -> None:
         """
         Handle ID tag application.
@@ -747,10 +741,6 @@ class SessionDashboard(QWidget):
             current=conn.current,
             meter=engine.energy_meter.get_meter_reading(),
         )
-
-    def _refresh_widget_style(self, widget: QWidget) -> None:
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
 
     def set_id_tag(self, tag: str) -> None:
         """

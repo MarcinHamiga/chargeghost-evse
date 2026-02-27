@@ -20,7 +20,7 @@ class QtSignalBridge(QObject):
     def __init__(self, engine, bridge):
         super().__init__()
         self._engine = weakref.ref(engine)
-        self._bridge_ref = weakref.ref(bridge, self._on_bridge_deleted)
+        self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
         self._log_mode: LogMode = "compact"
 
@@ -39,9 +39,6 @@ class QtSignalBridge(QObject):
         if self._log_mode != value:
             self._log_mode = value
             self._safe_emit(self.log_mode_changed)
-
-    def _on_bridge_deleted(self, ref):
-        pass
 
     def check_connection_status(self):
         bridge = self._bridge_ref()
