@@ -1,4 +1,6 @@
 import time
+from datetime import datetime, timezone
+
 from chargeghost_evse.engine.session import Session
 
 
@@ -77,7 +79,20 @@ class TestSession:
         assert session.state_of_charge == 0.0
 
     def test_start_time(self):
-        before = time.monotonic()
+        before = time.time()
         session = Session()
-        after = time.monotonic()
+        after = time.time()
         assert before <= session.start_time <= after
+
+
+def test_start_time_is_posix_timestamp():
+    """start_time must be a valid POSIX timestamp, not a monotonic counter."""
+    before = time.time()
+    session = Session(connector_id=1, id_tag="TAG1", transaction_id=1)
+    after = time.time()
+
+    assert before <= session.start_time <= after
+
+    # Must convert to a valid datetime without producing a 1970-era date
+    dt = datetime.fromtimestamp(session.start_time, tz=timezone.utc)
+    assert dt.year >= 2024

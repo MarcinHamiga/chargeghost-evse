@@ -413,7 +413,7 @@ class Engine(Subscriber):
                 connector.unsubscribe_from(self.session.ev_max_charge_reached)
             self.session.unsubscribe_all()
 
-            self._log(f"Session time [s]: {time.monotonic() - self.session.start_time}")
+            self._log(f"Session time [s]: {time.time() - self.session.start_time}")
             self.session_stopped.emit(connector_id=connector_id)
             self.session = None
             self.energy_meter.is_charging = False

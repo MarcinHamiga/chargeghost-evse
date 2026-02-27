@@ -708,7 +708,7 @@ class SessionDashboard(QWidget):
         if session and session.connector_id == self._selected_connector_id:
             self.metric_energy.set_value(f"{session.energy_charged:.1f}")
             self.metric_soc.set_value(f"{session.state_of_charge:.1f}")
-            duration = time.monotonic() - session.start_time
+            duration = time.time() - session.start_time
             total_secs = int(duration)
             hours = total_secs // 3600
             minutes = (total_secs % 3600) // 60

@@ -34,7 +34,7 @@ class Session(Subscriber):
 
     Attributes:
         transaction_id: OCPP transaction identifier for this session.
-        start_time: Monotonic timestamp when the session started.
+        start_time: POSIX timestamp (time.time()) when the session started.
         energy_charged: Total energy delivered in Watt-hours (Wh).
         connector_id: ID of the connector used for this session.
         state_of_charge: Current battery percentage (0-100).
@@ -72,7 +72,7 @@ class Session(Subscriber):
         """
         super().__init__()
         self.transaction_id: int = transaction_id
-        self.start_time: float = time.monotonic()
+        self.start_time: float = time.time()
         self.energy_charged: float = 0.0
         self.connector_id: int = connector_id
         self.state_of_charge: float = 0.0
