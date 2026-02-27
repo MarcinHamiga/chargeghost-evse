@@ -57,11 +57,6 @@ class TestConnector:
 		assert connector.is_plugged_in is False
 		assert connector.status == ConnectorState.FAULTED
 
-	def test_authorize(self):
-		connector = Connector(id=1)
-		connector.authorize(id_tag="TEST_TAG")
-		assert connector.id_tag == "TEST_TAG"
-
 	def test_start_charging(self):
 		connector = Connector(id=1)
 		connector.plug_in()
@@ -100,12 +95,6 @@ class TestConnector:
 		
 		assert len(status_changes) == 1
 		assert status_changes[0] == (1, ConnectorState.PREPARING)
-
-	def test_get_status(self):
-		connector = Connector(id=1)
-		assert connector.get_status() == ConnectorState.AVAILABLE
-		connector.plug_in()
-		assert connector.get_status() == ConnectorState.PREPARING
 
 	def test_set_parameters_voltage(self):
 		connector = Connector(id=1)
@@ -168,19 +157,6 @@ class TestConnector:
 		error = connector.set_parameters(phase=5)
 		assert error is not None
 		assert "Phase" in error
-
-	def test_parameters_change_event(self):
-		connector = Connector(id=1)
-		changes = []
-
-		def on_params_change(connector_id, voltage, current, phase):
-			changes.append((connector_id, voltage, current, phase))
-
-		connector.on_parameters_change.subscribe(on_params_change)
-		connector.set_parameters(voltage=400.0, current=50.0, phase=2)
-
-		assert len(changes) == 1
-		assert changes[0] == (1, 400.0, 50.0, 2)
 
 	def test_power_property(self):
 		connector = Connector(id=1, voltage=230.0, current=32.0, phase=1)

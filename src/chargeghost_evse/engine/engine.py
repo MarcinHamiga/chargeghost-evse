@@ -18,16 +18,13 @@ Classes:
 import queue
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Callable, Optional
 
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
-
-if TYPE_CHECKING:
-    from chargeghost_evse.engine.connector import ConnectorState
 
 
 class Engine(Subscriber):
@@ -64,8 +61,6 @@ class Engine(Subscriber):
         energy_meter: Cumulative energy meter instance.
         command_queue: Thread-safe queue for async commands.
         event_queue: Recent meter readings for UI updates.
-        simulation_time_step: Interval for simulation updates in seconds.
-        display_time_step: Interval for UI display updates in seconds.
         get_limit: Optional callback to get charging current limits.
 
     Example:
@@ -101,10 +96,6 @@ class Engine(Subscriber):
         self._connectors: dict[int, Connector] = {}
         self._next_connector_id: int = 1
 
-        # Timing for simulation and display updates
-        self.last_update_time: Optional[float] = None
-        self.last_display_time: Optional[float] = None
-
         # Pending remote start requests waiting for plug-in
         # Key: connector_id, Value: request details dict
         self._pending_remote_starts: dict[int, dict] = {}
@@ -115,10 +106,6 @@ class Engine(Subscriber):
         self.connector_status_changed: Event = Event()
         self.connector_parameters_changed: Event = Event()
         self.on_log: Event = Event()
-
-        # Simulation timing configuration
-        self.simulation_time_step: float = 0.1  # 100ms update interval
-        self.display_time_step: float = 1.0  # 1s UI refresh interval
 
         # Injectable callback for external charging limits (e.g., ChargingProfileManager)
         # Signature: (connector_id: int, transaction_id: Optional[int]) -> Optional[float]
@@ -393,7 +380,6 @@ class Engine(Subscriber):
 
         # Start charging
         self.energy_meter.is_charging = True
-        self.last_update_time = time.monotonic()
         self.session_started.emit(connector_id=connector_id)
 
     def stop_session(self, reason: str = "Local") -> None:
