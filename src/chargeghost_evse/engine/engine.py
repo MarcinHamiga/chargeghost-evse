@@ -176,10 +176,10 @@ class Engine(Subscriber):
         """
         if len(self._connectors) <= 1:
             raise ValueError("Cannot remove the last connector")
-        if self.session and self.session.connector_id == connector_id:
-            raise ValueError("Cannot remove connector with active session")
         if connector_id not in self._connectors:
             raise ValueError(f"Connector {connector_id} not found")
+        if self.session and self.session.connector_id == connector_id:
+            raise ValueError("Cannot remove connector with active session")
         self._connectors[connector_id].unsubscribe_all()
         del self._connectors[connector_id]
 

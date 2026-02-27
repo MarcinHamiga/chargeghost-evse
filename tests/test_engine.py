@@ -394,3 +394,13 @@ def test_remove_connector_raises_on_active_session():
 
 	with pytest.raises(ValueError, match="active session"):
 		engine.remove_connector(id1)
+
+
+def test_remove_connector_raises_on_unknown_id():
+	"""Engine.remove_connector() must raise ValueError if connector_id does not exist."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	with pytest.raises(ValueError, match="not found"):
+		engine.remove_connector(99)
