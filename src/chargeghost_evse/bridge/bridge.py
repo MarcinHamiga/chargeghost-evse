@@ -14,7 +14,6 @@ Threading Architecture:
     - Main Thread: Qt UI and Engine simulation
     - AsyncRunner Thread: WebSocket/OCPP communication with its own event loop
     - Meter Values Thread: Periodic meter value sampling
-    - Status Thread: Initial status notification sending
 
 Classes:
     AsyncRunner: WebSocket connection manager running in a dedicated thread.
@@ -72,6 +71,7 @@ class AsyncRunner:
         loop: The asyncio event loop (created in worker thread).
         adapter: The OCPP adapter instance (created on connection).
         on_log: Event emitted for log messages.
+        on_adapter_registered: Event emitted after each successful BootNotification.
 
     Example:
         >>> runner = AsyncRunner(
@@ -127,6 +127,9 @@ class AsyncRunner:
 
         # Event for log messages
         self.on_log = Event()
+
+        # Event emitted after each successful boot notification / registration
+        self.on_adapter_registered: Event = Event()
 
         # Connection state
         self._connected = False
@@ -260,6 +263,9 @@ class AsyncRunner:
                         charge_point_vendor=self.charge_point_vendor,
                     )
                     self.adapter.on_log.subscribe(self._log)
+                    self.adapter.on_registration_accepted.subscribe(
+                        self.on_adapter_registered.emit
+                    )
                     self._connected = True
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
 
@@ -373,8 +379,6 @@ class Bridge:
     Threading:
     - AsyncRunner thread: WebSocket/OCPP communication
     - Meter values thread: Periodic meter value sampling
-    - Initial status thread: One-time status notification sending
-    - Limit injection thread: Charging profile callback setup
 
     Attributes:
         engine: The simulation Engine instance.
@@ -438,11 +442,11 @@ class Bridge:
 
     def setup(self) -> None:
         """
-        Start the bridge and all background threads.
+        Start the bridge and background threads.
 
         Subscribes to Engine events, starts the WebSocket connection,
-        and launches background threads for meter values, status
-        notifications, and charging profile injection.
+        launches the meter values background thread, and registers an
+        event handler that fires after each successful BootNotification.
         """
         # Subscribe to Engine events
         self.engine.session_started.subscribe(self.on_engine_session_started)
@@ -458,11 +462,8 @@ class Bridge:
         )
         self._meter_values_thread.start()
 
-        # Start initial status notification thread
-        threading.Thread(target=self._initial_status_loop, daemon=True).start()
-
-        # Start charging profile injection thread
-        threading.Thread(target=self._inject_limit_getter_loop, daemon=True).start()
+        # Subscribe to registration event to send status and inject limit getter
+        self.runner.on_adapter_registered.subscribe(self._on_adapter_registered)
 
     def shutdown(self) -> None:
         """
@@ -475,36 +476,13 @@ class Bridge:
         self._shutdown_event.set()
         self.runner.shutdown()
 
-    def _initial_status_loop(self) -> None:
-        """
-        Send initial StatusNotification messages after connection.
-
-        Waits for the adapter to be connected and registered, then sends
-        StatusNotification for all connectors. Runs once and exits.
-        """
-        while not self._shutdown_event.is_set():
-            if self.runner.is_connected and self.runner.adapter:
-                if self.runner.adapter.registration_status:
-                    self._send_initial_status_notifications()
-                    break
-            self._shutdown_event.wait(timeout=0.5)
-
-    def _inject_limit_getter_loop(self) -> None:
-        """
-        Inject charging profile limit callback when adapter connects.
-
-        Monitors the adapter connection and injects the limit getter
-        callback whenever a new adapter instance is created (after
-        reconnection). This enables charging profile enforcement.
-        """
-        last_injected_adapter = None
-        while not self._shutdown_event.is_set():
-            adapter = self.runner.adapter
-            if self.runner.is_connected and adapter and adapter is not last_injected_adapter:
-                self._inject_limit_getter()
-                self._log(message="Charging profile limit enforcement enabled")
-                last_injected_adapter = adapter
-            self._shutdown_event.wait(timeout=0.5)
+    def _on_adapter_registered(self) -> None:
+        """Called after each successful boot notification / registration."""
+        self._send_initial_status_notifications()
+        self._inject_limit_getter()
+        self._log(
+            message="[cyan]OCPP:[/cyan] Adapter registered, sending initial status and enabling charging profiles"
+        )
 
     def _inject_limit_getter(self) -> None:
         """
