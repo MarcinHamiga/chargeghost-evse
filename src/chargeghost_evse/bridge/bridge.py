@@ -35,12 +35,13 @@ Example:
 """
 
 import asyncio
+import concurrent.futures
 import ssl
 import threading
 import traceback
 import websockets
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.adapter import Adapter
@@ -267,6 +268,7 @@ class AsyncRunner:
                         self.on_adapter_registered.emit
                     )
                     self._connected = True
+                    retry_delay = 1  # Reset backoff after successful connection
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
 
                     adapter_task = asyncio.create_task(self.adapter.start())
@@ -562,7 +564,9 @@ class Bridge:
         Called once after successful BootNotification to report the
         initial status of all connectors to the Central System.
         """
-        if not self.runner.adapter or not self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
             return
 
         self._log(message="Sending initial StatusNotification for all connectors...")
@@ -570,14 +574,15 @@ class Bridge:
         for connector in self.engine.connectors:
             conn_status = connector.status.value
 
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_status_notification(
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_status_notification(
                     connector_id=connector.id,
                     error_code="NoError",
                     status=conn_status,
                 ),
-                self.runner.loop,
+                loop,
             )
+            future.add_done_callback(self._handle_future_error)
 
     def _meter_values_loop(self) -> None:
         """
@@ -601,19 +606,28 @@ class Bridge:
                 and self.engine.session.transaction_id > 0
                 and self.engine.energy_meter.is_charging
             ):
-                if self.runner.adapter and self.runner.loop:
-                    asyncio.run_coroutine_threadsafe(
-                        self.runner.adapter.send_meter_values(
+                adapter = self.runner.adapter
+                loop = self.runner.loop
+                if adapter and loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        adapter.send_meter_values(
                             connector_id=self.engine.session.connector_id,
                             value=self.engine.energy_meter.get_meter_reading(),
                             transaction_id=self.engine.session.transaction_id,
                         ),
-                        self.runner.loop,
+                        loop,
                     )
+                    future.add_done_callback(self._handle_future_error)
 
             # Wait for the interval or until shutdown
             wait_interval = max(interval, 1) if interval > 0 else 1
             self._shutdown_event.wait(timeout=wait_interval)
+
+    def _handle_future_error(self, future: "concurrent.futures.Future[Any]") -> None:
+        """Log exceptions from fire-and-forget coroutine futures."""
+        exc = future.exception()
+        if exc is not None:
+            self._log(message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}")
 
     def _log(self, message: str, **kwargs) -> None:
         """
@@ -635,20 +649,23 @@ class Bridge:
             connector_id: ID of the connector that changed.
             status: New ConnectorState value.
         """
-        if self.runner.adapter and self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
             conn_status = status.value if hasattr(status, "value") else str(status)
 
             self._log(
                 message=f"Connector {connector_id} status changed to {conn_status}"
             )
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_status_notification(
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_status_notification(
                     connector_id=connector_id,
                     error_code="NoError",
                     status=conn_status,
                 ),
-                self.runner.loop,
+                loop,
             )
+            future.add_done_callback(self._handle_future_error)
 
     def on_engine_session_started(self, connector_id: int) -> None:
         """
@@ -685,7 +702,8 @@ class Bridge:
                 session.transaction_id = response.transaction_id
                 self._log(message=f"Transaction ID assigned: {response.transaction_id}")
 
-        asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
+        future = asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
+        future.add_done_callback(self._handle_future_error)
 
     def on_engine_session_stopped(self, connector_id: int) -> None:
         """
@@ -697,7 +715,9 @@ class Bridge:
         Args:
             connector_id: ID of the connector where session stopped.
         """
-        if not self.runner.adapter or not self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
             return
 
         last_session = self.engine.last_stopped_session
@@ -713,15 +733,16 @@ class Bridge:
             message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
         )
 
-        asyncio.run_coroutine_threadsafe(
-            self.runner.adapter.send_stop_transaction(
+        future = asyncio.run_coroutine_threadsafe(
+            adapter.send_stop_transaction(
                 meter_stop=int(meter_stop),
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 transaction_id=transaction_id,
                 reason=reason,
             ),
-            self.runner.loop,
+            loop,
         )
+        future.add_done_callback(self._handle_future_error)
 
     def send_authorize(self, id_tag: str) -> None:
         """
@@ -730,10 +751,13 @@ class Bridge:
         Args:
             id_tag: The identifier to authorize.
         """
-        if self.runner.adapter and self.runner.loop:
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_authorize(id_tag=id_tag), self.runner.loop
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_authorize(id_tag=id_tag), loop
             )
+            future.add_done_callback(self._handle_future_error)
 
     def send_heartbeat(self) -> None:
         """
@@ -742,7 +766,10 @@ class Bridge:
         Note: Heartbeats are normally sent automatically by the AsyncRunner.
         This method is for manual triggering if needed.
         """
-        if self.runner.adapter and self.runner.loop:
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_heartbeat(), self.runner.loop
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_heartbeat(), loop
             )
+            future.add_done_callback(self._handle_future_error)
