@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -76,6 +77,10 @@ class ConnectorEditorCard(QFrame):
         self.phase_spin.setMinimumWidth(100)
         form.addRow("Phase:", self.phase_spin)
 
+        self.voltage_spin.valueChanged.connect(self._update_power_display)
+        self.current_spin.valueChanged.connect(self._update_power_display)
+        self.phase_spin.valueChanged.connect(self._update_power_display)
+
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -84,6 +89,9 @@ class ConnectorEditorCard(QFrame):
         self.btn_apply = QPushButton("Apply")
         self.btn_apply.setProperty("success", True)
         self.btn_apply.setMinimumHeight(28)
+        self.btn_apply.setToolTip(
+            "Updates connector in memory. Use 'Save Configuration' to persist to disk."
+        )
         self.btn_apply.clicked.connect(self._on_apply_clicked)
         buttons.addWidget(self.btn_apply)
 
@@ -116,7 +124,6 @@ class ConnectorEditorCard(QFrame):
         self.power_label.setText(f"Power: {power_kw:.2f} kW")
 
     def _on_apply_clicked(self) -> None:
-        self._update_power_display()
         self.on_apply.emit(
             self.connector_id,
             self.voltage_spin.value(),
@@ -125,7 +132,15 @@ class ConnectorEditorCard(QFrame):
         )
 
     def _on_remove_clicked(self) -> None:
-        self.on_remove.emit(self.connector_id)
+        result = QMessageBox.question(
+            self,
+            "Remove Connector",
+            f"Remove Connector {self.connector_id}? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            self.on_remove.emit(self.connector_id)
 
     def set_connector_id(self, connector_id: int) -> None:
         self.connector_id = connector_id

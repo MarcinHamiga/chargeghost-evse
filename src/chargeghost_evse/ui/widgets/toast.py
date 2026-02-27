@@ -1,9 +1,9 @@
 from typing import Literal, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QWidget
 
-from chargeghost_evse.ui.widgets.icons import get_icon_svg
+from chargeghost_evse.ui.widgets.icons import get_icon, get_icon_svg
 
 
 ToastType = Literal["success", "error", "warning", "info"]
@@ -66,6 +66,8 @@ class ToastNotification(QWidget):
         close_btn.setObjectName("toastCloseBtn")
         close_btn.setFixedSize(24, 24)
         close_btn.setFlat(True)
+        close_btn.setIcon(get_icon("x", "#ffffff"))
+        close_btn.setIconSize(QSize(16, 16))
         close_btn.clicked.connect(self._on_close)
         layout.addWidget(close_btn)
 
@@ -77,5 +79,15 @@ class ToastNotification(QWidget):
         self._animate_out()
 
     def _animate_out(self) -> None:
-        self.closed.emit()
-        self.deleteLater()
+        if hasattr(self, "_anim"):
+            return
+        effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(effect)
+        self._anim = QPropertyAnimation(effect, b"opacity")
+        self._anim.setDuration(200)
+        self._anim.setStartValue(1.0)
+        self._anim.setEndValue(0.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        self._anim.finished.connect(self.closed.emit)
+        self._anim.finished.connect(self.deleteLater)
+        self._anim.start()

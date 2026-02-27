@@ -124,27 +124,23 @@ QPushButton#btnSaveConfig:disabled {
 }
 
 /* Success Button */
-QPushButton[success="true"],
-QPushButton#btnCharge {
+QPushButton[success="true"] {
 	background-color: #238636;
 	border: 1px solid #238636;
 	color: #ffffff;
 	font-weight: 600;
 }
 
-QPushButton[success="true"]:hover,
-QPushButton#btnCharge:hover {
+QPushButton[success="true"]:hover {
 	background-color: #2ea043;
 	border: 1px solid #2ea043;
 }
 
-QPushButton[success="true"]:pressed,
-QPushButton#btnCharge:pressed {
+QPushButton[success="true"]:pressed {
 	background-color: #196c2e;
 }
 
-QPushButton[success="true"]:disabled,
-QPushButton#btnCharge:disabled {
+QPushButton[success="true"]:disabled {
 	background-color: rgba(35, 134, 54, 0.2);
 	border: 1px solid rgba(35, 134, 54, 0.2);
 	color: rgba(255, 255, 255, 0.2);
@@ -452,8 +448,8 @@ QFrame[connectorIndicator="true"][selected="true"] {
 }
 
 QFrame[connectorIndicator="true"][charging="true"] {
-	border-color: #238636;
-	background-color: rgba(35, 134, 54, 0.08);
+	border-color: #1EAD98;
+	background-color: rgba(30, 173, 152, 0.08);
 }
 
 QLabel#connectorIdLabel {
@@ -1014,53 +1010,6 @@ QSplitter::handle:hover {
 	background-color: rgba(30, 173, 152, 0.2);
 	border-color: #1EAD98;
 	color: #1EAD98;
-}
-
-/* ============================================
-   CONNECTOR STATUS CARD (StatusPanel)
-   ============================================ */
-
-#connectorStatusCard QLabel[connectorTitle="true"] {
-	font-weight: 700;
-	color: #1EAD98;
-	font-size: 14px;
-}
-
-#connectorStatusCard QLabel[statusBadge="true"] {
-	font-weight: 600;
-	font-size: 11px;
-	padding: 2px 6px;
-	border-radius: 4px;
-	background-color: rgba(255, 255, 255, 0.05);
-}
-
-#connectorStatusCard QLabel[plugStatus="true"] {
-	color: #8b949e;
-	font-size: 12px;
-}
-
-#connectorStatusCard QLabel[outputInfo="true"] {
-	color: #8b949e;
-	font-family: monospace;
-	font-size: 11px;
-}
-
-#connectorStatusCard QLabel[socTitle="true"] {
-	color: #e6edf3;
-	font-size: 11px;
-	font-weight: 500;
-}
-
-#connectorStatusCard QLabel[socValue="true"] {
-	color: #1EAD98;
-	font-size: 11px;
-	font-weight: 700;
-}
-
-#connectorStatusCard QLabel[tagLabel="true"] {
-	color: #1EAD98;
-	font-size: 11px;
-	font-weight: 500;
 }
 
 /* ============================================

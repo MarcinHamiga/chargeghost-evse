@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from chargeghost_evse.ui.styles import colors
+from chargeghost_evse.ui.widgets.icons import get_icon_html
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
 
 
@@ -55,8 +57,10 @@ class CollapsibleLogPanel(QWidget):
         header_layout.setContentsMargins(12, 0, 12, 0)
         header_layout.setSpacing(8)
 
-        self._expand_icon = QLabel(">")
+        self._expand_icon = QLabel()
         self._expand_icon.setObjectName("expandIcon")
+        self._expand_icon.setTextFormat(Qt.TextFormat.RichText)
+        self._expand_icon.setText(get_icon_html("chevron_right", colors.TEXT_MUTED, 12))
         header_layout.addWidget(self._expand_icon)
 
         title = QLabel("Activity Log")
@@ -122,12 +126,12 @@ class CollapsibleLogPanel(QWidget):
         animation.setDuration(200)
 
         if self._is_expanded:
-            self._expand_icon.setText("v")
+            self._expand_icon.setText(get_icon_html("chevron_down", colors.TEXT_MUTED, 12))
             self._content.show()
             animation.setStartValue(0)
             animation.setEndValue(self.EXPANDED_HEIGHT)
         else:
-            self._expand_icon.setText(">")
+            self._expand_icon.setText(get_icon_html("chevron_right", colors.TEXT_MUTED, 12))
             animation.setStartValue(self._content.height())
             animation.setEndValue(0)
 

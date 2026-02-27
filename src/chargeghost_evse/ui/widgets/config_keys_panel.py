@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -24,6 +24,8 @@ class ConfigKeysPanel(QWidget):
         self._key_inputs: dict[str, QLineEdit] = {}
         self._category_groups: dict[str, QGroupBox] = {}
         self._category_forms: dict[str, QFormLayout] = {}
+        self._debounce_timers: dict[str, QTimer] = {}
+        self._pending_values: dict[str, str] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -82,6 +84,12 @@ class ConfigKeysPanel(QWidget):
         self._category_forms[category] = form
 
     def _clear_forms(self) -> None:
+        for timer in self._debounce_timers.values():
+            timer.stop()
+            timer.deleteLater()
+        self._debounce_timers.clear()
+        self._pending_values.clear()
+
         for i in reversed(range(self._content_layout.count())):
             item = self._content_layout.itemAt(i)
             if item is not None:
@@ -118,8 +126,17 @@ class ConfigKeysPanel(QWidget):
         if key.readonly:
             line_edit.setEnabled(False)
 
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.setInterval(800)
+        key_name = key.key
+        timer.timeout.connect(
+            lambda k=key_name: self.key_changed.emit(k, self._pending_values.get(k, ""))
+        )
+        self._debounce_timers[key_name] = timer
+
         line_edit.textChanged.connect(
-            lambda text, k=key.key: self._on_text_changed(k, text)
+            lambda text, k=key.key: self._on_text_changed_debounced(k, text)
         )
 
         self._key_inputs[key.key] = line_edit
@@ -156,8 +173,12 @@ class ConfigKeysPanel(QWidget):
             # Hide category group if no rows are visible
             self._category_groups[category].setVisible(has_visible_rows)
 
-    def _on_text_changed(self, key_name: str, new_value: str) -> None:
-        self.key_changed.emit(key_name, new_value)
+    def _on_text_changed_debounced(self, key_name: str, new_value: str) -> None:
+        self._pending_values[key_name] = new_value
+        timer = self._debounce_timers.get(key_name)
+        if timer:
+            timer.stop()
+            timer.start()
 
     def update_key(self, key_name: str, new_value: str) -> None:
         line_edit = self._key_inputs.get(key_name)
