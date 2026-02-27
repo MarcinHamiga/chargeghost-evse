@@ -679,6 +679,11 @@ class SessionDashboard(QWidget):
         """
         self.id_tag_input.set_recent_tags(tags)
 
+    def record_telemetry(self, engine: "Engine") -> None:
+        """Record a telemetry data point. Called every simulation tick."""
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
+        self.telemetry_chart.add_point(power_kw)
+
     def update_from_engine(self, engine: "Engine") -> None:
         """
         Update the dashboard display from the engine state.
@@ -701,7 +706,6 @@ class SessionDashboard(QWidget):
 
         power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
         self.metric_power.set_value(f"{power_kw:.2f}")
-        self.telemetry_chart.refresh()
 
         # Update session-specific metrics if active
         session = engine.session
