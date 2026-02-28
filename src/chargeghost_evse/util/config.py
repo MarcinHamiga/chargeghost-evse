@@ -54,13 +54,13 @@ LogMode = Literal["verbose", "compact"]
 
 # Electrical parameter limits and defaults
 # Voltage: Range for AC EVSE (100V-480V covers global standards)
-VOLTAGE_MIN = 100.0
-VOLTAGE_MAX = 480.0
+VOLTAGE_MIN = 120.0
+VOLTAGE_MAX = 1000.0
 VOLTAGE_DEFAULT = 230.0  # EU standard
 
 # Current: Range for typical EVSE installations
 CURRENT_MIN = 6.0
-CURRENT_MAX = 63.0
+CURRENT_MAX = 150.0
 CURRENT_DEFAULT = 32.0  # Common 7kW EVSE
 
 # Phases: Single-phase or three-phase
