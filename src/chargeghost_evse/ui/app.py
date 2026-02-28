@@ -282,6 +282,8 @@ class SimulatorWidget(QWidget):
         self.dashboard.unplug_clicked.connect(self.action_unplug)
         self.dashboard.start_charging_clicked.connect(self.action_start_charging)
         self.dashboard.stop_charging_clicked.connect(self.action_stop_charging)
+        self.dashboard.suspend_ev_clicked.connect(self.action_suspend_ev)
+        self.dashboard.resume_charging_clicked.connect(self.action_resume_charging)
         self.dashboard.apply_id_tag_clicked.connect(self.action_apply_id_tag)
         dashboard_layout.addWidget(self.dashboard, 1)
 
@@ -431,6 +433,18 @@ class SimulatorWidget(QWidget):
     def action_stop_charging(self) -> None:
         self.engine.stop_session()
         self.main_window.log_message("[red]UI:[/red] Stopped charging session")
+
+    def action_suspend_ev(self) -> None:
+        self.engine.suspend_ev(self._selected_connector_id)
+        self.main_window.log_message(
+            f"[yellow]UI:[/yellow] Suspended EV on Connector {self._selected_connector_id}"
+        )
+
+    def action_resume_charging(self) -> None:
+        self.engine.resume_charging(self._selected_connector_id)
+        self.main_window.log_message(
+            f"[green]UI:[/green] Resumed charging on Connector {self._selected_connector_id}"
+        )
 
     def action_apply_id_tag(self, id_tag: str) -> None:
         conn = self._get_selected_connector()

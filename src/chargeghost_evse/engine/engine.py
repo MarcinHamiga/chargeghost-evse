@@ -398,6 +398,44 @@ class Engine(Subscriber):
         self.energy_meter.is_charging = True
         self.session_started.emit(connector_id=connector_id)
 
+    def suspend_ev(self, connector_id: int) -> None:
+        """
+        Manually suspend charging on a connector (EV-side suspension).
+
+        Pauses energy accumulation and transitions the connector to
+        SUSPENDED_EV state.
+
+        Args:
+            connector_id: ID of the connector to suspend.
+        """
+        connector = self._connectors.get(connector_id)
+        if connector and self.session and self.session.connector_id == connector_id:
+            connector.suspend_ev()
+            if connector.status == ConnectorState.SUSPENDED_EV:
+                self.energy_meter.is_charging = False
+                self._log(
+                    f"[yellow]Engine:[/yellow] Connector {connector_id} suspended (EV)"
+                )
+
+    def resume_charging(self, connector_id: int) -> None:
+        """
+        Resume charging on a connector after EV-side suspension.
+
+        Resumes energy accumulation and transitions the connector back
+        to CHARGING state.
+
+        Args:
+            connector_id: ID of the connector to resume.
+        """
+        connector = self._connectors.get(connector_id)
+        if connector and self.session and self.session.connector_id == connector_id:
+            connector.resume_charging()
+            if connector.status == ConnectorState.CHARGING:
+                self.energy_meter.is_charging = True
+                self._log(
+                    f"[green]Engine:[/green] Connector {connector_id} resumed charging"
+                )
+
     def stop_session(self, reason: str = "Local") -> None:
         """
         Stop the active charging session.

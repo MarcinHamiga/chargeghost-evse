@@ -259,6 +259,26 @@ class Connector(Subscriber):
             else:
                 self.status = ConnectorState.AVAILABLE
 
+    def suspend_ev(self) -> None:
+        """
+        Manually suspend charging from the EV side.
+
+        Transitions from CHARGING to SUSPENDED_EV state.
+        Only valid when the connector is actively charging.
+        """
+        if self.status == ConnectorState.CHARGING:
+            self.status = ConnectorState.SUSPENDED_EV
+
+    def resume_charging(self) -> None:
+        """
+        Resume charging after EV suspension.
+
+        Transitions from SUSPENDED_EV back to CHARGING state.
+        Only valid when the connector is in SUSPENDED_EV state.
+        """
+        if self.status == ConnectorState.SUSPENDED_EV:
+            self.status = ConnectorState.CHARGING
+
     def handle_max_charge_reached(self, connector_id: int) -> None:
         """
         Handle event when EV battery reaches maximum charge.

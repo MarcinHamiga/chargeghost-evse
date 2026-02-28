@@ -43,6 +43,8 @@ from PySide6.QtWidgets import (
 from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.connector_strip import ConnectorStrip
 
+from chargeghost_evse.engine.connector import ConnectorState
+
 if TYPE_CHECKING:
     from chargeghost_evse.engine.engine import Engine
 
@@ -506,6 +508,8 @@ class SessionDashboard(QWidget):
     unplug_clicked = Signal()
     start_charging_clicked = Signal()
     stop_charging_clicked = Signal()
+    suspend_ev_clicked = Signal()
+    resume_charging_clicked = Signal()
     apply_id_tag_clicked = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -612,6 +616,12 @@ class SessionDashboard(QWidget):
         self.btn_start_charge.setMinimumHeight(48)
         self.btn_start_charge.clicked.connect(self.start_charging_clicked)
         actions.addWidget(self.btn_start_charge, 1)
+
+        self.btn_suspend_ev = QPushButton("Suspend EV")
+        self.btn_suspend_ev.setObjectName("btnSuspendEV")
+        self.btn_suspend_ev.setMinimumHeight(48)
+        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
+        actions.addWidget(self.btn_suspend_ev, 1)
 
         self.btn_stop_charge = QPushButton("Stop Charging")
         self.btn_stop_charge.setObjectName("btnStopCharge")
@@ -727,6 +737,17 @@ class SessionDashboard(QWidget):
 
             self.btn_start_charge.setEnabled(False)
             self.btn_stop_charge.setEnabled(True)
+
+            # Suspend/Resume toggle
+            if conn.status == ConnectorState.SUSPENDED_EV:
+                self.btn_suspend_ev.setText("Resume Charging")
+                self.btn_suspend_ev.setEnabled(True)
+            elif conn.status == ConnectorState.CHARGING:
+                self.btn_suspend_ev.setText("Suspend EV")
+                self.btn_suspend_ev.setEnabled(True)
+            else:
+                self.btn_suspend_ev.setText("Suspend EV")
+                self.btn_suspend_ev.setEnabled(False)
         else:
             # No active session - clear metrics
             self.metric_energy.clear()
@@ -737,6 +758,8 @@ class SessionDashboard(QWidget):
 
             self.btn_start_charge.setEnabled(conn.is_plugged_in)
             self.btn_stop_charge.setEnabled(False)
+            self.btn_suspend_ev.setText("Suspend EV")
+            self.btn_suspend_ev.setEnabled(False)
 
         # Update details panel
         self.details.update_metrics(
@@ -745,6 +768,17 @@ class SessionDashboard(QWidget):
             current=conn.current,
             meter=engine.energy_meter.get_meter_reading(),
         )
+
+    def _on_suspend_ev_clicked(self) -> None:
+        """
+        Handle suspend/resume toggle button click.
+
+        Emits the appropriate signal based on the current button label.
+        """
+        if self.btn_suspend_ev.text() == "Resume Charging":
+            self.resume_charging_clicked.emit()
+        else:
+            self.suspend_ev_clicked.emit()
 
     def set_id_tag(self, tag: str) -> None:
         """
