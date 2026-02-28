@@ -74,8 +74,6 @@ class Connector(Subscriber):
     Events:
         on_status_change: Emitted when connector status changes.
             Parameters: connector_id (int), status (ConnectorState)
-        on_parameters_change: Emitted when electrical parameters change.
-            Parameters: connector_id (int), voltage (float), current (float), phase (int)
 
     Attributes:
         id: Unique connector identifier (1-indexed per OCPP).
@@ -126,7 +124,6 @@ class Connector(Subscriber):
 
         # Events for state change notifications
         self.on_status_change: Event = Event()
-        self.on_parameters_change: Event = Event()
 
     @property
     def status(self) -> ConnectorState:
@@ -201,12 +198,6 @@ class Connector(Subscriber):
                 return f"Phase must be between {PHASE_MIN} and {PHASE_MAX}"
             self.phase = phase
 
-        self.on_parameters_change.emit(
-            connector_id=self.id,
-            voltage=self.voltage,
-            current=self.current,
-            phase=self.phase,
-        )
         return None
 
     @property
@@ -245,21 +236,6 @@ class Connector(Subscriber):
             self.id_tag = None
             self.status = self._persistent_status
 
-    def authorize(self, id_tag: str) -> None:
-        """
-        Store authorization credentials for the connected EV.
-
-        Note: This method stores the id_tag but does not trigger state
-        changes. The Engine orchestrates transaction start separately.
-
-        Args:
-            id_tag: Authorization identifier from the central system.
-        """
-        self.id_tag = id_tag
-        # If we are preparing (plugged in) and now authorized, we might want to start charging
-        # But typically the Engine orchestrates the StartTransaction which then sets Charging
-        pass
-
     def start_charging(self) -> None:
         """
         Transition the connector to CHARGING state.
@@ -277,11 +253,31 @@ class Connector(Subscriber):
         Transitions to FINISHING if plugged in, or AVAILABLE if unplugged.
         Called by Engine when a charging session ends.
         """
-        if self.status == ConnectorState.CHARGING:
+        if self.status in (ConnectorState.CHARGING, ConnectorState.SUSPENDED_EV):
             if self.is_plugged_in:
                 self.status = ConnectorState.FINISHING
             else:
                 self.status = ConnectorState.AVAILABLE
+
+    def suspend_ev(self) -> None:
+        """
+        Manually suspend charging from the EV side.
+
+        Transitions from CHARGING to SUSPENDED_EV state.
+        Only valid when the connector is actively charging.
+        """
+        if self.status == ConnectorState.CHARGING:
+            self.status = ConnectorState.SUSPENDED_EV
+
+    def resume_charging(self) -> None:
+        """
+        Resume charging after EV suspension.
+
+        Transitions from SUSPENDED_EV back to CHARGING state.
+        Only valid when the connector is in SUSPENDED_EV state.
+        """
+        if self.status == ConnectorState.SUSPENDED_EV:
+            self.status = ConnectorState.CHARGING
 
     def handle_max_charge_reached(self, connector_id: int) -> None:
         """
@@ -321,11 +317,3 @@ class Connector(Subscriber):
         if self.id == connector_id:
             self.stop_charging()
 
-    def get_status(self) -> ConnectorState:
-        """
-        Get the current connector status.
-
-        Returns:
-            Current ConnectorState value.
-        """
-        return self.status

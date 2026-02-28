@@ -14,7 +14,6 @@ Threading Architecture:
     - Main Thread: Qt UI and Engine simulation
     - AsyncRunner Thread: WebSocket/OCPP communication with its own event loop
     - Meter Values Thread: Periodic meter value sampling
-    - Status Thread: Initial status notification sending
 
 Classes:
     AsyncRunner: WebSocket connection manager running in a dedicated thread.
@@ -36,12 +35,13 @@ Example:
 """
 
 import asyncio
+import concurrent.futures
 import ssl
 import threading
 import traceback
 import websockets
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.adapter import Adapter
@@ -72,6 +72,7 @@ class AsyncRunner:
         loop: The asyncio event loop (created in worker thread).
         adapter: The OCPP adapter instance (created on connection).
         on_log: Event emitted for log messages.
+        on_adapter_registered: Event emitted after each successful BootNotification.
 
     Example:
         >>> runner = AsyncRunner(
@@ -127,6 +128,9 @@ class AsyncRunner:
 
         # Event for log messages
         self.on_log = Event()
+
+        # Event emitted after each successful boot notification / registration
+        self.on_adapter_registered: Event = Event()
 
         # Connection state
         self._connected = False
@@ -260,7 +264,11 @@ class AsyncRunner:
                         charge_point_vendor=self.charge_point_vendor,
                     )
                     self.adapter.on_log.subscribe(self._log)
+                    self.adapter.on_registration_accepted.subscribe(
+                        self.on_adapter_registered.emit
+                    )
                     self._connected = True
+                    retry_delay = 1  # Reset backoff after successful connection
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
 
                     adapter_task = asyncio.create_task(self.adapter.start())
@@ -373,8 +381,6 @@ class Bridge:
     Threading:
     - AsyncRunner thread: WebSocket/OCPP communication
     - Meter values thread: Periodic meter value sampling
-    - Initial status thread: One-time status notification sending
-    - Limit injection thread: Charging profile callback setup
 
     Attributes:
         engine: The simulation Engine instance.
@@ -438,11 +444,11 @@ class Bridge:
 
     def setup(self) -> None:
         """
-        Start the bridge and all background threads.
+        Start the bridge and background threads.
 
         Subscribes to Engine events, starts the WebSocket connection,
-        and launches background threads for meter values, status
-        notifications, and charging profile injection.
+        launches the meter values background thread, and registers an
+        event handler that fires after each successful BootNotification.
         """
         # Subscribe to Engine events
         self.engine.session_started.subscribe(self.on_engine_session_started)
@@ -458,11 +464,8 @@ class Bridge:
         )
         self._meter_values_thread.start()
 
-        # Start initial status notification thread
-        threading.Thread(target=self._initial_status_loop, daemon=True).start()
-
-        # Start charging profile injection thread
-        threading.Thread(target=self._inject_limit_getter_loop, daemon=True).start()
+        # Subscribe to registration event to send status and inject limit getter
+        self.runner.on_adapter_registered.subscribe(self._on_adapter_registered)
 
     def shutdown(self) -> None:
         """
@@ -475,36 +478,13 @@ class Bridge:
         self._shutdown_event.set()
         self.runner.shutdown()
 
-    def _initial_status_loop(self) -> None:
-        """
-        Send initial StatusNotification messages after connection.
-
-        Waits for the adapter to be connected and registered, then sends
-        StatusNotification for all connectors. Runs once and exits.
-        """
-        while not self._shutdown_event.is_set():
-            if self.runner.is_connected and self.runner.adapter:
-                if self.runner.adapter.registration_status:
-                    self._send_initial_status_notifications()
-                    break
-            self._shutdown_event.wait(timeout=0.5)
-
-    def _inject_limit_getter_loop(self) -> None:
-        """
-        Inject charging profile limit callback when adapter connects.
-
-        Monitors the adapter connection and injects the limit getter
-        callback whenever a new adapter instance is created (after
-        reconnection). This enables charging profile enforcement.
-        """
-        last_injected_adapter = None
-        while not self._shutdown_event.is_set():
-            adapter = self.runner.adapter
-            if self.runner.is_connected and adapter and adapter is not last_injected_adapter:
-                self._inject_limit_getter()
-                self._log(message="Charging profile limit enforcement enabled")
-                last_injected_adapter = adapter
-            self._shutdown_event.wait(timeout=0.5)
+    def _on_adapter_registered(self) -> None:
+        """Called after each successful boot notification / registration."""
+        self._send_initial_status_notifications()
+        self._inject_limit_getter()
+        self._log(
+            message="[cyan]OCPP:[/cyan] Adapter registered, sending initial status and enabling charging profiles"
+        )
 
     def _inject_limit_getter(self) -> None:
         """
@@ -584,7 +564,9 @@ class Bridge:
         Called once after successful BootNotification to report the
         initial status of all connectors to the Central System.
         """
-        if not self.runner.adapter or not self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
             return
 
         self._log(message="Sending initial StatusNotification for all connectors...")
@@ -592,14 +574,15 @@ class Bridge:
         for connector in self.engine.connectors:
             conn_status = connector.status.value
 
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_status_notification(
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_status_notification(
                     connector_id=connector.id,
                     error_code="NoError",
                     status=conn_status,
                 ),
-                self.runner.loop,
+                loop,
             )
+            future.add_done_callback(self._handle_future_error)
 
     def _meter_values_loop(self) -> None:
         """
@@ -623,19 +606,28 @@ class Bridge:
                 and self.engine.session.transaction_id > 0
                 and self.engine.energy_meter.is_charging
             ):
-                if self.runner.adapter and self.runner.loop:
-                    asyncio.run_coroutine_threadsafe(
-                        self.runner.adapter.send_meter_values(
+                adapter = self.runner.adapter
+                loop = self.runner.loop
+                if adapter and loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        adapter.send_meter_values(
                             connector_id=self.engine.session.connector_id,
                             value=self.engine.energy_meter.get_meter_reading(),
                             transaction_id=self.engine.session.transaction_id,
                         ),
-                        self.runner.loop,
+                        loop,
                     )
+                    future.add_done_callback(self._handle_future_error)
 
             # Wait for the interval or until shutdown
             wait_interval = max(interval, 1) if interval > 0 else 1
             self._shutdown_event.wait(timeout=wait_interval)
+
+    def _handle_future_error(self, future: "concurrent.futures.Future[Any]") -> None:
+        """Log exceptions from fire-and-forget coroutine futures."""
+        exc = future.exception()
+        if exc is not None:
+            self._log(message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}")
 
     def _log(self, message: str, **kwargs) -> None:
         """
@@ -657,20 +649,23 @@ class Bridge:
             connector_id: ID of the connector that changed.
             status: New ConnectorState value.
         """
-        if self.runner.adapter and self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
             conn_status = status.value if hasattr(status, "value") else str(status)
 
             self._log(
                 message=f"Connector {connector_id} status changed to {conn_status}"
             )
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_status_notification(
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_status_notification(
                     connector_id=connector_id,
                     error_code="NoError",
                     status=conn_status,
                 ),
-                self.runner.loop,
+                loop,
             )
+            future.add_done_callback(self._handle_future_error)
 
     def on_engine_session_started(self, connector_id: int) -> None:
         """
@@ -707,7 +702,8 @@ class Bridge:
                 session.transaction_id = response.transaction_id
                 self._log(message=f"Transaction ID assigned: {response.transaction_id}")
 
-        asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
+        future = asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
+        future.add_done_callback(self._handle_future_error)
 
     def on_engine_session_stopped(self, connector_id: int) -> None:
         """
@@ -719,7 +715,9 @@ class Bridge:
         Args:
             connector_id: ID of the connector where session stopped.
         """
-        if not self.runner.adapter or not self.runner.loop:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
             return
 
         last_session = self.engine.last_stopped_session
@@ -735,15 +733,16 @@ class Bridge:
             message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
         )
 
-        asyncio.run_coroutine_threadsafe(
-            self.runner.adapter.send_stop_transaction(
+        future = asyncio.run_coroutine_threadsafe(
+            adapter.send_stop_transaction(
                 meter_stop=int(meter_stop),
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 transaction_id=transaction_id,
                 reason=reason,
             ),
-            self.runner.loop,
+            loop,
         )
+        future.add_done_callback(self._handle_future_error)
 
     def send_authorize(self, id_tag: str) -> None:
         """
@@ -752,10 +751,13 @@ class Bridge:
         Args:
             id_tag: The identifier to authorize.
         """
-        if self.runner.adapter and self.runner.loop:
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_authorize(id_tag=id_tag), self.runner.loop
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_authorize(id_tag=id_tag), loop
             )
+            future.add_done_callback(self._handle_future_error)
 
     def send_heartbeat(self) -> None:
         """
@@ -764,7 +766,10 @@ class Bridge:
         Note: Heartbeats are normally sent automatically by the AsyncRunner.
         This method is for manual triggering if needed.
         """
-        if self.runner.adapter and self.runner.loop:
-            asyncio.run_coroutine_threadsafe(
-                self.runner.adapter.send_heartbeat(), self.runner.loop
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if adapter and loop:
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_heartbeat(), loop
             )
+            future.add_done_callback(self._handle_future_error)

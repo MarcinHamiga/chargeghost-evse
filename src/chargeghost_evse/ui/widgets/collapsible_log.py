@@ -156,12 +156,6 @@ class CollapsibleLogPanel(QWidget):
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
 
-    def set_log_count(self, count: int) -> None:
-        if count > 0:
-            self._log_count_label.setText(f"({count})")
-        else:
-            self._log_count_label.setText("")
-
     def clear(self) -> None:
         self.log_panel.clear()
         self._log_count_label.setText("")

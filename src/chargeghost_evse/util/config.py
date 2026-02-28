@@ -34,6 +34,7 @@ Example:
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
@@ -53,13 +54,13 @@ LogMode = Literal["verbose", "compact"]
 
 # Electrical parameter limits and defaults
 # Voltage: Range for AC EVSE (100V-480V covers global standards)
-VOLTAGE_MIN = 100.0
-VOLTAGE_MAX = 480.0
+VOLTAGE_MIN = 120.0
+VOLTAGE_MAX = 1000.0
 VOLTAGE_DEFAULT = 230.0  # EU standard
 
 # Current: Range for typical EVSE installations
 CURRENT_MIN = 6.0
-CURRENT_MAX = 63.0
+CURRENT_MAX = 150.0
 CURRENT_DEFAULT = 32.0  # Common 7kW EVSE
 
 # Phases: Single-phase or three-phase
@@ -151,7 +152,6 @@ class SimulationConfig:
         ocpp_password: Password for WebSocket authentication (stored in keyring).
         charge_point_model: Model name reported in BootNotification.
         charge_point_vendor: Vendor name reported in BootNotification.
-        num_connectors: Number of connectors (deprecated, use connectors list).
         connectors: List of per-connector configurations.
         skip_tls_verify: Whether to skip TLS certificate verification.
         log_mode: OCPP message logging format ('verbose' or 'compact').
@@ -174,7 +174,6 @@ class SimulationConfig:
     charge_point_vendor: str = "ChargeGhost"
 
     # Connector configuration
-    num_connectors: int = 1
     connectors: list[ConnectorConfig] = field(
         default_factory=lambda: [ConnectorConfig()]
     )
@@ -271,15 +270,13 @@ class SimulationConfig:
                     ocpp_password=password,
                     charge_point_model=data.get("charge_point_model", "ChargeGhostV1"),
                     charge_point_vendor=data.get("charge_point_vendor", "ChargeGhost"),
-                    num_connectors=len(connectors),
                     connectors=connectors,
                     skip_tls_verify=data.get("skip_tls_verify", False),
                     log_mode=data.get("log_mode", "compact"),
                     ignored_version=data.get("ignored_version"),
                 )
-            except (json.JSONDecodeError, IOError):
-                # Config file invalid or unreadable, use defaults
-                pass
+            except (json.JSONDecodeError, IOError) as e:
+                logging.warning("Failed to load config from %s, using defaults: %s", CONFIG_FILE, e)
 
         return cls()
 
@@ -289,11 +286,10 @@ class SimulationConfig:
 
         Writes non-sensitive settings to the JSON config file and
         stores the password in the system keyring. Creates the
-        config directory if it doesn't exist.
+        config directory if it doesn't exist. The write is atomic:
+        data is written to a temporary file then renamed into place
+        to prevent corruption if the process is interrupted mid-write.
         """
-        # Ensure config directory exists
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
         # Store password in keyring
         self._set_password(self.ocpp_id, self.ocpp_password)
 
@@ -303,12 +299,14 @@ class SimulationConfig:
             "ocpp_id": self.ocpp_id,
             "charge_point_model": self.charge_point_model,
             "charge_point_vendor": self.charge_point_vendor,
-            "num_connectors": len(self.connectors),
             "connectors": [c.to_dict() for c in self.connectors],
             "skip_tls_verify": self.skip_tls_verify,
             "log_mode": self.log_mode,
             "ignored_version": self.ignored_version,
         }
 
-        with open(CONFIG_FILE, "w") as f:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = CONFIG_FILE.with_suffix(".tmp")
+        with open(tmp_file, "w") as f:
             json.dump(data, f, indent=2)
+        os.replace(tmp_file, CONFIG_FILE)

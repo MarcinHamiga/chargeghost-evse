@@ -4,7 +4,13 @@
       "Bash(poetry run:*)",
       "Bash(gh pr:*)",
       "Bash(git rm:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(echo exit: $?:*)",
+      "Bash(python3:*)",
+      "Bash(poetry install:*)",
+      "Bash(poetry lock:*)",
+      "Bash(wait:*)",
+      "Bash(poetry show:*)"
     ]
   }
 }

@@ -188,7 +188,7 @@ class TestEngine:
 	def test_update_connector_invalid_current(self):
 		engine = Engine()
 		engine.add_connector()
-		error = engine.update_connector(1, current=100.0)
+		error = engine.update_connector(1, current=200.0)
 		assert error is not None
 
 	def test_update_connector_invalid_phase(self):
@@ -313,3 +313,168 @@ class TestEngine:
 
 		# 4. Assert Session did NOT start
 		assert engine.session is None
+
+
+def test_energy_meter_stops_when_ev_max_charge_reached():
+	"""EnergyMeter must stop charging when ev_max_charge_reached fires."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	connector_id = engine.connectors[0].id
+
+	engine.plug_in(connector_id)
+	engine.start_session(connector_id=connector_id, transaction_id=1)
+	engine.energy_meter.is_charging = True  # simulate active charging
+
+	assert engine.session is not None
+	# Firing ev_max_charge_reached with connector_id — this should NOT crash
+	# and should stop the energy meter
+	engine.session.ev_max_charge_reached.emit(connector_id=connector_id)
+
+	assert engine.energy_meter.is_charging is False
+
+
+def test_plug_in_unplugs_other_connectors():
+	"""Engine.plug_in() must auto-unplug any other plugged-in connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	id1 = engine.connectors[0].id
+	id2 = engine.connectors[1].id
+
+	engine.plug_in(id1)
+	assert engine.connectors[0].is_plugged_in
+
+	# Plugging in connector 2 must auto-unplug connector 1
+	engine.plug_in(id2)
+	assert engine.connectors[1].is_plugged_in
+	assert not engine.connectors[0].is_plugged_in
+
+
+def test_plug_in_stops_session_on_other_connector():
+	"""Engine.plug_in() must stop an active session when auto-unplugging another connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	id1 = engine.connectors[0].id
+	id2 = engine.connectors[1].id
+
+	# Set up an active session on connector 1
+	engine.plug_in(id1)
+	engine.start_session(connector_id=id1, transaction_id=1)
+	assert engine.session is not None
+
+	# Plug into connector 2 — should auto-unplug connector 1 AND stop its session
+	engine.plug_in(id2)
+	assert engine.connectors[1].is_plugged_in
+	assert not engine.connectors[0].is_plugged_in
+	assert engine.session is None
+
+
+def test_remove_connector_raises_on_last():
+	"""Engine.remove_connector() must raise ValueError if only one connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	connector_id = engine.connectors[0].id
+
+	with pytest.raises(ValueError, match="last connector"):
+		engine.remove_connector(connector_id)
+
+
+def test_remove_connector_raises_on_active_session():
+	"""Engine.remove_connector() must raise ValueError if session active on that connector."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	id1 = engine.connectors[0].id
+
+	engine.plug_in(id1)
+	engine.start_session(connector_id=id1, transaction_id=1)
+
+	with pytest.raises(ValueError, match="active session"):
+		engine.remove_connector(id1)
+
+
+def test_remove_connector_raises_on_unknown_id():
+	"""Engine.remove_connector() must raise ValueError if connector_id does not exist."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+
+	with pytest.raises(ValueError, match="not found"):
+		engine.remove_connector(99)
+
+
+def test_suspend_ev():
+	"""Engine.suspend_ev() transitions connector to SuspendedEV and pauses energy meter."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	conn = engine.connectors[0]
+
+	engine.plug_in(conn.id)
+	engine.start_session(connector_id=conn.id, transaction_id=1)
+	assert conn.status == ConnectorState.CHARGING
+	assert engine.energy_meter.is_charging is True
+
+	engine.suspend_ev(conn.id)
+	assert conn.status == ConnectorState.SUSPENDED_EV
+	assert engine.energy_meter.is_charging is False
+
+
+def test_resume_charging():
+	"""Engine.resume_charging() transitions from SuspendedEV back to Charging."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	conn = engine.connectors[0]
+
+	engine.plug_in(conn.id)
+	engine.start_session(connector_id=conn.id, transaction_id=1)
+	engine.suspend_ev(conn.id)
+	assert conn.status == ConnectorState.SUSPENDED_EV
+
+	engine.resume_charging(conn.id)
+	assert conn.status == ConnectorState.CHARGING
+	assert engine.energy_meter.is_charging is True
+
+
+def test_suspend_ev_only_when_charging():
+	"""Engine.suspend_ev() does nothing if connector is not in CHARGING state."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	conn = engine.connectors[0]
+
+	# Not plugged in, no session
+	engine.suspend_ev(conn.id)
+	assert conn.status == ConnectorState.AVAILABLE
+
+
+def test_resume_only_when_suspended():
+	"""Engine.resume_charging() does nothing if connector is not in SUSPENDED_EV state."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	conn = engine.connectors[0]
+
+	engine.plug_in(conn.id)
+	engine.start_session(connector_id=conn.id, transaction_id=1)
+	assert conn.status == ConnectorState.CHARGING
+
+	# Should not change state when already charging
+	engine.resume_charging(conn.id)
+	assert conn.status == ConnectorState.CHARGING
+
+
+def test_stop_session_from_suspended_ev():
+	"""Stopping a session from SUSPENDED_EV state should work correctly."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	conn = engine.connectors[0]
+
+	engine.plug_in(conn.id)
+	engine.start_session(connector_id=conn.id, transaction_id=1)
+	engine.suspend_ev(conn.id)
+	assert conn.status == ConnectorState.SUSPENDED_EV
+
+	engine.stop_session()
+	assert conn.status == ConnectorState.FINISHING
+	assert engine.session is None

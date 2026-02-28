@@ -113,12 +113,15 @@ class EnergyMeter(Subscriber):
 
         self.consume_energy(wh_consumed)
 
-    def handle_max_charge_reached(self) -> None:
+    def handle_max_charge_reached(self, connector_id: int) -> None:
         """
         Handle event when EV reaches maximum charge.
 
         Stops energy accumulation by setting is_charging to False.
         This is called when the EV battery is full and stops accepting
         charge, transitioning to SUSPENDED_EV state.
+
+        Args:
+            connector_id: ID of the connector whose EV reached max charge.
         """
         self.is_charging = False

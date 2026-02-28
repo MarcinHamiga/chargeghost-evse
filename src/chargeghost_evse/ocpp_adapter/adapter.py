@@ -37,14 +37,12 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
-    ChargingProfileKindType,
     ChargingProfilePurposeType,
     ChargingProfileStatus,
     ChargingRateUnitType,
     ClearChargingProfileStatus,
     DiagnosticsStatus,
     FirmwareStatus,
-    RecurrencyKind,
     RegistrationStatus,
     RemoteStartStopStatus,
     UpdateStatus,
@@ -52,10 +50,7 @@ from ocpp.v16.enums import (
 )
 
 from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
-    ChargingProfileData,
     ChargingProfileManager,
-    ChargingScheduleData,
-    ChargingSchedulePeriodData,
 )
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
@@ -878,7 +873,7 @@ class Adapter(cp):
         )
 
         try:
-            profile = self._parse_charging_profile(cs_charging_profiles)
+            profile = ChargingProfileManager.from_ocpp_dict(cs_charging_profiles)
         except (KeyError, ValueError, TypeError) as e:
             self._log(
                 f"Failed to parse charging profile: {e}",
@@ -1136,15 +1131,14 @@ class Adapter(cp):
         )
 
         # Check local authorization list first
-        local_status = self.local_auth_list.authorize(id_tag)
-        if local_status is not None:
+        local_result = self._check_local_auth(id_tag)
+        if local_result is not None:
+            local_status, id_tag_info = local_result
             self._log(
                 f"Authorize (local): id_tag={id_tag}, status={local_status.value}",
                 is_ocpp_message=False,
                 is_important=True,
             )
-            id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
-            id_tag_info["status"] = local_status.value
             return call_result.Authorize(id_tag_info=id_tag_info)
 
         # Fall back to CSMS
@@ -1188,16 +1182,14 @@ class Adapter(cp):
         )
 
         # Check local authorization list first
-        local_status = self.local_auth_list.authorize(id_tag)
-        if local_status is not None:
+        local_result = self._check_local_auth(id_tag)
+        if local_result is not None:
+            local_status, id_tag_info = local_result
             self._log(
-                f"StartTransaction (local auth): id_tag={id_tag}, "
-                f"status={local_status.value}",
+                f"StartTransaction (local auth): id_tag={id_tag}, status={local_status.value}",
                 is_ocpp_message=False,
                 is_important=True,
             )
-            id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
-            id_tag_info["status"] = local_status.value
             self._next_transaction_id += 1
             transaction_id = self._next_transaction_id
             self.set_active_transaction(connector_id, transaction_id)
@@ -1413,80 +1405,19 @@ class Adapter(cp):
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _parse_charging_profile(self, cs_profile: dict) -> ChargingProfileData:
+    def _check_local_auth(
+        self, id_tag: str
+    ) -> Optional[tuple[Optional[Any], dict]]:
         """
-        Parse OCPP CsChargingProfile to internal ChargingProfileData.
+        Check the local authorization list for an id_tag.
 
-        Converts the OCPP dictionary format to the internal dataclass
-        representation for use with ChargingProfileManager.
-
-        Args:
-            cs_profile: OCPP CsChargingProfile dictionary.
-
-        Returns:
-            ChargingProfileData instance.
-
-        Raises:
-            KeyError: If required fields are missing.
-            ValueError: If enum values are invalid.
+        Returns None if not found locally (caller should fall back to CSMS).
+        Returns (status, id_tag_info) if found locally.
         """
-        cs_schedule = cs_profile["chargingSchedule"]
+        local_status = self.local_auth_list.authorize(id_tag)
+        if local_status is None:
+            return None
+        id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
+        id_tag_info["status"] = local_status.value
+        return local_status, id_tag_info
 
-        # Parse schedule periods
-        periods = []
-        for p in cs_schedule["chargingSchedulePeriod"]:
-            period = ChargingSchedulePeriodData(
-                start_period=p["startPeriod"],
-                limit=float(p["limit"]),
-                number_phases=p.get("numberPhases"),
-            )
-            periods.append(period)
-
-        # Parse schedule
-        schedule = ChargingScheduleData(
-            charging_rate_unit=ChargingRateUnitType(cs_schedule["chargingRateUnit"]),
-            charging_schedule_period=tuple(periods),
-            duration=cs_schedule.get("duration"),
-            start_schedule=(
-                datetime.fromisoformat(
-                    cs_schedule["startSchedule"].replace("Z", "+00:00")
-                )
-                if cs_schedule.get("startSchedule")
-                else None
-            ),
-            min_charging_rate=cs_schedule.get("minChargingRate"),
-        )
-
-        # Parse recurrency kind
-        recurrency = None
-        if cs_profile.get("recurrencyKind"):
-            recurrency = RecurrencyKind(cs_profile["recurrencyKind"])
-
-        # Parse validity period
-        valid_from = None
-        if cs_profile.get("validFrom"):
-            valid_from = datetime.fromisoformat(
-                cs_profile["validFrom"].replace("Z", "+00:00")
-            )
-
-        valid_to = None
-        if cs_profile.get("validTo"):
-            valid_to = datetime.fromisoformat(
-                cs_profile["validTo"].replace("Z", "+00:00")
-            )
-
-        return ChargingProfileData(
-            charging_profile_id=cs_profile["chargingProfileId"],
-            stack_level=cs_profile["stackLevel"],
-            charging_profile_purpose=ChargingProfilePurposeType(
-                cs_profile["chargingProfilePurpose"]
-            ),
-            charging_profile_kind=ChargingProfileKindType(
-                cs_profile["chargingProfileKind"]
-            ),
-            charging_schedule=schedule,
-            transaction_id=cs_profile.get("transactionId"),
-            recurrency_kind=recurrency,
-            valid_from=valid_from,
-            valid_to=valid_to,
-        )

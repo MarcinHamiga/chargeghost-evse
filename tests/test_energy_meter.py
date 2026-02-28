@@ -49,7 +49,7 @@ class TestEnergyMeter:
 	def test_handle_max_charge_reached(self):
 		meter = EnergyMeter()
 		meter.is_charging = True
-		meter.handle_max_charge_reached()
+		meter.handle_max_charge_reached(connector_id=1)
 		assert meter.is_charging is False
 
 	def test_energy_consumed_event(self):

@@ -36,7 +36,7 @@ ChargeGhost is a PySide6 EVSE simulator that speaks OCPP 1.6 over WebSocket. Fou
 UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCPP Adapter
 ```
 
-**Engine** (`engine/engine.py`) — domain logic only. Manages `Connector` objects (1-indexed IDs), a single active `Session`, a global `EnergyMeter`, and a `command_queue` shared with the OCPP adapter. Exposes `session_started`, `session_stopped`, `connector_status_changed` events. Has an injectable `get_limit` callback that the Bridge hooks up to `ChargingProfileManager` once connected.
+**Engine** (`engine/engine.py`) — domain logic only. Manages `Connector` objects (1-indexed IDs), a single active `Session`, a global `EnergyMeter`, and a `command_queue` shared with the OCPP adapter. Exposes `session_started`, `session_stopped`, `connector_status_changed` events. Has an injectable `get_limit` callback that the Bridge hooks up to `ChargingProfileManager` once connected. Supports EV-side charging suspension (`suspend_ev`) and resume (`resume_charging`), which pause/resume energy accumulation without ending the session.
 
 **Bridge** (`bridge/bridge.py`) — two classes:
 - `AsyncRunner`: Owns the background daemon thread and its dedicated `asyncio` event loop. Handles WebSocket connection lifecycle with exponential-backoff reconnect, heartbeat loop, and exposes `adapter`.
@@ -67,4 +67,5 @@ UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCP
 - Single active transaction at a time (mirrors real hardware).
 - OCPP 1.6J only.
 - Smart Charging is fully implemented via `ChargingProfileManager`: supports `SetChargingProfile`, `ClearChargingProfile`, `GetCompositeSchedule` with `ChargePointMaxProfile`, `TxDefaultProfile`, `TxProfile` purposes and `Absolute`, `Recurring`, `Relative` kinds. Composite limits are calculated with stack level resolution.
+- Hardware limits: Voltage 120–1000V, Current 6–150A (defined in `util/config.py`).
 - `pyyaml` and `pydantic`/`pydantic-settings` are listed as dependencies but not used in application logic (config uses plain `dataclasses` + `json`).

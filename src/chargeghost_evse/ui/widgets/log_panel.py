@@ -92,9 +92,3 @@ class LogPanel(QTextEdit):
 
         return "".join(result)
 
-    def action_copy(self):
-        self.selectAll()
-        self.copy()
-        cursor = self.textCursor()
-        cursor.clearSelection()
-        self.setTextCursor(cursor)

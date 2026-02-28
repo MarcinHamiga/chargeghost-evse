@@ -18,16 +18,13 @@ Classes:
 import queue
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Callable, Optional
 
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
-
-if TYPE_CHECKING:
-    from chargeghost_evse.engine.connector import ConnectorState
 
 
 class Engine(Subscriber):
@@ -64,8 +61,6 @@ class Engine(Subscriber):
         energy_meter: Cumulative energy meter instance.
         command_queue: Thread-safe queue for async commands.
         event_queue: Recent meter readings for UI updates.
-        simulation_time_step: Interval for simulation updates in seconds.
-        display_time_step: Interval for UI display updates in seconds.
         get_limit: Optional callback to get charging current limits.
 
     Example:
@@ -101,10 +96,6 @@ class Engine(Subscriber):
         self._connectors: dict[int, Connector] = {}
         self._next_connector_id: int = 1
 
-        # Timing for simulation and display updates
-        self.last_update_time: Optional[float] = None
-        self.last_display_time: Optional[float] = None
-
         # Pending remote start requests waiting for plug-in
         # Key: connector_id, Value: request details dict
         self._pending_remote_starts: dict[int, dict] = {}
@@ -115,10 +106,6 @@ class Engine(Subscriber):
         self.connector_status_changed: Event = Event()
         self.connector_parameters_changed: Event = Event()
         self.on_log: Event = Event()
-
-        # Simulation timing configuration
-        self.simulation_time_step: float = 0.1  # 100ms update interval
-        self.display_time_step: float = 1.0  # 1s UI refresh interval
 
         # Injectable callback for external charging limits (e.g., ChargingProfileManager)
         # Signature: (connector_id: int, transaction_id: Optional[int]) -> Optional[float]
@@ -177,17 +164,24 @@ class Engine(Subscriber):
         """
         Remove a connector from the EVSE.
 
-        Cannot remove a connector with an active session.
+        Raises ValueError if this is the last connector, or if there is an
+        active session on the specified connector.
 
         Args:
             connector_id: ID of the connector to remove.
+
+        Raises:
+            ValueError: If removing would leave zero connectors, or if the
+                connector has an active charging session.
         """
-        if connector_id in self._connectors:
-            # Prevent removal during active session
-            if self.session and self.session.connector_id == connector_id:
-                return
-            self._connectors[connector_id].unsubscribe_all()
-            del self._connectors[connector_id]
+        if len(self._connectors) <= 1:
+            raise ValueError("Cannot remove the last connector")
+        if connector_id not in self._connectors:
+            raise ValueError(f"Connector {connector_id} not found")
+        if self.session and self.session.connector_id == connector_id:
+            raise ValueError("Cannot remove connector with active session")
+        self._connectors[connector_id].unsubscribe_all()
+        del self._connectors[connector_id]
 
     def update_connector(
         self,
@@ -275,9 +269,18 @@ class Engine(Subscriber):
         """
         Simulate an EV being plugged into a connector.
 
+        Enforces the single-plug-in policy: any other currently plugged-in
+        connector is automatically unplugged before the target connector is
+        plugged in.
+
         Args:
             connector_id: ID of the connector to plug into.
         """
+        # Auto-unplug any other plugged-in connector (single plug-in policy)
+        for conn in self._connectors.values():
+            if conn.is_plugged_in and conn.id != connector_id:
+                self.unplug(conn.id)
+
         connector = self._connectors.get(connector_id)
         if connector:
             connector.plug_in()
@@ -393,8 +396,45 @@ class Engine(Subscriber):
 
         # Start charging
         self.energy_meter.is_charging = True
-        self.last_update_time = time.monotonic()
         self.session_started.emit(connector_id=connector_id)
+
+    def suspend_ev(self, connector_id: int) -> None:
+        """
+        Manually suspend charging on a connector (EV-side suspension).
+
+        Pauses energy accumulation and transitions the connector to
+        SUSPENDED_EV state.
+
+        Args:
+            connector_id: ID of the connector to suspend.
+        """
+        connector = self._connectors.get(connector_id)
+        if connector and self.session and self.session.connector_id == connector_id:
+            connector.suspend_ev()
+            if connector.status == ConnectorState.SUSPENDED_EV:
+                self.energy_meter.is_charging = False
+                self._log(
+                    f"[yellow]Engine:[/yellow] Connector {connector_id} suspended (EV)"
+                )
+
+    def resume_charging(self, connector_id: int) -> None:
+        """
+        Resume charging on a connector after EV-side suspension.
+
+        Resumes energy accumulation and transitions the connector back
+        to CHARGING state.
+
+        Args:
+            connector_id: ID of the connector to resume.
+        """
+        connector = self._connectors.get(connector_id)
+        if connector and self.session and self.session.connector_id == connector_id:
+            connector.resume_charging()
+            if connector.status == ConnectorState.CHARGING:
+                self.energy_meter.is_charging = True
+                self._log(
+                    f"[green]Engine:[/green] Connector {connector_id} resumed charging"
+                )
 
     def stop_session(self, reason: str = "Local") -> None:
         """
@@ -427,7 +467,7 @@ class Engine(Subscriber):
                 connector.unsubscribe_from(self.session.ev_max_charge_reached)
             self.session.unsubscribe_all()
 
-            self._log(f"Session time [s]: {time.monotonic() - self.session.start_time}")
+            self._log(f"Session time [s]: {time.time() - self.session.start_time}")
             self.session_stopped.emit(connector_id=connector_id)
             self.session = None
             self.energy_meter.is_charging = False

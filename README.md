@@ -36,6 +36,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 - **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
 - **Resilient Connectivity**: Automatic reconnection with exponential backoff and periodic heartbeat/meter values.
 - **Smart Charging**: Full OCPP 1.6 Smart Charging profile support with charging profile management, composite schedule calculation, and real-time power limit visualization. Supports all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative).
+- **EV-Side Suspension**: Simulate EV-initiated charging suspension and resume, with proper energy meter pausing during suspended state.
 - **Auto-Update System**: Automatic update checking from GitHub releases with platform-specific handling for Windows and macOS.
 
 ## Requirements
@@ -102,8 +103,9 @@ Simulator Mode provides a high-fidelity EVSE simulation where the engine manages
 2. **Plug In**: The connector transitions to `Preparing`.
 3. **Authorize/Start**: Click `Start Charging`. The simulator sends `Authorize` and `StartTransaction`.
 4. **Charging**: The connector enters `Charging` state. Meter values are periodically sent to the CSMS.
-5. **Stop**: Click `Stop Charging`. The simulator sends `StopTransaction`.
-6. **Unplug**: Return the connector to `Available`.
+5. **Suspend/Resume** *(optional)*: Click `Suspend EV` to simulate an EV-initiated pause (connector transitions to `SuspendedEV`). Click `Resume Charging` to continue.
+6. **Stop**: Click `Stop Charging`. The simulator sends `StopTransaction`.
+7. **Unplug**: Return the connector to `Available`.
 
 ### Manual Mode
 
@@ -127,8 +129,8 @@ Configuration is managed via the **Settings** tab in the UI and persisted to `~/
 #### Connector Hardware
 
 Each connector can be individually tuned:
-- **Voltage**: 100V - 480V
-- **Current Limit**: 6A - 63A
+- **Voltage**: 120V - 1000V
+- **Current Limit**: 6A - 150A
 - **Phases**: 1 or 3 Phase simulation.
 
 #### Charging Profiles

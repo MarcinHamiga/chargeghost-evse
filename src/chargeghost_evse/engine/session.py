@@ -34,7 +34,7 @@ class Session(Subscriber):
 
     Attributes:
         transaction_id: OCPP transaction identifier for this session.
-        start_time: Monotonic timestamp when the session started.
+        start_time: POSIX timestamp (time.time()) when the session started.
         energy_charged: Total energy delivered in Watt-hours (Wh).
         connector_id: ID of the connector used for this session.
         state_of_charge: Current battery percentage (0-100).
@@ -72,7 +72,7 @@ class Session(Subscriber):
         """
         super().__init__()
         self.transaction_id: int = transaction_id
-        self.start_time: float = time.monotonic()
+        self.start_time: float = time.time()
         self.energy_charged: float = 0.0
         self.connector_id: int = connector_id
         self.state_of_charge: float = 0.0
@@ -82,28 +82,28 @@ class Session(Subscriber):
         # Event emitted when EV reaches full charge
         self.ev_max_charge_reached: Event = Event()
 
-    def process_energy_delivery(self, amount: float = 0.0) -> None:
+        # Guard flag so ev_max_charge_reached fires exactly once per session
+        self._max_reached: bool = False
+
+    def process_energy_delivery(self, amount: float = 0.0, connector_id: Optional[int] = None) -> None:
         """
         Process energy delivery and update session state.
 
         Adds the delivered energy to the running total, capping at
         max_energy if specified. Updates the state of charge percentage.
-        Emits ev_max_charge_reached event when the battery is full.
+        Emits ev_max_charge_reached event exactly once when the battery is full.
 
         Args:
             amount: Energy delivered in Watt-hours (Wh).
+            connector_id: Unused; accepted for compatibility with event call sites.
 
         Note:
             When max_energy is 0.0, SoC calculation is disabled and
             the session tracks unlimited energy delivery.
         """
         if self.max_energy > 0:
-            # Cap energy at max capacity
-            self.energy_charged += (
-                amount
-                if self.energy_charged + amount <= self.max_energy
-                else self.max_energy - self.energy_charged
-            )
+            # Cap energy at max capacity using min() for clarity
+            self.energy_charged = min(self.energy_charged + amount, self.max_energy)
             # Calculate state of charge as percentage
             self.state_of_charge = (self.energy_charged / self.max_energy) * 100
         else:
@@ -111,7 +111,7 @@ class Session(Subscriber):
             self.energy_charged += amount
             self.state_of_charge = 0.0
 
-        # Check if EV has reached maximum charge
-        if self.max_energy > 0 and self.energy_charged >= self.max_energy:
-            self.energy_charged = self.max_energy
+        # Check if EV has reached maximum charge; fire exactly once per session
+        if self.max_energy > 0 and self.energy_charged >= self.max_energy and not self._max_reached:
+            self._max_reached = True
             self.ev_max_charge_reached.emit(connector_id=self.connector_id)
