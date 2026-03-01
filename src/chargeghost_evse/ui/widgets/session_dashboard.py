@@ -112,24 +112,29 @@ class TelemetryChart(QFrame):
 
     def add_point(self, power_kw: float) -> None:
         current_time = time.monotonic() - self._start_time
-        if current_time >= self._window_seconds:
-            self._start_time = time.monotonic()
-            self._power_data.clear()
-            current_time = 0.0
-            self.axis_x.setRange(0, self._window_seconds)
-
         self._power_data.append(QPointF(current_time, power_kw))
 
-        if len(self._power_data) > self._max_points:
+        # Keep only data within the window (e.g. last 60 seconds)
+        while self._power_data and (current_time - self._power_data[0].x() > self._window_seconds):
             self._power_data.pop(0)
 
+        if len(self._power_data) > self._max_points:
+            self._power_data = self._power_data[-self._max_points:]
+
         self.series_power.replace(self._power_data)
+
+        # Update X axis range for rolling effect
+        if current_time > self._window_seconds:
+            self.axis_x.setRange(current_time - self._window_seconds, current_time)
+        else:
+            self.axis_x.setRange(0, self._window_seconds)
 
         # Auto-scale Y axis
         max_power = max((p.y() for p in self._power_data), default=25)
         if max_power > self.axis_y.max():
             self.axis_y.setRange(0, max_power * 1.2)
-        elif max_power < self.axis_y.max() * 0.5 and self.axis_y.max() > 25:
+        elif max_power < self.axis_y.max() * 0.4 and self.axis_y.max() > 25:
+            # Scale down if power drops significantly and we are above default max
             self.axis_y.setRange(0, max(25, max_power * 1.5))
 
     def clear(self) -> None:
@@ -174,8 +179,8 @@ class MetricCard(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(2)
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(0)
+        layout.setContentsMargins(10, 6, 10, 6)
 
         # Title label
         self._title_label = QLabel(title)
@@ -363,29 +368,32 @@ class IdTagInput(QWidget):
     tag_applied = Signal(str)
     recent_tags_changed = Signal()
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, button_text: str = "Apply") -> None:
         """
         Initialize the ID tag input.
 
         Args:
             parent: Optional parent widget.
+            button_text: Text for the action button.
         """
         super().__init__(parent)
         self._recent_tags: list[str] = []
+        self._button_text = button_text
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         """
-        Build the UI with label, combo box, input, and apply button.
+        Build the UI with label, recent tags, and input field in a more vertical-friendly layout.
         """
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Label
+        header = QHBoxLayout()
         id_tag_label = QLabel("ID Tag")
         id_tag_label.setObjectName("idTagLabel")
-        layout.addWidget(id_tag_label)
+        header.addWidget(id_tag_label)
+        header.addStretch()
 
         # Recent tags dropdown (hidden when empty)
         self._recent_combo = QComboBox()
@@ -394,19 +402,26 @@ class IdTagInput(QWidget):
         self._recent_combo.setMinimumWidth(100)
         self._recent_combo.currentTextChanged.connect(self._on_recent_selected)
         self._recent_combo.hide()
-        layout.addWidget(self._recent_combo)
+        header.addWidget(self._recent_combo)
+        layout.addLayout(header)
+
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
 
         # Text input
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Enter RFID tag (e.g., RFID-001)")
+        self._input.setPlaceholderText("Enter RFID tag")
         self._input.returnPressed.connect(self._on_apply)
-        layout.addWidget(self._input, 1)
+        input_row.addWidget(self._input, 1)
 
         # Apply button
-        self._apply_btn = QPushButton("Apply")
+        self._apply_btn = QPushButton(self._button_text)
         self._apply_btn.setObjectName("btnApplyTag")
         self._apply_btn.clicked.connect(self._on_apply)
-        layout.addWidget(self._apply_btn)
+        self._apply_btn.setMinimumHeight(32)
+        input_row.addWidget(self._apply_btn)
+        
+        layout.addLayout(input_row)
 
     def _on_recent_selected(self, tag: str) -> None:
         """
@@ -440,6 +455,18 @@ class IdTagInput(QWidget):
             self._recent_combo.show()
         else:
             self._recent_combo.hide()
+
+    def set_applied_tag(self, tag: Optional[str]) -> None:
+        """
+        Set the currently applied tag to display as ghost text (placeholder).
+
+        Args:
+            tag: The tag string currently applied to the connector.
+        """
+        if tag:
+            self._input.setPlaceholderText(f"Active: {tag}")
+        else:
+            self._input.setPlaceholderText("Enter RFID tag")
 
     def get_tag(self) -> str:
         """
@@ -525,36 +552,30 @@ class SessionDashboard(QWidget):
 
     def _setup_ui(self) -> None:
         """
-        Build the complete dashboard UI.
+        Build the complete dashboard UI with a high-density grid layout.
         """
-        layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(16, 16, 16, 16)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Connector selection strip
+        # 1. Connector selection strip (Full width at top)
         self.connector_strip = ConnectorStrip()
         self.connector_strip.connector_selected.connect(self._on_connector_selected)
-        layout.addWidget(self.connector_strip)
+        main_layout.addWidget(self.connector_strip)
 
-        # Primary metrics row (4 cards)
-        primary_metrics = QGridLayout()
-        primary_metrics.setSpacing(8)
-        primary_metrics.setContentsMargins(0, 0, 0, 0)
+        # Main content area below the strip
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(20)
+        main_layout.addLayout(content_layout, 1)
 
-        self.metric_energy = MetricCard("Energy Charged", "Wh")
-        self.metric_power = MetricCard("Current Power", "kW")
-        self.metric_duration = MetricCard("Duration")
-        self.metric_soc = MetricCard("State of Charge", "%")
-
-        primary_metrics.addWidget(self.metric_energy, 0, 0)
-        primary_metrics.addWidget(self.metric_power, 0, 1)
-        primary_metrics.addWidget(self.metric_duration, 0, 2)
-        primary_metrics.addWidget(self.metric_soc, 0, 3)
-        layout.addLayout(primary_metrics)
+        # 2. Left Panel: Telemetry & Progress (approx. 70%)
+        left_panel = QVBoxLayout()
+        left_panel.setSpacing(16)
+        content_layout.addLayout(left_panel, 7)
 
         # Real-time telemetry chart
         self.telemetry_chart = TelemetryChart()
-        layout.addWidget(self.telemetry_chart, 1)
+        left_panel.addWidget(self.telemetry_chart, 1)
 
         # State of charge progress section
         soc_section = QFrame()
@@ -579,66 +600,88 @@ class SessionDashboard(QWidget):
         self.soc_progress.setTextVisible(False)
         self.soc_progress.setValue(0)
         soc_layout.addWidget(self.soc_progress)
+        left_panel.addWidget(soc_section)
 
-        layout.addWidget(soc_section)
+        # 3. Right Panel: Metrics & Controls (approx. 30%)
+        right_panel = QVBoxLayout()
+        right_panel.setSpacing(16)
+        content_layout.addLayout(right_panel, 3)
 
-        # Collapsible details panel
-        self.details = CollapsibleDetails()
-        layout.addWidget(self.details)
+        # Primary metrics (2x2 grid)
+        primary_metrics = QGridLayout()
+        primary_metrics.setSpacing(8)
+        primary_metrics.setContentsMargins(0, 0, 0, 0)
+
+        self.metric_energy = MetricCard("Energy Charged", "Wh")
+        self.metric_power = MetricCard("Current Power", "kW")
+        self.metric_duration = MetricCard("Duration")
+        self.metric_soc = MetricCard("State of Charge", "%")
+
+        primary_metrics.addWidget(self.metric_energy, 0, 0)
+        primary_metrics.addWidget(self.metric_power, 0, 1)
+        primary_metrics.addWidget(self.metric_duration, 1, 0)
+        primary_metrics.addWidget(self.metric_soc, 1, 1)
+        right_panel.addLayout(primary_metrics)
 
         # ID tag input section
         id_tag_section = QFrame()
         id_tag_section.setObjectName("idTagSection")
-        id_tag_layout = QHBoxLayout(id_tag_section)
-        id_tag_layout.setContentsMargins(12, 8, 12, 8)
+        id_tag_layout = QVBoxLayout(id_tag_section)
+        id_tag_layout.setContentsMargins(12, 12, 12, 12)
         id_tag_layout.setSpacing(12)
 
         self.id_tag_input = IdTagInput()
         self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)
         id_tag_layout.addWidget(self.id_tag_input)
+        right_panel.addWidget(id_tag_section)
 
-        layout.addWidget(id_tag_section)
-
-        # Action buttons row
-        actions = QHBoxLayout()
-        actions.setSpacing(12)
+        # Action buttons grid
+        actions_frame = QFrame()
+        actions_grid = QGridLayout(actions_frame)
+        actions_grid.setContentsMargins(0, 0, 0, 0)
+        actions_grid.setSpacing(8)
 
         self.btn_plug = QPushButton("Plug In")
         self.btn_plug.setObjectName("btnPlug")
         self.btn_plug.setProperty("primary", True)
-        self.btn_plug.setMinimumHeight(48)
+        self.btn_plug.setMinimumHeight(40)
         self.btn_plug.clicked.connect(self.plug_in_clicked)
-        actions.addWidget(self.btn_plug, 1)
-
-        self.btn_start_charge = QPushButton("Start Charging")
-        self.btn_start_charge.setObjectName("btnStartCharge")
-        self.btn_start_charge.setProperty("success", True)
-        self.btn_start_charge.setMinimumHeight(48)
-        self.btn_start_charge.clicked.connect(self.start_charging_clicked)
-        actions.addWidget(self.btn_start_charge, 1)
-
-        self.btn_suspend_ev = QPushButton("Suspend EV")
-        self.btn_suspend_ev.setObjectName("btnSuspendEV")
-        self.btn_suspend_ev.setMinimumHeight(48)
-        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
-        actions.addWidget(self.btn_suspend_ev, 1)
-
-        self.btn_stop_charge = QPushButton("Stop Charging")
-        self.btn_stop_charge.setObjectName("btnStopCharge")
-        self.btn_stop_charge.setProperty("danger", True)
-        self.btn_stop_charge.setMinimumHeight(48)
-        self.btn_stop_charge.clicked.connect(self.stop_charging_clicked)
-        actions.addWidget(self.btn_stop_charge, 1)
+        actions_grid.addWidget(self.btn_plug, 0, 0)
 
         self.btn_unplug = QPushButton("Unplug")
         self.btn_unplug.setObjectName("btnUnplug")
         self.btn_unplug.setProperty("danger", True)
-        self.btn_unplug.setMinimumHeight(48)
+        self.btn_unplug.setMinimumHeight(40)
         self.btn_unplug.clicked.connect(self.unplug_clicked)
-        actions.addWidget(self.btn_unplug, 1)
+        actions_grid.addWidget(self.btn_unplug, 0, 1)
 
-        layout.addLayout(actions)
-        layout.addStretch()
+        self.btn_start_charge = QPushButton("Start Charging")
+        self.btn_start_charge.setObjectName("btnStartCharge")
+        self.btn_start_charge.setProperty("success", True)
+        self.btn_start_charge.setMinimumHeight(40)
+        self.btn_start_charge.clicked.connect(self.start_charging_clicked)
+        actions_grid.addWidget(self.btn_start_charge, 1, 0)
+
+        self.btn_stop_charge = QPushButton("Stop Charging")
+        self.btn_stop_charge.setObjectName("btnStopCharge")
+        self.btn_stop_charge.setProperty("danger", True)
+        self.btn_stop_charge.setMinimumHeight(40)
+        self.btn_stop_charge.clicked.connect(self.stop_charging_clicked)
+        actions_grid.addWidget(self.btn_stop_charge, 1, 1)
+
+        self.btn_suspend_ev = QPushButton("Suspend EV")
+        self.btn_suspend_ev.setObjectName("btnSuspendEV")
+        self.btn_suspend_ev.setMinimumHeight(40)
+        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
+        actions_grid.addWidget(self.btn_suspend_ev, 2, 0, 1, 2)
+
+        right_panel.addWidget(actions_frame)
+
+        # Collapsible details panel
+        self.details = CollapsibleDetails()
+        right_panel.addWidget(self.details)
+
+        right_panel.addStretch()
 
     def _on_connector_selected(self, connector_id: int) -> None:
         """
@@ -713,6 +756,9 @@ class SessionDashboard(QWidget):
         # Update button states based on plug status
         self.btn_plug.setEnabled(not conn.is_plugged_in)
         self.btn_unplug.setEnabled(conn.is_plugged_in)
+
+        # Update ID tag placeholder
+        self.id_tag_input.set_applied_tag(conn.id_tag)
 
         power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
         self.metric_power.set_value(f"{power_kw:.2f}")
