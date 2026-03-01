@@ -73,6 +73,10 @@ class AppSettings:
     @property
     def recent_tags(self) -> list[str]:
         tags = self._settings.value(self.SETTING_RECENT_TAGS, [])
+        if tags is None:
+            return []
+        if isinstance(tags, str):
+            return [tags]
         if isinstance(tags, list):
             return [str(t) for t in tags]
         return []

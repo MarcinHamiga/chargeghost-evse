@@ -38,7 +38,7 @@ from chargeghost_evse.ui.widgets.collapsible_log import CollapsibleLogPanel
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.icons import get_icon
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
-from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard
+from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard, IdTagInput
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
@@ -265,6 +265,11 @@ class SimulatorWidget(QWidget):
 
         sidebar_layout.addStretch()
 
+        self._btn_home = self._create_nav_btn("Switch Mode", "home")
+        self._btn_home.setAutoExclusive(False)
+        self._btn_home.clicked.connect(self.main_window._go_home)
+        sidebar_layout.addWidget(self._btn_home)
+
         main_layout.addWidget(self._sidebar)
 
         self.stack = QStackedWidget()
@@ -454,7 +459,7 @@ class SimulatorWidget(QWidget):
             self.main_window.log_message(
                 f"[green]UI:[/green] ID Tag set to: {id_tag} on Connector {self._selected_connector_id}"
             )
-            self.dashboard.set_recent_tags(self.main_window.app_settings.recent_tags)
+            self.main_window.update_recent_tags()
 
     def action_save_config(self) -> None:
         url = self.settings_panel.get_url()
@@ -555,9 +560,37 @@ class ManualWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QHBoxLayout(self)
+        main_layout = QHBoxLayout(self)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Sidebar
+        self._sidebar = QWidget()
+        self._sidebar.setObjectName("sidebar")
+        self._sidebar.setFixedWidth(200)
+        sidebar_layout = QVBoxLayout(self._sidebar)
+        sidebar_layout.setContentsMargins(8, 16, 8, 16)
+        sidebar_layout.setSpacing(8)
+
+        self._btn_manual = self._create_nav_btn("Manual Controls", "terminal")
+        self._btn_manual.setChecked(True)
+        sidebar_layout.addWidget(self._btn_manual)
+
+        sidebar_layout.addStretch()
+
+        self._btn_home = self._create_nav_btn("Switch Mode", "home")
+        self._btn_home.setAutoExclusive(False)
+        self._btn_home.clicked.connect(self.main_window._go_home)
+        sidebar_layout.addWidget(self._btn_home)
+
+        main_layout.addWidget(self._sidebar)
+
+        # Content
+        content_widget = QWidget()
+        layout = QHBoxLayout(content_widget)
         layout.setSpacing(16)
         layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.addWidget(content_widget, 1)
 
         controls = QVBoxLayout()
         controls.setSpacing(12)
@@ -610,16 +643,9 @@ class ManualWidget(QWidget):
         tx_title.setObjectName("groupTitle")
         tx_layout.addWidget(tx_title)
 
-        start_row = QHBoxLayout()
-        self.btn_start = QPushButton("Start")
-        self.btn_start.setProperty("success", True)
-        self.btn_start.setMinimumHeight(40)
-        self.btn_start.clicked.connect(self.action_start)
-        self.input_tag = QLineEdit()
-        self.input_tag.setPlaceholderText("ID Tag")
-        start_row.addWidget(self.btn_start, 1)
-        start_row.addWidget(self.input_tag, 2)
-        tx_layout.addLayout(start_row)
+        self.id_tag_input = IdTagInput(button_text="Start")
+        self.id_tag_input.tag_applied.connect(self.action_start)
+        tx_layout.addWidget(self.id_tag_input)
 
         stop_row = QHBoxLayout()
         self.btn_stop = QPushButton("Stop")
@@ -663,6 +689,18 @@ class ManualWidget(QWidget):
 
         right_panel.addWidget(self.log_panel)
 
+    def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setObjectName("sidebarNavBtn")
+        btn.setCheckable(True)
+        btn.setAutoExclusive(True)
+        btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
+        btn.setIconSize(QSize(16, 16))
+        btn.setMinimumHeight(40)
+        btn.setMaximumHeight(40)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        return btn
+
     def action_toggle_log_mode(self) -> None:
         is_detailed = self.btn_log_mode.isChecked()
         if is_detailed:
@@ -692,11 +730,14 @@ class ManualWidget(QWidget):
         if adapter and loop:
             asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
 
-    def action_start(self) -> None:
+    def action_start(self, tag: str = "") -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if adapter and loop:
-            id_tag = self.input_tag.text() or "MANUAL_TAG"
+            id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
+            self.main_window.app_settings.add_recent_tag(id_tag)
+            self.main_window.update_recent_tags()
+            
             asyncio.run_coroutine_threadsafe(
                 adapter.send_start_transaction(
                     connector_id=self.input_connector_id.value(),
@@ -750,6 +791,17 @@ class ManualWidget(QWidget):
                 ),
                 loop,
             )
+
+    def set_recent_tags(self, tags: list[str]) -> None:
+        """Update recent tags in the manual controls panel."""
+        self.id_tag_input.set_recent_tags(tags)
+
+    def update_ui(self) -> None:
+        """Update manual controls from current engine state."""
+        connector_id = self.input_connector_id.value()
+        conn = self.engine.get_connector(connector_id)
+        if conn:
+            self.id_tag_input.set_applied_tag(conn.id_tag)
 
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
@@ -821,6 +873,12 @@ class MainWindow(QMainWindow):
         )
         QTimer.singleShot(1500, self.update_controller.start_check)
 
+    def update_recent_tags(self) -> None:
+        """Centralized update of recent tags across all relevant UI widgets."""
+        tags = self.app_settings.recent_tags
+        self.simulator.dashboard.set_recent_tags(tags)
+        self.manual.set_recent_tags(tags)
+
     def _setup_ui(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -828,30 +886,6 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
-
-        self._nav_header = QWidget()
-        self._nav_header.setObjectName("navHeader")
-        self._nav_header.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._nav_header.setFixedHeight(48)
-        self._nav_header.hide()
-
-        nav_layout = QHBoxLayout(self._nav_header)
-        nav_layout.setContentsMargins(12, 0, 12, 0)
-        nav_layout.setSpacing(8)
-
-        self._btn_home = QToolButton()
-        self._btn_home.setObjectName("btnHome")
-        self._btn_home.setAutoRaise(True)
-        self._btn_home.setFixedSize(36, 36)
-        self._btn_home.setIcon(get_icon("home", colors.TEXT_SECONDARY))
-        self._btn_home.clicked.connect(self._go_home)
-        nav_layout.addWidget(self._btn_home)
-
-        self._nav_title = QLabel("")
-        self._nav_title.setObjectName("navTitle")
-        nav_layout.addWidget(self._nav_title)
-        nav_layout.addStretch()
-        main_layout.addWidget(self._nav_header)
 
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.setObjectName("mainSplitter")
@@ -963,7 +997,6 @@ class MainWindow(QMainWindow):
     def _go_home(self) -> None:
         if self.stack.currentWidget() != self.mode_select:
             self._fade_to_widget(self.mode_select)
-            self._nav_header.hide()
             self._global_log_panel.setVisible(False)
             self._btn_toggle_log.setChecked(False)
             self.app_settings.last_mode = ""
@@ -971,15 +1004,12 @@ class MainWindow(QMainWindow):
     def switch_to_mode(self, mode: str) -> None:
         if mode == "simulator":
             self._fade_to_widget(self.simulator)
-            self._nav_title.setText("Simulator Mode")
-            self._nav_header.show()
             self._global_log_panel.setVisible(True)
-            self.simulator.dashboard.set_recent_tags(self.app_settings.recent_tags)
+            self.update_recent_tags()
         elif mode == "manual":
             self._fade_to_widget(self.manual)
-            self._nav_title.setText("Manual Mode")
-            self._nav_header.show()
             self._global_log_panel.setVisible(True)
+            self.update_recent_tags()
         self.app_settings.last_mode = mode
 
     def _fade_to_widget(self, widget: QWidget) -> None:
@@ -1053,6 +1083,8 @@ class MainWindow(QMainWindow):
 
         if self.stack.currentWidget() == self.simulator:
             self.simulator.update_ui()
+        elif self.stack.currentWidget() == self.manual:
+            self.manual.update_ui()
 
     @Slot(str, str, bool)
     def on_log_received(self, source: str, message: str, is_important: bool) -> None:
