@@ -1,6 +1,127 @@
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 
 
+class TestStateTransitions:
+	"""Tests for formal state machine validation."""
+
+	def test_plug_in_from_available(self):
+		connector = Connector(id=1)
+		error = connector.plug_in()
+		assert error is None
+		assert connector.status == ConnectorState.PREPARING
+
+	def test_plug_in_from_faulted_rejected(self):
+		connector = Connector(id=1)
+		connector.status = ConnectorState.FAULTED
+		error = connector.plug_in()
+		assert error is not None
+		assert "Invalid" in error
+		assert connector.status == ConnectorState.FAULTED
+
+	def test_plug_in_from_unavailable_rejected(self):
+		connector = Connector(id=1)
+		connector.status = ConnectorState.UNAVAILABLE
+		# plug_in already preserves UNAVAILABLE (existing behavior)
+		# But now it should also return an error string
+		error = connector.plug_in()
+		assert error is not None
+
+	def test_start_charging_from_preparing(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		error = connector.start_charging()
+		assert error is None
+		assert connector.status == ConnectorState.CHARGING
+
+	def test_start_charging_from_available_rejected(self):
+		connector = Connector(id=1)
+		error = connector.start_charging()
+		assert error is not None
+		assert connector.status == ConnectorState.AVAILABLE
+
+	def test_stop_charging_from_charging(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		error = connector.stop_charging()
+		assert error is None
+		assert connector.status == ConnectorState.FINISHING
+
+	def test_stop_charging_from_suspended_ev(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		connector.suspend_ev()
+		error = connector.stop_charging()
+		assert error is None
+		assert connector.status == ConnectorState.FINISHING
+
+	def test_stop_charging_from_available_rejected(self):
+		connector = Connector(id=1)
+		error = connector.stop_charging()
+		assert error is not None
+
+	def test_suspend_ev_from_charging(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		error = connector.suspend_ev()
+		assert error is None
+		assert connector.status == ConnectorState.SUSPENDED_EV
+
+	def test_suspend_ev_from_preparing_rejected(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		error = connector.suspend_ev()
+		assert error is not None
+		assert connector.status == ConnectorState.PREPARING
+
+	def test_resume_from_suspended_ev(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		connector.suspend_ev()
+		error = connector.resume_charging()
+		assert error is None
+		assert connector.status == ConnectorState.CHARGING
+
+	def test_resume_from_charging_rejected(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		error = connector.resume_charging()
+		assert error is not None
+		assert connector.status == ConnectorState.CHARGING
+
+	def test_unplug_from_any_plugged_state(self):
+		"""Unplug is always valid when plugged in (physical disconnect)."""
+		for start_state in [
+			ConnectorState.PREPARING,
+			ConnectorState.CHARGING,
+			ConnectorState.SUSPENDED_EV,
+			ConnectorState.FINISHING,
+		]:
+			connector = Connector(id=1)
+			connector.plug_in()
+			connector._status = start_state
+			connector.is_plugged_in = True
+			error = connector.unplug()
+			assert error is None, f"unplug from {start_state} should succeed"
+
+	def test_unplug_when_not_plugged_rejected(self):
+		connector = Connector(id=1)
+		error = connector.unplug()
+		assert error is not None
+
+	def test_plug_in_already_plugged_is_noop(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		error = connector.plug_in()
+		# Second plug_in is a no-op, not an error
+		assert error is None
+		assert connector.status == ConnectorState.PREPARING
+
+
 class TestConnector:
 	def test_initial_state(self):
 		connector = Connector(id=1)
