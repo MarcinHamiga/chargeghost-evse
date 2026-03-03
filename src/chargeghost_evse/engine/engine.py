@@ -283,7 +283,11 @@ class Engine(Subscriber):
 
         connector = self._connectors.get(connector_id)
         if connector:
-            connector.plug_in()
+            error = connector.plug_in()
+            if error:
+                self._log(
+                    f"[yellow]Engine:[/yellow] Cannot plug in connector {connector_id}: {error}"
+                )
 
     def unplug(self, connector_id: int) -> None:
         """
@@ -410,7 +414,11 @@ class Engine(Subscriber):
         """
         connector = self._connectors.get(connector_id)
         if connector and self.session and self.session.connector_id == connector_id:
-            connector.suspend_ev()
+            error = connector.suspend_ev()
+            if error:
+                self._log(
+                    f"[yellow]Engine:[/yellow] Cannot suspend connector {connector_id}: {error}"
+                )
             if connector.status == ConnectorState.SUSPENDED_EV:
                 self.energy_meter.is_charging = False
                 self._log(
@@ -429,7 +437,11 @@ class Engine(Subscriber):
         """
         connector = self._connectors.get(connector_id)
         if connector and self.session and self.session.connector_id == connector_id:
-            connector.resume_charging()
+            error = connector.resume_charging()
+            if error:
+                self._log(
+                    f"[yellow]Engine:[/yellow] Cannot resume connector {connector_id}: {error}"
+                )
             if connector.status == ConnectorState.CHARGING:
                 self.energy_meter.is_charging = True
                 self._log(
