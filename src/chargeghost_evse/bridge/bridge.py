@@ -751,10 +751,17 @@ class Bridge:
 
         async def send_start_tx() -> None:
             """Send StartTransaction and update session with transaction ID."""
-            response = await adapter.send_start_transaction(**start_kwargs)
-            if response and response.transaction_id and self.engine.session is session:
-                session.transaction_id = response.transaction_id
-                self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+            try:
+                response = await adapter.send_start_transaction(**start_kwargs)
+                if response and response.transaction_id and self.engine.session is session:
+                    session.transaction_id = response.transaction_id
+                    self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+            except Exception as e:
+                self._log(
+                    message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}"
+                )
+                self._message_queue.enqueue("StartTransaction", start_kwargs)
+                self._log(message="[yellow]Queued[/yellow] StartTransaction for retry")
 
         future = asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
         future.add_done_callback(self._handle_future_error)
@@ -796,10 +803,17 @@ class Bridge:
             self._log(message="[yellow]Queued[/yellow] StopTransaction (offline)")
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            adapter.send_stop_transaction(**stop_kwargs),
-            loop,
-        )
+        async def _send_stop() -> None:
+            try:
+                await adapter.send_stop_transaction(**stop_kwargs)
+            except Exception as e:
+                self._log(
+                    message=f"[red]StopTransaction failed:[/red] {type(e).__name__}: {e}"
+                )
+                self._message_queue.enqueue("StopTransaction", stop_kwargs)
+                self._log(message="[yellow]Queued[/yellow] StopTransaction for retry")
+
+        future = asyncio.run_coroutine_threadsafe(_send_stop(), loop)
         future.add_done_callback(self._handle_future_error)
 
     def send_authorize(self, id_tag: str) -> None:
