@@ -41,8 +41,14 @@ import threading
 import traceback
 import websockets
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
+from chargeghost_evse.bridge.message_queue import (
+    InMemoryBackend,
+    JsonFileBackend,
+    MessageQueue,
+)
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.adapter import Adapter
 from chargeghost_evse.util.event import Event
@@ -408,6 +414,7 @@ class Bridge:
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
+        persist_message_queue: bool = False,
     ) -> None:
         """
         Initialize the Bridge with Engine and connection parameters.
@@ -420,6 +427,7 @@ class Bridge:
             skip_tls_verify: If True, skip TLS certificate verification.
             charge_point_model: Model name for BootNotification.
             charge_point_vendor: Vendor name for BootNotification.
+            persist_message_queue: If True, persist message queue to disk.
         """
         self.engine = engine
         self.url = url
@@ -437,6 +445,9 @@ class Bridge:
 
         # Forward log events from runner
         self.on_log = self.runner.on_log
+
+        # Offline message queue
+        self._message_queue = self._create_message_queue(persist=persist_message_queue)
 
         # Background threads
         self._meter_values_thread: Optional[threading.Thread] = None
@@ -478,13 +489,47 @@ class Bridge:
         self._shutdown_event.set()
         self.runner.shutdown()
 
+    def _create_message_queue(self, persist: bool) -> MessageQueue:
+        """Create message queue with appropriate backend."""
+        if persist:
+            filepath = Path.home() / ".chargeghost" / "message_queue.json"
+            backend = JsonFileBackend(filepath)
+        else:
+            backend = InMemoryBackend()
+        return MessageQueue(backend=backend, max_attempts=3)
+
     def _on_adapter_registered(self) -> None:
         """Called after each successful boot notification / registration."""
         self._send_initial_status_notifications()
         self._inject_limit_getter()
+        self._drain_message_queue()
         self._log(
             message="[cyan]OCPP:[/cyan] Adapter registered, sending initial status and enabling charging profiles"
         )
+
+    def _drain_message_queue(self) -> None:
+        """Replay queued messages after reconnection."""
+        if self._message_queue.size == 0:
+            return
+
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            return
+
+        self._log(
+            message=f"[cyan]Queue:[/cyan] Draining {self._message_queue.size} buffered message(s)..."
+        )
+
+        async def _do_drain() -> None:
+            sent = await self._message_queue.drain(adapter)
+            remaining = self._message_queue.size
+            self._log(
+                message=f"[cyan]Queue:[/cyan] Sent {sent} message(s), {remaining} remaining"
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_do_drain(), loop)
+        future.add_done_callback(self._handle_future_error)
 
     def _inject_limit_getter(self) -> None:
         """
@@ -618,6 +663,12 @@ class Bridge:
                         loop,
                     )
                     future.add_done_callback(self._handle_future_error)
+                else:
+                    self._message_queue.enqueue("MeterValues", {
+                        "connector_id": self.engine.session.connector_id,
+                        "value": self.engine.energy_meter.get_meter_reading(),
+                        "transaction_id": self.engine.session.transaction_id,
+                    })
 
             # Wait for the interval or until shutdown
             wait_interval = max(interval, 1) if interval > 0 else 1
@@ -672,32 +723,35 @@ class Bridge:
         Handle session started events from the Engine.
 
         Sends StartTransaction to the Central System and updates the
-        session with the assigned transaction ID.
+        session with the assigned transaction ID. If disconnected, queues
+        the message for replay on reconnection.
 
         Args:
             connector_id: ID of the connector where session started.
         """
-        if not self.runner.adapter or not self.runner.loop:
-            return
-
-        adapter = self.runner.adapter
-        loop = self.runner.loop
-
         session = self.engine.session
         if not session:
             return
 
         self._log(message=f"Session started on connector {connector_id}")
         id_tag = session.id_tag or "UNKNOWN_TAG"
+        start_kwargs = {
+            "connector_id": connector_id,
+            "id_tag": id_tag,
+            "meter_start": int(self.engine.energy_meter.get_meter_reading()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            self._message_queue.enqueue("StartTransaction", start_kwargs)
+            self._log(message="[yellow]Queued[/yellow] StartTransaction (offline)")
+            return
 
         async def send_start_tx() -> None:
             """Send StartTransaction and update session with transaction ID."""
-            response = await adapter.send_start_transaction(
-                connector_id=connector_id,
-                id_tag=id_tag,
-                meter_start=int(self.engine.energy_meter.get_meter_reading()),
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            )
+            response = await adapter.send_start_transaction(**start_kwargs)
             if response and response.transaction_id and self.engine.session is session:
                 session.transaction_id = response.transaction_id
                 self._log(message=f"Transaction ID assigned: {response.transaction_id}")
@@ -710,16 +764,12 @@ class Bridge:
         Handle session stopped events from the Engine.
 
         Sends StopTransaction to the Central System with the final
-        meter reading and stop reason.
+        meter reading and stop reason. If disconnected, queues the
+        message for replay on reconnection.
 
         Args:
             connector_id: ID of the connector where session stopped.
         """
-        adapter = self.runner.adapter
-        loop = self.runner.loop
-        if not adapter or not loop:
-            return
-
         last_session = self.engine.last_stopped_session
         if not last_session:
             self._log(message=f"No session info available for connector {connector_id}")
@@ -728,18 +778,26 @@ class Bridge:
         transaction_id = last_session.get("transaction_id", 0)
         meter_stop = last_session.get("meter_stop", 0)
         reason = last_session.get("reason", "Local")
+        stop_kwargs = {
+            "meter_stop": int(meter_stop),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "transaction_id": transaction_id,
+            "reason": reason,
+        }
 
         self._log(
             message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
         )
 
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            self._message_queue.enqueue("StopTransaction", stop_kwargs)
+            self._log(message="[yellow]Queued[/yellow] StopTransaction (offline)")
+            return
+
         future = asyncio.run_coroutine_threadsafe(
-            adapter.send_stop_transaction(
-                meter_stop=int(meter_stop),
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                transaction_id=transaction_id,
-                reason=reason,
-            ),
+            adapter.send_stop_transaction(**stop_kwargs),
             loop,
         )
         future.add_done_callback(self._handle_future_error)

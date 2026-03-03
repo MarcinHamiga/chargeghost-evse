@@ -187,6 +187,9 @@ class SimulationConfig:
     # Update settings
     ignored_version: Optional[str] = None
 
+    # Message queue persistence
+    persist_message_queue: bool = False
+
     @staticmethod
     def _get_password(ocpp_id: str) -> str:
         """
@@ -274,6 +277,7 @@ class SimulationConfig:
                     skip_tls_verify=data.get("skip_tls_verify", False),
                     log_mode=data.get("log_mode", "compact"),
                     ignored_version=data.get("ignored_version"),
+                    persist_message_queue=data.get("persist_message_queue", False),
                 )
             except (json.JSONDecodeError, IOError) as e:
                 logging.warning("Failed to load config from %s, using defaults: %s", CONFIG_FILE, e)
@@ -303,6 +307,7 @@ class SimulationConfig:
             "skip_tls_verify": self.skip_tls_verify,
             "log_mode": self.log_mode,
             "ignored_version": self.ignored_version,
+            "persist_message_queue": self.persist_message_queue,
         }
 
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
