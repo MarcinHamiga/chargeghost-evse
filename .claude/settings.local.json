@@ -10,7 +10,9 @@
       "Bash(poetry install:*)",
       "Bash(poetry lock:*)",
       "Bash(wait:*)",
-      "Bash(poetry show:*)"
+      "Bash(poetry show:*)",
+      "mcp__qdrant-search__index_codebase",
+      "mcp__qdrant-search__search_code"
     ]
   }
 }

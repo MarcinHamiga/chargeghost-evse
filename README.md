@@ -30,7 +30,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
   - **Manual**: Direct protocol interaction for debugging and testing CSMS implementations.
 - **Multi-Connector Support**: Simulate stations with multiple independent connectors, each with its own configuration.
-- **Live Metrics Dashboard**: Real-time tracking of energy (Wh), Power (kW), Voltage (V), Current (A), and State of Charge (SoC).
+- **Live Metrics Dashboard**: Real-time tracking of energy (Wh), Power (kW), Voltage (V), Current (A), and State of Charge (SoC) with a rolling window telemetry chart for visualizing power trends.
 - **OCPP Config Key Management**: Built-in editor for mandatory, optional, and read-only OCPP configuration keys.
 - **Firmware Management**: Simulated firmware updates and diagnostics upload with full status reporting.
 - **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
@@ -50,7 +50,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 ### Using Poetry (Development purposes only)
 
 ```bash
-git clone https://github.com/your-repo/chargeghost-evse.git
+git clone https://github.com/MarcinHamiga/chargeghost-evse.git
 cd chargeghost-evse
 poetry install
 ```
@@ -74,7 +74,7 @@ pip install -e .
 
 1. Start the application:
    ```bash
-   poetry run chargeghost-evse
+   poetry run dev
    ```
 2. Select **Simulator Mode**.
 3. Go to the **Settings** tab and enter your CSMS WebSocket URL (e.g., `ws://localhost:8080/steve/websocket/CentralSystemService/CP_1`).
@@ -94,7 +94,7 @@ Simulator Mode provides a high-fidelity EVSE simulation where the engine manages
 - **Connector Strip**: Located at the top of the dashboard. Click on connector icons (C1, C2, etc.) to switch focus between physical connectors.
 - **Session Controls**: Interactive buttons for simulation actions (Plug In, Start, Stop, Unplug).
 - **ID Tag Entry**: Field to specify the RFID tag used for authorization.
-- **Session Dashboard**: Real-time visualization of the active transaction and electrical metrics.
+- **Session Dashboard**: Real-time visualization of the active transaction and electrical metrics in a two-column layout with telemetry chart and session controls.
 - **Collapsible Activity Log**: Expandable log at the bottom showing detailed Engine and OCPP events. Toggle between **Detailed** and **Compact** modes.
 
 #### Typical Charging Workflow
@@ -220,8 +220,9 @@ poetry run pytest
 ### Linting & Formatting
 
 ```bash
-poetry run ruff check .
-poetry run ruff format .
+poetry run ruff check src/
+poetry run ruff check src/ --fix
+poetry run ruff format src/
 poetry run mypy src/
 ```
 

@@ -62,6 +62,16 @@ UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCP
 - **ChargingProfileManager**: thread-safe via `RLock`; inject into Engine via `get_limit` callback from Bridge.
 - **Update system**: `UpdateManager` runs GitHub API checks off-main-thread; `HandoverManager` handles atomic app replacement for standalone binaries.
 
+## Codebase Search
+
+When Qdrant is available (embeddings indexed), always use semantic search instead of grep:
+- Use `search_code` to find code by concept or intent (e.g., "OCPP message handling", "energy meter updates")
+- Use `contextual_search` for combined code + git history search
+- Use `semantic_search` or `hybrid_search` on collections for flexibility
+- Reserve `Grep` tool only for: precise literal matches, regex patterns, or when semantic search doesn't fit the query
+
+The codebase is indexed in Qdrant and respects .gitignore patterns. Exclude `node_modules` and `dist` from indexing.
+
 ## Key Constraints
 
 - Single active transaction at a time (mirrors real hardware).
