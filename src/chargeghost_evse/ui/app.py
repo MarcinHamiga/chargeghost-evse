@@ -837,6 +837,7 @@ class MainWindow(QMainWindow):
             skip_tls_verify=self.config.skip_tls_verify,
             charge_point_model=self.config.charge_point_model,
             charge_point_vendor=self.config.charge_point_vendor,
+            persist_message_queue=self.config.persist_message_queue,
         )
         self.bridge.setup()
 
