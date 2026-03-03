@@ -193,3 +193,54 @@ class MessageQueue:
     def clear(self) -> None:
         """Remove all messages from the queue."""
         self._backend.clear()
+
+    async def drain(self, adapter: object) -> int:
+        """
+        Replay all queued messages via the adapter.
+
+        Messages that fail are re-enqueued with incremented attempt count.
+        Messages exceeding max_attempts are dropped.
+
+        Args:
+            adapter: The OCPP Adapter instance with send_* methods.
+
+        Returns:
+            Number of messages successfully sent.
+        """
+        sent = 0
+        failed: list[QueuedMessage] = []
+        messages = self._backend.all()
+        self._backend.clear()
+
+        for msg in messages:
+            if msg.attempts >= self._max_attempts:
+                continue  # Drop message
+
+            method_name = _ACTION_TO_METHOD.get(msg.action)
+            if method_name is None:
+                continue
+
+            send_method = getattr(adapter, method_name, None)
+            if send_method is None:
+                continue
+
+            try:
+                await send_method(**msg.kwargs)
+                sent += 1
+            except Exception:
+                msg.attempts += 1
+                failed.append(msg)
+
+        # Re-queue failed messages
+        for msg in failed:
+            self._backend.store(msg)
+
+        return sent
+
+
+# Map of OCPP action names to adapter send method names
+_ACTION_TO_METHOD: dict[str, str] = {
+    "StartTransaction": "send_start_transaction",
+    "StopTransaction": "send_stop_transaction",
+    "MeterValues": "send_meter_values",
+}
