@@ -55,6 +55,24 @@ class ConnectorState(enum.Enum):
     FAULTED = "Faulted"
 
 
+# Valid state transitions: (current_state, action) -> new_state
+VALID_TRANSITIONS: dict[tuple[ConnectorState, str], ConnectorState] = {
+    # Plug in/out
+    (ConnectorState.AVAILABLE, "plug_in"): ConnectorState.PREPARING,
+    (ConnectorState.PREPARING, "unplug"): ConnectorState.AVAILABLE,
+    (ConnectorState.FINISHING, "unplug"): ConnectorState.AVAILABLE,
+    (ConnectorState.CHARGING, "unplug"): ConnectorState.AVAILABLE,
+    (ConnectorState.SUSPENDED_EV, "unplug"): ConnectorState.AVAILABLE,
+    # Session lifecycle
+    (ConnectorState.PREPARING, "start_charging"): ConnectorState.CHARGING,
+    (ConnectorState.CHARGING, "stop_charging"): ConnectorState.FINISHING,
+    (ConnectorState.SUSPENDED_EV, "stop_charging"): ConnectorState.FINISHING,
+    # Suspension
+    (ConnectorState.CHARGING, "suspend_ev"): ConnectorState.SUSPENDED_EV,
+    (ConnectorState.SUSPENDED_EV, "resume"): ConnectorState.CHARGING,
+}
+
+
 class Connector(Subscriber):
     """
     Represents a single EVSE connector with state and parameter management.
@@ -158,6 +176,27 @@ class Connector(Subscriber):
             self._status = new_status
             self.on_status_change.emit(connector_id=self.id, status=new_status)
 
+    def _transition(self, action: str) -> Optional[str]:
+        """
+        Attempt a state transition.
+
+        Looks up (current_state, action) in VALID_TRANSITIONS.
+        If valid, updates status and returns None.
+        If invalid, returns an error message string.
+
+        Args:
+            action: The transition action name.
+
+        Returns:
+            None on success, error string on invalid transition.
+        """
+        key = (self._status, action)
+        new_state = VALID_TRANSITIONS.get(key)
+        if new_state is None:
+            return f"Invalid transition: {self._status.value} + {action}"
+        self.status = new_state
+        return None
+
     def set_parameters(
         self,
         voltage: Optional[float] = None,
@@ -212,72 +251,95 @@ class Connector(Subscriber):
         """
         return self.voltage * self.current * self.phase
 
-    def plug_in(self) -> None:
+    def plug_in(self) -> Optional[str]:
         """
         Simulate an EV being plugged into the connector.
 
         Sets is_plugged_in to True and transitions from AVAILABLE
         to PREPARING state. Does nothing if already plugged in.
-        """
-        if not self.is_plugged_in:
-            self.is_plugged_in = True
-            if self.status == ConnectorState.AVAILABLE:
-                self.status = ConnectorState.PREPARING
 
-    def unplug(self) -> None:
+        Returns:
+            None on success, error string if transition is invalid.
+        """
+        if self.is_plugged_in:
+            return None  # Already plugged in, no-op
+        if self._status in (ConnectorState.FAULTED, ConnectorState.UNAVAILABLE):
+            return f"Invalid transition: {self._status.value} + plug_in"
+        self.is_plugged_in = True
+        return self._transition("plug_in")
+
+    def unplug(self) -> Optional[str]:
         """
         Simulate an EV being unplugged from the connector.
 
         Sets is_plugged_in to False, clears the id_tag, and restores
         the persistent status (handles UNAVAILABLE/FAULTED states).
-        """
-        if self.is_plugged_in:
-            self.is_plugged_in = False
-            self.id_tag = None
-            self.status = self._persistent_status
 
-    def start_charging(self) -> None:
+        Returns:
+            None on success, error string if not plugged in.
+        """
+        if not self.is_plugged_in:
+            return "Cannot unplug: not plugged in"
+        self.is_plugged_in = False
+        self.id_tag = None
+        self.status = self._persistent_status
+        return None
+
+    def start_charging(self) -> Optional[str]:
         """
         Transition the connector to CHARGING state.
 
         Only transitions if an EV is currently plugged in.
         Called by Engine when a charging session begins.
-        """
-        if self.is_plugged_in:
-            self.status = ConnectorState.CHARGING
 
-    def stop_charging(self) -> None:
+        Returns:
+            None on success, error string if transition is invalid.
+        """
+        if not self.is_plugged_in:
+            return "Cannot start charging: not plugged in"
+        return self._transition("start_charging")
+
+    def stop_charging(self) -> Optional[str]:
         """
         Stop the charging process and transition state.
 
         Transitions to FINISHING if plugged in, or AVAILABLE if unplugged.
         Called by Engine when a charging session ends.
-        """
-        if self.status in (ConnectorState.CHARGING, ConnectorState.SUSPENDED_EV):
-            if self.is_plugged_in:
-                self.status = ConnectorState.FINISHING
-            else:
-                self.status = ConnectorState.AVAILABLE
 
-    def suspend_ev(self) -> None:
+        Returns:
+            None on success, error string if transition is invalid.
+        """
+        error = self._transition("stop_charging")
+        if error:
+            return error
+        # If unplugged during charging (race), go to AVAILABLE
+        if not self.is_plugged_in:
+            self.status = ConnectorState.AVAILABLE
+        return None
+
+    def suspend_ev(self) -> Optional[str]:
         """
         Manually suspend charging from the EV side.
 
         Transitions from CHARGING to SUSPENDED_EV state.
         Only valid when the connector is actively charging.
-        """
-        if self.status == ConnectorState.CHARGING:
-            self.status = ConnectorState.SUSPENDED_EV
 
-    def resume_charging(self) -> None:
+        Returns:
+            None on success, error string if transition is invalid.
+        """
+        return self._transition("suspend_ev")
+
+    def resume_charging(self) -> Optional[str]:
         """
         Resume charging after EV suspension.
 
         Transitions from SUSPENDED_EV back to CHARGING state.
         Only valid when the connector is in SUSPENDED_EV state.
+
+        Returns:
+            None on success, error string if transition is invalid.
         """
-        if self.status == ConnectorState.SUSPENDED_EV:
-            self.status = ConnectorState.CHARGING
+        return self._transition("resume")
 
     def handle_max_charge_reached(self, connector_id: int) -> None:
         """

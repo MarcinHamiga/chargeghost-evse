@@ -135,9 +135,9 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 - [ ] **OCPP 1.6 Security Whitepaper**: Full implementation of the three security profiles (Unsecured, TLS with Basic Auth, TLS with Client Side Certificates).
 
 ### Logic & Robustness
-- [ ] **Message Queuing (Offline)**: Buffering mandatory messages (like `MeterValues`, `StopTransaction`) when the connection is lost and re-sending them upon reconnection.
-- [ ] **CallError Handling**: Gracefully handling error responses from the Central System for all message types.
-- [ ] **State Machine Validation**: Ensuring strict adherence to connector states (e.g., not allowing a transaction to start if the connector is `Faulted` or `Inoperative`).
+- [x] **Message Queuing (Offline)**: Buffering mandatory messages (like `MeterValues`, `StopTransaction`) when the connection is lost and re-sending them upon reconnection.
+- [x] **CallError Handling**: Gracefully handling error responses from the Central System for all message types.
+- [x] **State Machine Validation**: Ensuring strict adherence to connector states (e.g., not allowing a transaction to start if the connector is `Faulted` or `Inoperative`).
 
 ---
 

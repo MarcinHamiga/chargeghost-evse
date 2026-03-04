@@ -478,3 +478,32 @@ def test_stop_session_from_suspended_ev():
 	engine.stop_session()
 	assert conn.status == ConnectorState.FINISHING
 	assert engine.session is None
+
+
+def test_start_session_on_faulted_returns_early():
+	"""start_session on FAULTED connector must not create a session."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.get_connector(1).status = ConnectorState.FAULTED
+	engine.start_session(connector_id=1, transaction_id=123)
+	assert engine.session is None
+
+
+def test_start_session_on_unavailable_returns_early():
+	"""start_session on UNAVAILABLE connector must not create a session."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.get_connector(1).status = ConnectorState.UNAVAILABLE
+	engine.start_session(connector_id=1, transaction_id=123)
+	assert engine.session is None
+
+
+def test_plug_in_on_faulted_connector():
+	"""plug_in on FAULTED connector should not transition to PREPARING."""
+	engine = Engine()
+	engine.add_connector()
+	engine.get_connector(1).status = ConnectorState.FAULTED
+	engine.plug_in(1)
+	assert engine.get_connector(1).status == ConnectorState.FAULTED

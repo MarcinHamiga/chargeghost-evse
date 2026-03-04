@@ -46,12 +46,14 @@ class _NullEvent:
 def _make_bridge(engine, runner):
 	"""Create a Bridge instance without triggering its real __init__."""
 	from chargeghost_evse.bridge.bridge import Bridge
+	from chargeghost_evse.bridge.message_queue import InMemoryBackend, MessageQueue
 
 	bridge = Bridge.__new__(Bridge)
 	bridge.engine = engine
 	bridge.runner = runner
 	bridge._shutdown_event = threading.Event()
 	bridge.on_log = _NullEvent()
+	bridge._message_queue = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
 	return bridge
 
 
