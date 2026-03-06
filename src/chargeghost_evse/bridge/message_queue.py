@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 _logger = logging.getLogger(__name__)
 
@@ -194,25 +194,38 @@ class MessageQueue:
         """Remove all messages from the queue."""
         self._backend.clear()
 
-    async def drain(self, adapter: object) -> int:
+    async def drain(
+        self,
+        adapter: object,
+        response_callbacks: Optional[dict[str, Callable[[Any, dict], None]]] = None,
+    ) -> int:
         """
         Replay all queued messages via the adapter.
 
-        Messages that fail are re-enqueued with incremented attempt count.
+        Each message is popped from the backend immediately before its send
+        attempt, so a crash mid-drain loses at most one in-flight message
+        rather than the entire queue.
+
+        Messages that fail are re-enqueued with an incremented attempt count.
         Messages exceeding max_attempts are dropped.
 
         Args:
             adapter: The OCPP Adapter instance with send_* methods.
+            response_callbacks: Optional dict mapping action name to a callable
+                that receives (response, original_kwargs). Called on successful
+                sends where the action has a registered callback.
 
         Returns:
             Number of messages successfully sent.
         """
         sent = 0
-        failed: list[QueuedMessage] = []
-        messages = self._backend.all()
-        self._backend.clear()
+        count = self._backend.size
 
-        for msg in messages:
+        for _ in range(count):
+            msg = self._backend.pop()
+            if msg is None:
+                break
+
             if msg.attempts >= self._max_attempts:
                 continue  # Drop message
 
@@ -225,15 +238,16 @@ class MessageQueue:
                 continue
 
             try:
-                await send_method(**msg.kwargs)
+                response = await send_method(**msg.kwargs)
                 sent += 1
+                if response_callbacks and msg.action in response_callbacks:
+                    try:
+                        response_callbacks[msg.action](response, msg.kwargs)
+                    except Exception:
+                        _logger.warning("Response callback for %s raised", msg.action)
             except Exception:
                 msg.attempts += 1
-                failed.append(msg)
-
-        # Re-queue failed messages
-        for msg in failed:
-            self._backend.store(msg)
+                self._backend.store(msg)
 
         return sent
 

@@ -213,4 +213,5 @@ __marimo__/
 .gemini
 
 # Claude Code
-.claude/settings.local.json.worktrees/
+.claude/settings.local.json
+.worktrees/

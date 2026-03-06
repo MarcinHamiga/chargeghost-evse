@@ -56,6 +56,16 @@ class TestStateTransitions:
 		assert error is None
 		assert connector.status == ConnectorState.FINISHING
 
+	def test_stop_charging_from_suspended_evse(self):
+		"""stop_charging() must work when EVSE suspended by smart charging."""
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.start_charging()
+		connector._status = ConnectorState.SUSPENDED_EVSE
+		error = connector.stop_charging()
+		assert error is None
+		assert connector.status == ConnectorState.FINISHING
+
 	def test_stop_charging_from_available_rejected(self):
 		connector = Connector(id=1)
 		error = connector.stop_charging()

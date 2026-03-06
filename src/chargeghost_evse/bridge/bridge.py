@@ -35,6 +35,7 @@ Example:
 """
 
 import asyncio
+import base64
 import concurrent.futures
 import ssl
 import threading
@@ -201,8 +202,6 @@ class AsyncRunner:
             Dictionary with Authorization header, or empty dict if no password.
         """
         if self.password:
-            import base64
-
             credentials = f"{self.charge_point_id}:{self.password}"
             encoded = base64.b64encode(credentials.encode()).decode()
             return {"Authorization": f"Basic {encoded}"}
@@ -500,12 +499,12 @@ class Bridge:
 
     def _on_adapter_registered(self) -> None:
         """Called after each successful boot notification / registration."""
-        self._send_initial_status_notifications()
-        self._inject_limit_getter()
-        self._drain_message_queue()
         self._log(
             message="[cyan]OCPP:[/cyan] Adapter registered, sending initial status and enabling charging profiles"
         )
+        self._send_initial_status_notifications()
+        self._inject_limit_getter()
+        self._drain_message_queue()
 
     def _drain_message_queue(self) -> None:
         """Replay queued messages after reconnection."""
@@ -522,7 +521,25 @@ class Bridge:
         )
 
         async def _do_drain() -> None:
-            sent = await self._message_queue.drain(adapter)
+            def on_start_tx_response(response: Any, kwargs: dict) -> None:
+                """Assign CSMS-provided transaction ID to the active session."""
+                tx_id = getattr(response, "transaction_id", None)
+                if not tx_id:
+                    return
+                session = self.engine.session
+                if session and session.connector_id == kwargs.get("connector_id"):
+                    session.transaction_id = tx_id
+                    set_active = getattr(adapter, "set_active_transaction", None)
+                    if callable(set_active):
+                        set_active(kwargs["connector_id"], tx_id)
+                    self._log(
+                        message=f"Transaction ID assigned from queue drain: {tx_id}"
+                    )
+
+            sent = await self._message_queue.drain(
+                adapter,
+                response_callbacks={"StartTransaction": on_start_tx_response},
+            )
             remaining = self._message_queue.size
             self._log(
                 message=f"[cyan]Queue:[/cyan] Sent {sent} message(s), {remaining} remaining"

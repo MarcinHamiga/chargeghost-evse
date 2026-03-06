@@ -190,3 +190,51 @@ class TestMessageQueueDrain:
 			assert requeued.attempts == 1
 		finally:
 			loop.close()
+
+	def test_drain_calls_response_callback(self):
+		"""drain() must invoke the response_callbacks entry for the action on success."""
+		q = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
+		q.enqueue("StartTransaction", {"connector_id": 1, "id_tag": "ABC", "meter_start": 0, "timestamp": "t"})
+
+		response = MagicMock(transaction_id=99)
+		adapter = MagicMock()
+		adapter.send_start_transaction = AsyncMock(return_value=response)
+
+		received: list = []
+
+		def on_start(resp, kwargs):
+			received.append((resp, kwargs))
+
+		loop = asyncio.new_event_loop()
+		try:
+			sent = loop.run_until_complete(
+				q.drain(adapter, response_callbacks={"StartTransaction": on_start})
+			)
+			assert sent == 1
+			assert len(received) == 1
+			assert received[0][0].transaction_id == 99
+			assert received[0][1]["connector_id"] == 1
+		finally:
+			loop.close()
+
+	def test_drain_does_not_lose_remaining_messages_on_partial_failure(self):
+		"""Messages after a failed send must not be lost when using pop-per-message approach."""
+		q = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
+		q.enqueue("StopTransaction", {"meter_stop": 10, "timestamp": "t", "transaction_id": 1, "reason": "Local"})
+		q.enqueue("MeterValues", {"connector_id": 1, "value": 42, "transaction_id": 1})
+
+		adapter = MagicMock()
+		# First call fails, second succeeds
+		adapter.send_stop_transaction = AsyncMock(side_effect=Exception("fail"))
+		adapter.send_meter_values = AsyncMock()
+
+		loop = asyncio.new_event_loop()
+		try:
+			sent = loop.run_until_complete(q.drain(adapter))
+			assert sent == 1  # MeterValues succeeded
+			assert q.size == 1  # StopTransaction re-queued
+			requeued = q._backend.peek()
+			assert requeued.action == "StopTransaction"
+			assert requeued.attempts == 1
+		finally:
+			loop.close()

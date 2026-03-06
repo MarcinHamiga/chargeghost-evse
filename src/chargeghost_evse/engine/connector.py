@@ -67,6 +67,7 @@ VALID_TRANSITIONS: dict[tuple[ConnectorState, str], ConnectorState] = {
     (ConnectorState.PREPARING, "start_charging"): ConnectorState.CHARGING,
     (ConnectorState.CHARGING, "stop_charging"): ConnectorState.FINISHING,
     (ConnectorState.SUSPENDED_EV, "stop_charging"): ConnectorState.FINISHING,
+    (ConnectorState.SUSPENDED_EVSE, "stop_charging"): ConnectorState.FINISHING,
     # Suspension
     (ConnectorState.CHARGING, "suspend_ev"): ConnectorState.SUSPENDED_EV,
     (ConnectorState.SUSPENDED_EV, "resume"): ConnectorState.CHARGING,
