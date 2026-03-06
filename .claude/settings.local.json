@@ -12,7 +12,15 @@
       "Bash(wait:*)",
       "Bash(poetry show:*)",
       "mcp__qdrant-search__index_codebase",
-      "mcp__qdrant-search__search_code"
+      "mcp__qdrant-search__search_code",
+      "Skill(code-review:code-review)",
+      "Bash(tail:*)",
+      "Bash(gh repo:*)",
+      "mcp__qdrant-search__reindex_changes",
+      "Bash(ls:*)",
+      "Bash(do:*)",
+      "Bash(chmod +x:*)",
+      "Bash(bash:*)"
     ]
   }
 }

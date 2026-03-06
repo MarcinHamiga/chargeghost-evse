@@ -662,12 +662,6 @@ class SessionDashboard(QWidget):
         self.btn_start_charge.clicked.connect(self.start_charging_clicked)
         actions_grid.addWidget(self.btn_start_charge, 1, 0)
 
-        self.btn_suspend_ev = QPushButton("Suspend EV")
-        self.btn_suspend_ev.setObjectName("btnSuspendEV")
-        self.btn_suspend_ev.setMinimumHeight(48)
-        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
-        actions.addWidget(self.btn_suspend_ev, 1)
-
         self.btn_stop_charge = QPushButton("Stop Charging")
         self.btn_stop_charge.setObjectName("btnStopCharge")
         self.btn_stop_charge.setProperty("danger", True)
