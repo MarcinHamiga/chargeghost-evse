@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,8 @@ class TestSessionFileLogger:
 		assert record["is_ocpp_message"] is False
 		assert record["is_important"] is True
 		assert "ts" in record
+		parsed_ts = datetime.fromisoformat(record["ts"])
+		assert parsed_ts.tzinfo is not None  # must be timezone-aware (UTC)
 
 	def test_bridge_log_written_as_json_line(self, tmp_path):
 		from chargeghost_evse.util.session_logger import SessionFileLogger
