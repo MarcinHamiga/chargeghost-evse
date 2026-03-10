@@ -41,9 +41,12 @@ class SessionFileLogger:
 		timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 		log_path = log_dir / f"session-{timestamp}.jsonl"
 		self._file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
-
-		engine.on_log.subscribe(self._on_engine_log)
-		bridge.on_log.subscribe(self._on_bridge_log)
+		try:
+			engine.on_log.subscribe(self._on_engine_log)
+			bridge.on_log.subscribe(self._on_bridge_log)
+		except Exception:
+			self._file.close()
+			raise
 
 	def _on_engine_log(self, message: str, **kwargs) -> None:
 		self._write("Engine", message, **kwargs)
