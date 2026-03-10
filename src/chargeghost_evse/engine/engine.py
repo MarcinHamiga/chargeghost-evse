@@ -100,6 +100,10 @@ class Engine(Subscriber):
         # Key: connector_id, Value: request details dict
         self._pending_remote_starts: dict[int, dict] = {}
 
+        # Pending ChangeAvailability changes deferred until active transaction ends
+        # Key: connector_id, Value: availability_type ("Operative" | "Inoperative")
+        self._pending_availability_changes: dict[int, str] = {}
+
         # Event emitters for state change notifications
         self.session_started: Event = Event()
         self.session_stopped: Event = Event()
@@ -448,6 +452,57 @@ class Engine(Subscriber):
                     f"[green]Engine:[/green] Connector {connector_id} resumed charging"
                 )
 
+    def set_connector_availability(self, connector_id: int, availability_type: str) -> str:
+        """
+        Set one or all connectors to Operative or Inoperative.
+
+        Called from the OCPP adapter's ChangeAvailability handler. Connectors
+        with an active transaction get a deferred change (returns "scheduled");
+        all others are changed immediately (returns "accepted").
+
+        Args:
+            connector_id: Target connector ID, or 0 for all connectors.
+            availability_type: "Operative" or "Inoperative".
+
+        Returns:
+            "accepted" if all changes applied immediately,
+            "scheduled" if any connector has a deferred change,
+            "rejected" if the specific connector_id is unknown.
+        """
+        if connector_id == 0:
+            target_ids = list(self._connectors.keys())
+        else:
+            if connector_id not in self._connectors:
+                return "rejected"
+            target_ids = [connector_id]
+
+        scheduled = False
+        for cid in target_ids:
+            has_active_session = self.session is not None and self.session.connector_id == cid
+            if has_active_session:
+                self._pending_availability_changes[cid] = availability_type
+                scheduled = True
+            else:
+                self._apply_connector_availability(cid, availability_type)
+
+        return "scheduled" if scheduled else "accepted"
+
+    def _apply_connector_availability(self, connector_id: int, availability_type: str) -> None:
+        """
+        Apply an availability change to a connector immediately.
+
+        Args:
+            connector_id: Target connector ID.
+            availability_type: "Operative" or "Inoperative".
+        """
+        connector = self._connectors.get(connector_id)
+        if connector is None:
+            return
+        if availability_type == "Inoperative":
+            connector.set_unavailable()
+        else:
+            connector.set_operative()
+
     def stop_session(self, reason: str = "Local") -> None:
         """
         Stop the active charging session.
@@ -483,6 +538,15 @@ class Engine(Subscriber):
             self.session_stopped.emit(connector_id=connector_id)
             self.session = None
             self.energy_meter.is_charging = False
+
+            # Apply any deferred ChangeAvailability for this connector
+            if connector_id in self._pending_availability_changes:
+                availability_type = self._pending_availability_changes.pop(connector_id)
+                self._apply_connector_availability(connector_id, availability_type)
+                self._log(
+                    f"[yellow]Engine:[/yellow] Applied deferred availability change to"
+                    f" {availability_type} for connector {connector_id}"
+                )
 
     def simulate(self, interval_seconds: float) -> None:
         """

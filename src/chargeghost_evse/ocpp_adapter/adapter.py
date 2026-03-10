@@ -37,6 +37,8 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
+    AvailabilityStatus,
+    AvailabilityType,
     ChargingProfilePurposeType,
     ChargingProfileStatus,
     ChargingRateUnitType,
@@ -47,6 +49,7 @@ from ocpp.v16.enums import (
     ResetStatus,
     ResetType,
     RemoteStartStopStatus,
+    UnlockStatus,
     UpdateStatus,
     UpdateType,
 )
@@ -197,6 +200,14 @@ class Adapter(cp):
         self.get_connector_info: Optional[
             Callable[[int], Optional[tuple[float, int]]]
         ] = None
+
+        # Known connector IDs populated by Bridge after each BootNotification
+        self.known_connector_ids: list[int] = []
+
+        # Injectable callback to change connector availability (set by Bridge)
+        # Signature: (connector_id: int, availability_type: str) -> str
+        # Returns "accepted", "scheduled", or "rejected"
+        self.set_connector_availability: Optional[Callable[[int, str], str]] = None
 
     def _log(
         self,
@@ -590,6 +601,117 @@ class Adapter(cp):
         self.command_queue.put({"action": "RESET", "type": reset_type.value})
         self.on_reset_requested.emit(reset_type=reset_type.value)
         return call_result.Reset(status=ResetStatus.accepted)
+
+    @on("ChangeAvailability")
+    async def on_change_availability(
+        self, connector_id: int, type: str, **kwargs
+    ) -> call_result.ChangeAvailability:
+        """
+        Handle ChangeAvailability request from CSMS.
+
+        Sets a connector (or all connectors when connector_id=0) to Operative
+        or Inoperative. If a transaction is active on the target connector, the
+        change is deferred until the transaction ends and Scheduled is returned.
+
+        Args:
+            connector_id: Target connector ID, or 0 for all connectors.
+            type: Availability type ("Operative" or "Inoperative").
+            **kwargs: Additional parameters.
+
+        Returns:
+            ChangeAvailability response with Accepted, Scheduled, or Rejected status.
+        """
+        self._log(
+            f"ChangeAvailability: connector_id={connector_id}, type={type}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        try:
+            availability_type = AvailabilityType(type)
+        except ValueError:
+            self._log(
+                f"ChangeAvailability: unknown type '{type}', rejecting",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
+
+        if self.set_connector_availability is None:
+            self._log(
+                "ChangeAvailability: engine callback unavailable, rejecting",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
+
+        # Validate connector_id: 0 = whole charge point (always valid), else must be known
+        if connector_id != 0 and connector_id not in self.known_connector_ids:
+            self._log(
+                f"ChangeAvailability: unknown connector_id={connector_id}, rejecting",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
+
+        result = self.set_connector_availability(connector_id, availability_type.value)
+
+        status_map = {
+            "accepted": AvailabilityStatus.accepted,
+            "scheduled": AvailabilityStatus.scheduled,
+            "rejected": AvailabilityStatus.rejected,
+        }
+        status = status_map.get(result, AvailabilityStatus.rejected)
+        self._log(
+            f"ChangeAvailability: result={status.value}",
+            is_ocpp_message=False,
+            is_important=False,
+        )
+        return call_result.ChangeAvailability(status=status)
+
+    @on("UnlockConnector")
+    async def on_unlock_connector(
+        self, connector_id: int, **kwargs
+    ) -> call_result.UnlockConnector:
+        """
+        Handle UnlockConnector request from CSMS.
+
+        Simulates releasing the physical cable lock on a connector. If a
+        transaction is active on that connector, it is stopped first (per OCPP
+        1.6 §5.15). Always responds Unlocked for a valid connector ID.
+
+        Args:
+            connector_id: Target connector ID.
+            **kwargs: Additional parameters.
+
+        Returns:
+            UnlockConnector response with Unlocked, UnlockFailed, or NotSupported status.
+        """
+        self._log(
+            f"UnlockConnector: connector_id={connector_id}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        if connector_id not in self.known_connector_ids:
+            self._log(
+                f"UnlockConnector: unknown connector_id={connector_id}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.UnlockConnector(status=UnlockStatus.not_supported)
+
+        # If an active transaction exists on this connector, stop it first
+        if connector_id in self.active_transactions and self.command_queue is not None:
+            self._log(
+                f"UnlockConnector: stopping active transaction on connector {connector_id}",
+                is_ocpp_message=False,
+                is_important=False,
+            )
+            self.command_queue.put({"action": "STOP", "reason": "UnlockCommand"})
+            self.clear_active_transaction(connector_id)
+
+        return call_result.UnlockConnector(status=UnlockStatus.unlocked)
 
     @on("GetConfiguration")
     async def on_get_configuration(

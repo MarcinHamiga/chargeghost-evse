@@ -380,3 +380,33 @@ class Connector(Subscriber):
         if self.id == connector_id:
             self.stop_charging()
 
+    def set_unavailable(self) -> None:
+        """
+        Set the connector to UNAVAILABLE (operator-initiated).
+
+        Bypasses the session state machine. Sets both the current status and
+        the persistent status so the connector remains UNAVAILABLE after plug/unplug.
+        No-op if already UNAVAILABLE or FAULTED.
+        """
+        if self._status in (ConnectorState.UNAVAILABLE, ConnectorState.FAULTED):
+            return
+        self.status = ConnectorState.UNAVAILABLE  # setter updates _persistent_status
+
+    def set_operative(self) -> None:
+        """
+        Set the connector back to operative state (operator-initiated).
+
+        Bypasses the session state machine. Restores AVAILABLE as the persistent
+        status so future unplug cycles land on AVAILABLE. Sets the current status
+        to PREPARING when an EV is plugged in, or AVAILABLE otherwise.
+        No-op if currently FAULTED.
+        """
+        if self._status == ConnectorState.FAULTED:
+            return
+        # Always restore AVAILABLE as the persistent base state
+        self._persistent_status = ConnectorState.AVAILABLE
+        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        if self._status != target:
+            self._status = target
+            self.on_status_change.emit(connector_id=self.id, status=target)
+

@@ -17,11 +17,20 @@ class _MockEngine:
 	def get_connector(self, connector_id: int):
 		return _MockConnector()
 
+	@property
+	def connectors(self):
+		return []
+
+	def set_connector_availability(self, connector_id: int, availability_type: str) -> str:
+		return "accepted"
+
 
 class _MockAdapter:
 	def __init__(self):
 		self.get_connector_info = None
 		self.charging_profile_manager = None
+		self.known_connector_ids = []
+		self.set_connector_availability = None
 
 
 class _MockRunner:

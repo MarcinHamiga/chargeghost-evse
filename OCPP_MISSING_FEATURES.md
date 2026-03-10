@@ -6,7 +6,7 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 | Profile | Status | Description |
 | :--- | :--- | :--- |
-| **Core** | Partial | Basic charging loop, heartbeat, transaction management, and remote reset are implemented. Administrative commands like ChangeAvailability and UnlockConnector are still missing. |
+| **Core** | Partial | Basic charging loop, heartbeat, transaction management, remote reset, ChangeAvailability, and UnlockConnector are implemented. ClearCache and DataTransfer are still missing. |
 | **Firmware Management** | Implemented | Full support for diagnostics upload and firmware updates with complete status reporting. |
 | **Local Auth List** | Implemented | Full support for local authorization lists, caching, and list updates. |
 | **Smart Charging** | Implemented | Full support for SetChargingProfile, ClearChargingProfile, and GetCompositeSchedule with all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative). |
@@ -61,9 +61,9 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 ### Inbound Messages Not Yet Implemented
 
 **Core Profile**
-- [ ] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
+- [x] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
 - [ ] **ClearCache**: Clear the local authorization cache.
-- [ ] **UnlockConnector**: Remotely unlock a connector's physical lock.
+- [x] **UnlockConnector**: Remotely unlock a connector's physical lock.
 - [ ] **DataTransfer**: Generic message for vendor-specific extensions.
 
 **Reservation Profile**
@@ -143,9 +143,9 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 
 ## 6. Summary Statistics
 
-- **Inbound Messages**: 11 of 19 implemented (58%)
+- **Inbound Messages**: 13 of 19 implemented (68%)
 - **Outbound Messages**: 9 of 10 implemented (90%)
 - **Feature Profiles**: 4 of 6 implemented (67%)
 - **Configuration Keys**: 16 of 19 implemented (84%)
 
-**Last Updated**: February 26, 2026
+**Last Updated**: March 10, 2026

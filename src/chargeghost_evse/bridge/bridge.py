@@ -613,6 +613,12 @@ class Bridge:
 
         if self.runner.adapter:
             self.runner.adapter.get_connector_info = get_connector_info
+            self.runner.adapter.known_connector_ids = [
+                conn.id for conn in self.engine.connectors
+            ]
+            self.runner.adapter.set_connector_availability = (
+                self.engine.set_connector_availability
+            )
 
     def _remove_limit_getter(self) -> None:
         """
@@ -623,6 +629,8 @@ class Bridge:
         self.engine.get_limit = None
         if self.runner.adapter:
             self.runner.adapter.get_connector_info = None
+            self.runner.adapter.known_connector_ids = []
+            self.runner.adapter.set_connector_availability = None
 
     def _send_initial_status_notifications(self) -> None:
         """
