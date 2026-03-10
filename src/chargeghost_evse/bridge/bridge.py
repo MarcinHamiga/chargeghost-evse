@@ -138,6 +138,7 @@ class AsyncRunner:
 
         # Event emitted after each successful boot notification / registration
         self.on_adapter_registered: Event = Event()
+        self.on_reset_requested: Event = Event()
 
         # Connection state
         self._connected = False
@@ -271,6 +272,9 @@ class AsyncRunner:
                     self.adapter.on_log.subscribe(self._log)
                     self.adapter.on_registration_accepted.subscribe(
                         self.on_adapter_registered.emit
+                    )
+                    self.adapter.on_reset_requested.subscribe(
+                        self.on_reset_requested.emit
                     )
                     self._connected = True
                     retry_delay = 1  # Reset backoff after successful connection
@@ -476,6 +480,7 @@ class Bridge:
 
         # Subscribe to registration event to send status and inject limit getter
         self.runner.on_adapter_registered.subscribe(self._on_adapter_registered)
+        self.runner.on_reset_requested.subscribe(self.on_reset_requested)
 
     def shutdown(self) -> None:
         """
@@ -697,6 +702,20 @@ class Bridge:
         if exc is not None:
             self._log(message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}")
 
+    async def _send_boot_notification_for_reset(self, reset_type: str) -> None:
+        """
+        Send BootNotification to simulate a completed remote reset.
+
+        Args:
+            reset_type: Requested reset type ("Soft" or "Hard").
+        """
+        adapter = self.runner.adapter
+        if adapter is None:
+            return
+
+        self._log(message=f"{reset_type} reset completed. Sending BootNotification.")
+        await adapter.send_boot_notification()
+
     def _log(self, message: str, **kwargs) -> None:
         """
         Emit a log message event.
@@ -706,6 +725,37 @@ class Bridge:
             **kwargs: Additional parameters passed to the event.
         """
         self.on_log.emit(message=message, **kwargs)
+
+    def on_reset_requested(self, reset_type: str) -> None:
+        """
+        Handle a remote reset request forwarded by the adapter.
+
+        If no transaction is active, the reset completes immediately by
+        sending a fresh BootNotification. Active-session resets are
+        completed in on_engine_session_stopped after StopTransaction.
+
+        Args:
+            reset_type: Requested reset type ("Soft" or "Hard").
+        """
+        self._log(message=f"Remote reset requested: {reset_type}")
+        # Ordering: on_reset in the adapter enqueues the RESET command AND emits this
+        # event synchronously in the same call. This handler runs first (before the
+        # engine processes the command queue), so the session is still non-None here
+        # for an active session. That's intentional — the BootNotification is deferred
+        # to on_engine_session_stopped, which fires after StopTransaction completes.
+        if self.engine.session is not None:
+            return
+
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_boot_notification_for_reset(reset_type),
+            loop,
+        )
+        future.add_done_callback(self._handle_future_error)
 
     def on_connector_status_change(self, connector_id: int, status) -> None:
         """
@@ -829,6 +879,8 @@ class Bridge:
                 )
                 self._message_queue.enqueue("StopTransaction", stop_kwargs)
                 self._log(message="[yellow]Queued[/yellow] StopTransaction for retry")
+            if reason in {"SoftReset", "HardReset"}:
+                await self._send_boot_notification_for_reset(reason.removesuffix("Reset"))
 
         future = asyncio.run_coroutine_threadsafe(_send_stop(), loop)
         future.add_done_callback(self._handle_future_error)

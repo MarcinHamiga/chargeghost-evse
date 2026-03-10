@@ -24,7 +24,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Features
 
-- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication with 11 inbound and 9 outbound messages implemented across Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
+- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication with 12 inbound and 9 outbound messages implemented across Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
@@ -181,7 +181,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 
 | Metric | Coverage |
 | :--- | :--- |
-| **Inbound Messages** | 11 of 19 (58%) |
+| **Inbound Messages** | 12 of 19 (63%) |
 | **Outbound Messages** | 9 of 10 (90%) |
 | **Feature Profiles** | 4 of 6 (67%) |
 | **Configuration Keys** | 16 of 19 (84%) |
@@ -190,7 +190,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 
 | Profile | Status | Inbound Messages | Outbound Messages |
 | :--- | :--- | :--- | :--- |
-| **Core** | Partial | RemoteStart/StopTransaction, ChangeConfiguration, GetConfiguration | BootNotification, Heartbeat, Authorize, StartTransaction, StopTransaction, StatusNotification, MeterValues |
+| **Core** | Partial | RemoteStart/StopTransaction, Reset, ChangeConfiguration, GetConfiguration | BootNotification, Heartbeat, Authorize, StartTransaction, StopTransaction, StatusNotification, MeterValues |
 | **Firmware** | Full | GetDiagnostics, UpdateFirmware | DiagnosticsStatusNotification, FirmwareStatusNotification |
 | **Local Auth** | Full | SendLocalList, GetLocalListVersion | — |
 | **Smart Charging** | Full | SetChargingProfile, ClearChargingProfile, GetCompositeSchedule | — |
@@ -200,7 +200,7 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 ### Missing Features
 
 Key features not yet implemented:
-- **Administrative**: Reset, ChangeAvailability, UnlockConnector, ClearCache, DataTransfer
+- **Administrative**: ChangeAvailability, UnlockConnector, ClearCache, DataTransfer
 - **Reservations**: ReserveNow, CancelReservation
 - **Remote Triggers**: TriggerMessage
 - **Security**: SecurityEventNotification

@@ -44,6 +44,8 @@ from ocpp.v16.enums import (
     DiagnosticsStatus,
     FirmwareStatus,
     RegistrationStatus,
+    ResetStatus,
+    ResetType,
     RemoteStartStopStatus,
     UpdateStatus,
     UpdateType,
@@ -135,6 +137,7 @@ class Adapter(cp):
         # Event emitters
         self.on_log = Event()
         self.on_ocpp_message = Event()
+        self.on_reset_requested = Event()
 
         # Charge point identification
         self.charge_point_model = charge_point_model
@@ -317,6 +320,7 @@ class Adapter(cp):
             "Authorize",
             "RemoteStartTransaction",
             "RemoteStopTransaction",
+            "Reset",
             "StatusNotification",
             "MeterValues",
             "Heartbeat",
@@ -542,6 +546,50 @@ class Adapter(cp):
             )
 
         return call_result.RemoteStopTransaction(status=RemoteStartStopStatus.rejected)
+
+    @on("Reset")
+    async def on_reset(self, type: str, **kwargs) -> call_result.Reset:
+        """
+        Handle Reset request from CSMS.
+
+        Accepts valid Soft and Hard reset requests, forwards them to the
+        Engine command queue, and emits a reset event so the Bridge can
+        simulate the post-reset registration flow.
+
+        Args:
+            type: Requested reset type ("Soft" or "Hard").
+            **kwargs: Additional parameters.
+
+        Returns:
+            Reset response with Accepted or Rejected status.
+        """
+        self._log(
+            f"Reset: type={type}",
+            is_ocpp_message=True,
+            is_important=True,
+        )
+
+        try:
+            reset_type = ResetType(type)
+        except ValueError:
+            self._log(
+                f"Invalid reset type: {type}",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.Reset(status=ResetStatus.rejected)
+
+        if self.command_queue is None:
+            self._log(
+                "Reset rejected: command queue unavailable",
+                is_ocpp_message=False,
+                is_important=True,
+            )
+            return call_result.Reset(status=ResetStatus.rejected)
+
+        self.command_queue.put({"action": "RESET", "type": reset_type.value})
+        self.on_reset_requested.emit(reset_type=reset_type.value)
+        return call_result.Reset(status=ResetStatus.accepted)
 
     @on("GetConfiguration")
     async def on_get_configuration(
@@ -1420,4 +1468,3 @@ class Adapter(cp):
         id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
         id_tag_info["status"] = local_status.value
         return local_status, id_tag_info
-

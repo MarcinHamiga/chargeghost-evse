@@ -573,12 +573,35 @@ class Engine(Subscriber):
             )
         elif action == "STOP":
             self.stop_session(reason=command.get("reason", "Remote"))
+        elif action == "RESET":
+            self._handle_reset(command.get("type", "Soft"))
         elif action == "PLUG_IN":
             self.plug_in(connector_id)
         elif action == "UNPLUG":
             self.unplug(connector_id)
         elif action:
             self._log(f"Warning: Unknown command action: {action}")
+
+    def _handle_reset(self, reset_type: str) -> None:
+        """
+        Apply a remotely requested reset to the engine state.
+
+        Args:
+            reset_type: Requested reset type ("Soft" or "Hard").
+        """
+        reason = "HardReset" if reset_type == "Hard" else "SoftReset"
+
+        if self._pending_remote_starts:
+            self._log(
+                f"Clearing {len(self._pending_remote_starts)} pending RemoteStart request(s) for {reason}."
+            )
+            self._pending_remote_starts.clear()
+
+        if self.session is not None:
+            self._log(f"Stopping active session for {reason}.")
+            self.stop_session(reason=reason)
+        else:
+            self._log(f"Processing {reason} with no active session.")
 
     def get_session_info(self) -> str:
         """

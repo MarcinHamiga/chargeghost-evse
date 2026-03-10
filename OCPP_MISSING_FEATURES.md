@@ -6,7 +6,7 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 | Profile | Status | Description |
 | :--- | :--- | :--- |
-| **Core** | Partial | Basic charging loop, heartbeat, and transaction management are implemented. Administrative commands like Reset, ChangeAvailability, and UnlockConnector are missing. |
+| **Core** | Partial | Basic charging loop, heartbeat, transaction management, and remote reset are implemented. Administrative commands like ChangeAvailability and UnlockConnector are still missing. |
 | **Firmware Management** | Implemented | Full support for diagnostics upload and firmware updates with complete status reporting. |
 | **Local Auth List** | Implemented | Full support for local authorization lists, caching, and list updates. |
 | **Smart Charging** | Implemented | Full support for SetChargingProfile, ClearChargingProfile, and GetCompositeSchedule with all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative). |
@@ -22,6 +22,7 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 **Core Profile**
 - [x] **RemoteStartTransaction**: Start a transaction on a connector with an ID tag.
 - [x] **RemoteStopTransaction**: Stop an active transaction on a connector.
+- [x] **Reset**: Trigger a Soft (application restart) or Hard (reboot) reset.
 - [x] **ChangeConfiguration**: Update OCPP configuration keys.
 - [x] **GetConfiguration**: Retrieve OCPP configuration key values.
 
@@ -61,7 +62,6 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 **Core Profile**
 - [ ] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
-- [ ] **Reset**: Trigger a Soft (application restart) or Hard (reboot) reset.
 - [ ] **ClearCache**: Clear the local authorization cache.
 - [ ] **UnlockConnector**: Remotely unlock a connector's physical lock.
 - [ ] **DataTransfer**: Generic message for vendor-specific extensions.
