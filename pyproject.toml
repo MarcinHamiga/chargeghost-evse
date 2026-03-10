@@ -1,6 +1,6 @@
 [project]
 name = "chargeghost-evse"
-version = "v0.4.1"
+version = "v0.4.2"
 description = "A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator featuring a modern graphical user interface built with PySide6 (Qt)."
 authors = [
     {name = "Marcin Hamiga",email = "marcin.hamiga@proton.me"}
