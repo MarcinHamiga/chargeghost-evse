@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -43,6 +42,7 @@ from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 from chargeghost_evse.util.config import ConnectorConfig, LogMode, SimulationConfig
+from chargeghost_evse.util.session_logger import SessionFileLogger
 from chargeghost_evse.util.update_controller import UpdateController
 from chargeghost_evse import __version__
 
@@ -841,6 +841,8 @@ class MainWindow(QMainWindow):
         )
         self.bridge.setup()
 
+        self._session_logger = SessionFileLogger(self.engine, self.bridge)
+
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
         self.signal_bridge.log_received.connect(self.on_log_received)
         self.signal_bridge.connection_status_changed.connect(
@@ -1214,6 +1216,7 @@ class MainWindow(QMainWindow):
         ]
         self.config.save()
         self.bridge.shutdown()
+        self._session_logger.close()
         event.accept()
 
     def resizeEvent(self, event) -> None:
