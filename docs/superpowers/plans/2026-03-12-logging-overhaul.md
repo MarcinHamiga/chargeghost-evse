@@ -521,9 +521,9 @@ log_mode=_migrate_log_mode(data.get("log_mode", "shallow")),
 5. Add this helper function before the `SimulationConfig` class:
 ```python
 def _migrate_log_mode(value: str) -> "LogMode":
-	"""Map old log mode values to new ones."""
+	"""Map old log mode values to new ones. Unknown values default to 'shallow'."""
 	_COMPAT_MAP: dict[str, "LogMode"] = {"compact": "shallow", "verbose": "deep"}
-	return _COMPAT_MAP.get(value, value)
+	return _COMPAT_MAP.get(value, "shallow")
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -601,9 +601,6 @@ self.logger = logging.getLogger("chargeghost.engine")
 self._session_logger = logging.getLogger("chargeghost.engine.session")
 ```
 
-   Use `self._session_logger` for session lifecycle messages (start, stop, suspend, resume, timing).
-   Use `self.logger` for general engine messages.
-
 5. Replace the `_log` method (lines 128-136) with:
 ```python
 def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
@@ -615,6 +612,12 @@ def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
    - Warning messages (e.g. "expired", "Error:") → add `level=logging.WARNING`
    - Debug messages (e.g. session timing `_log(f"Session time [s]: ...")`) → add `level=logging.DEBUG`
    - All others stay at default INFO
+
+   For session-lifecycle calls (session start, stop, suspend, resume, timing), use `self._session_logger` directly:
+   ```python
+   self._session_logger.info("Session started on connector %d", connector_id, extra={"source": "engine", "connector_id": connector_id})
+   self._session_logger.debug("Session time [s]: %.1f", elapsed, extra={"source": "engine"})
+   ```
 
 7. For connector state change log calls, add structured extras:
 ```python
@@ -974,7 +977,10 @@ def _log_ocpp_raw(
 			"ocpp_action": action,
 			"ocpp_message_id": message_id,
 			"ocpp_payload": payload if isinstance(payload, dict) else payload_str,
-			# For RX (responses), correlate back to the original TX message_id
+			# For RX (responses), set correlated_id to match the TX message_id.
+			# In OCPP 1.6, the response uses the same unique_id as the request,
+			# so this equals ocpp_message_id on RX records. The UI can group
+			# TX+RX records by matching TX.ocpp_message_id == RX.ocpp_correlated_id.
 			"ocpp_correlated_id": message_id if direction == "RX" else None,
 		},
 	)
@@ -987,15 +993,15 @@ def _log_ocpp_raw(
    - Use `level=logging.WARNING` for rejected/error messages
    - Use `level=logging.ERROR` for exceptions
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 4: Run tests**
 
-Run: `poetry run pytest tests/test_callerror_handling.py -v`
+Run: `poetry run pytest tests/test_callerror_handling.py tests/test_adapter_logging.py -v`
 Expected: All PASS
 
 Run: `poetry run pytest -x`
 Expected: All PASS
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/chargeghost_evse/ocpp_adapter/adapter.py
