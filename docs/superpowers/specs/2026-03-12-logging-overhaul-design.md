@@ -38,8 +38,6 @@ chargeghost.ocpp                — OCPP adapter (message handling)
 chargeghost.ocpp.tx             — Raw OCPP TX/RX wire traffic
 chargeghost.ocpp.profiles       — ChargingProfileManager evaluations
 chargeghost.ocpp.firmware       — FirmwareManager operations
-chargeghost.ocpp.auth           — LocalAuthListManager
-chargeghost.ocpp.config         — ConfigurationKeyManager
 chargeghost.bridge              — Bridge/AsyncRunner connection lifecycle
 ```
 
@@ -52,7 +50,7 @@ chargeghost.bridge              — Bridge/AsyncRunner connection lifecycle
 | INFO    | Shown        | Shown     | Connection lifecycle, transactions, state changes, profiles applied |
 | DEBUG   | Hidden       | Shown     | Full payloads, profile traces, meter values, heartbeats, enqueues  |
 
-Config field rename: `log_mode: Literal["compact", "verbose"]` → `log_mode: Literal["shallow", "deep"]`.
+Config field rename: `log_mode: Literal["compact", "verbose"]` → `log_mode: Literal["shallow", "deep"]`. Backward compatibility: `SimulationConfig.load()` maps `"compact"` → `"shallow"` and `"verbose"` → `"deep"` when reading existing config files.
 
 ---
 
@@ -67,7 +65,6 @@ Config field rename: `log_mode: Literal["compact", "verbose"]` → `log_mode: Li
 	"logger": "chargeghost.engine.connector",
 	"message": "Human-readable text (Rich markup for UI, stripped for file)",
 	"source": "engine" | "ocpp" | "bridge",
-	"component": "connector" | "session" | "profiles" | ...,
 }
 ```
 
@@ -136,7 +133,7 @@ logging.getLogger("chargeghost").addHandler(handler)
 - New signal: `log_record_received = Signal(object)` — full `logging.LogRecord`
 - Remove: `_on_engine_log`, `_on_bridge_log` methods and their Event subscriptions
 
-Threading: Qt signals with `QueuedConnection` (default for cross-thread) handle the thread hop. No special handling needed.
+Threading: The signal uses `Signal(object)` (not `Signal(logging.LogRecord)`) to avoid Qt meta-type registration issues. `QueuedConnection` (default for cross-thread) handles the thread hop automatically.
 
 ---
 
@@ -177,6 +174,7 @@ class Engine:
 
 - **FirmwareManager**: currently has its own `on_log` that adapter subscribes to and re-emits. After migration, uses `logging.getLogger("chargeghost.ocpp.firmware")` directly. No forwarding.
 - **AsyncRunner/Bridge**: both have `on_log`. Merge into `chargeghost.bridge`. Bridge no longer aliases `self.on_log = self.runner.on_log`.
+- **Connector**: uses `chargeghost.engine.connector` logger. Gets its own `_log` wrapper with `source="engine"` and `connector_id` in extras. Does not log through Engine.
 - **ChargingProfileManager**: currently has no logging. Gets `chargeghost.ocpp.profiles` logger (see dedicated section below).
 
 ---
@@ -189,7 +187,7 @@ Replaces `SessionFileLogger` with standard Python logging infrastructure.
 
 ```python
 file_handler = RotatingFileHandler(
-	log_dir / "chargeghost.log",
+	Path.home() / ".chargeghost" / "logs" / "chargeghost.log",
 	maxBytes=5 * 1024 * 1024,   # 5MB
 	backupCount=5,               # 25MB total max
 )
@@ -215,7 +213,7 @@ class JsonLogFormatter(logging.Formatter):
 			"ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
 			"level": record.levelname,
 			"logger": record.name,
-			"message": strip_rich_markup(record.getMessage()),
+			"message": _strip_markup(record.getMessage()),  # extract from session_logger.py to util
 		}
 		for key in self.EXTRA_KEYS:
 			if hasattr(record, key):
@@ -232,6 +230,10 @@ class JsonLogFormatter(logging.Formatter):
 ### Session Boundaries
 
 INFO-level log at startup: `"=== ChargeGhost session started ==="` marks where each app run begins in the continuous log file.
+
+### Trade-off: Continuous vs Per-Session Files
+
+The current per-session files are easier to share for a specific run, but rotating logs are simpler to manage and don't leave unbounded file counts. The session start banner plus `grep`/`jq` filtering by timestamp is sufficient for isolating a specific run from the continuous log.
 
 ---
 
@@ -287,7 +289,7 @@ extra={
 
 ### Mode Rename
 
-"Compact"/"Verbose" buttons → "Shallow"/"Deep" in `CollapsibleLogPanel`.
+"Detailed"/"Compact" buttons (current labels in `CollapsibleLogPanel`) → "Deep"/"Shallow".
 
 ### Shallow Mode
 
@@ -327,7 +329,7 @@ DEBUG+ records shown. OCPP payloads and profile traces are collapsible:
 
 ### Collapsible Widget Approach
 
-Test `QTextBrowser` with HTML `<details><summary>` first. Fallback: per-entry child widgets with toggled visibility.
+Use a `QScrollArea` containing per-entry widgets. Each collapsible entry has a clickable summary `QLabel` and a toggled-visibility detail `QLabel` (monospace, for JSON payloads or profile traces). `QTextBrowser`'s HTML subset does not support `<details>/<summary>`.
 
 ---
 
@@ -341,3 +343,28 @@ Test `QTextBrowser` with HTML `<details><summary>` first. Fallback: per-entry ch
 | `is_ocpp_message` kwarg                 | Replaced by `ocpp_direction` extra field           |
 | `QtSignalBridge._on_engine_log/bridge_log` | Replaced by `LogBridgeHandler`                 |
 | `LogMode = Literal["compact", "verbose"]` | Renamed to `Literal["shallow", "deep"]`          |
+
+---
+
+## Migration Order
+
+All components migrate simultaneously in one pass (not incrementally) because the `QtSignalBridge` signal signature changes from `Signal(str, str, bool)` to `Signal(object)`. The order within that pass:
+
+1. **Infrastructure first**: Create `LogBridgeHandler`, `JsonLogFormatter`, extract `_strip_markup` to `util/`
+2. **Config**: Rename `LogMode` values, add backward-compat mapping in `SimulationConfig.load()`
+3. **Components**: Migrate Engine, Connector, Bridge/AsyncRunner, Adapter, FirmwareManager, ChargingProfileManager (net-new)
+4. **QtSignalBridge**: Replace old signal + subscriptions with new `log_record_received` signal
+5. **UI**: Update `LogPanel`, `CollapsibleLogPanel`, `MainWindow.on_log_received`
+6. **File logger**: Replace `SessionFileLogger` with `RotatingFileHandler` setup
+7. **Cleanup**: Remove `on_log` Events, `is_important`/`is_ocpp_message` kwargs, old `SessionFileLogger`
+8. **Documentation**: Update `CLAUDE.md` logging convention (currently says "classes expose `on_log: Event`")
+
+---
+
+## Testing
+
+- **LogBridgeHandler**: unit test that handler emits Qt signal with correct `LogRecord` fields
+- **JsonLogFormatter**: unit test output schema — verify all extra keys are included, Rich markup is stripped
+- **Config migration**: test that loading a config with `"compact"`/`"verbose"` produces `"shallow"`/`"deep"`
+- **UI filtering**: test that shallow mode filters DEBUG records, deep mode shows all
+- **ChargingProfileManager logging**: test that profile evaluation produces expected structured extras
