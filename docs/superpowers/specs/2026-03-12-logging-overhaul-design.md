@@ -201,7 +201,7 @@ logging.getLogger("chargeghost").addHandler(file_handler)
 ```python
 class JsonLogFormatter(logging.Formatter):
 	EXTRA_KEYS = (
-		"source", "component", "ocpp_direction", "ocpp_action",
+		"source", "ocpp_direction", "ocpp_action",
 		"ocpp_message_id", "ocpp_payload", "ocpp_correlated_id",
 		"connector_id", "transition_from", "transition_to",
 		"evaluated_profiles", "winning_profile",
@@ -329,7 +329,7 @@ DEBUG+ records shown. OCPP payloads and profile traces are collapsible:
 
 ### Collapsible Widget Approach
 
-Use a `QScrollArea` containing per-entry widgets. Each collapsible entry has a clickable summary `QLabel` and a toggled-visibility detail `QLabel` (monospace, for JSON payloads or profile traces). `QTextBrowser`'s HTML subset does not support `<details>/<summary>`.
+Use a `QScrollArea` containing per-entry widgets. Each collapsible entry has a clickable summary `QLabel` and a toggled-visibility detail `QLabel` (monospace, for JSON payloads or profile traces). `QTextBrowser`'s HTML subset does not support `<details>/<summary>`. Cap at 500 entries max — remove oldest widgets beyond this threshold to bound memory usage.
 
 ---
 
