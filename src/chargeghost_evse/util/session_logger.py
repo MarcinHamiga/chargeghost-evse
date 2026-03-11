@@ -1,20 +1,16 @@
 import json
-import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+from chargeghost_evse.util.markup import strip_markup as _strip_markup
+
 if TYPE_CHECKING:
 	from chargeghost_evse.bridge.bridge import Bridge
 	from chargeghost_evse.engine.engine import Engine
 
-_MARKUP_RE = re.compile(r"\[/?[^\]]+\]")
 _LOG_DIR = Path.home() / ".chargeghost" / "logs"
-
-
-def _strip_markup(text: str) -> str:
-	return _MARKUP_RE.sub("", text)
 
 
 class SessionFileLogger:
