@@ -922,62 +922,62 @@ class ChargingProfileManager:
             KeyError: If required fields are missing.
             ValueError: If enum values are invalid.
         """
-        cs_schedule = cs_profile["chargingSchedule"]
+        cs_schedule = cs_profile["charging_schedule"]
 
         # Parse schedule periods
         periods = []
-        for p in cs_schedule["chargingSchedulePeriod"]:
+        for p in cs_schedule["charging_schedule_period"]:
             period = ChargingSchedulePeriodData(
-                start_period=p["startPeriod"],
+                start_period=p["start_period"],
                 limit=float(p["limit"]),
-                number_phases=p.get("numberPhases"),
+                number_phases=p.get("number_phases"),
             )
             periods.append(period)
 
         # Parse schedule
         schedule = ChargingScheduleData(
-            charging_rate_unit=ChargingRateUnitType(cs_schedule["chargingRateUnit"]),
+            charging_rate_unit=ChargingRateUnitType(cs_schedule["charging_rate_unit"]),
             charging_schedule_period=tuple(periods),
             duration=cs_schedule.get("duration"),
             start_schedule=(
                 datetime.fromisoformat(
-                    cs_schedule["startSchedule"].replace("Z", "+00:00")
+                    cs_schedule["start_schedule"].replace("Z", "+00:00")
                 )
-                if cs_schedule.get("startSchedule")
+                if cs_schedule.get("start_schedule")
                 else None
             ),
-            min_charging_rate=cs_schedule.get("minChargingRate"),
+            min_charging_rate=cs_schedule.get("min_charging_rate"),
         )
 
         # Parse recurrency kind
         recurrency = None
-        if cs_profile.get("recurrencyKind"):
-            recurrency = RecurrencyKind(cs_profile["recurrencyKind"])
+        if cs_profile.get("recurrency_kind"):
+            recurrency = RecurrencyKind(cs_profile["recurrency_kind"])
 
         # Parse validity period
         valid_from = None
-        if cs_profile.get("validFrom"):
+        if cs_profile.get("valid_from"):
             valid_from = datetime.fromisoformat(
-                cs_profile["validFrom"].replace("Z", "+00:00")
+                cs_profile["valid_from"].replace("Z", "+00:00")
             )
 
         valid_to = None
-        if cs_profile.get("validTo"):
+        if cs_profile.get("valid_to"):
             valid_to = datetime.fromisoformat(
-                cs_profile["validTo"].replace("Z", "+00:00")
+                cs_profile["valid_to"].replace("Z", "+00:00")
             )
 
         return ChargingProfileData(
-            charging_profile_id=cs_profile["chargingProfileId"],
-            stack_level=cs_profile["stackLevel"],
+            charging_profile_id=cs_profile["charging_profile_id"],
+            stack_level=cs_profile["stack_level"],
             charging_profile_purpose=ChargingProfilePurposeType(
-                cs_profile["chargingProfilePurpose"]
+                cs_profile["charging_profile_purpose"]
             ),
             charging_profile_kind=ChargingProfileKindType(
-                cs_profile["chargingProfileKind"]
+                cs_profile["charging_profile_kind"]
             ),
             charging_schedule=schedule,
-            transaction_id=cs_profile.get("transactionId"),
+            transaction_id=cs_profile.get("transaction_id"),
             recurrency_kind=recurrency,
             valid_from=valid_from,
             valid_to=valid_to,

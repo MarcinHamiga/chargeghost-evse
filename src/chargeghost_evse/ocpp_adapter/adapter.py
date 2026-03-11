@@ -1037,7 +1037,7 @@ class Adapter(cp):
         """
         self._log(
             f"SetChargingProfile: connector_id={connector_id}, "
-            f"profile_id={cs_charging_profiles.get('chargingProfileId')}",
+            f"profile_id={cs_charging_profiles.get('charging_profile_id')}",
             is_ocpp_message=True,
             is_important=True,
         )
