@@ -115,6 +115,9 @@ class _DummyMainWithDeps(QMainWindow):
 		self.signal_bridge = _DummySignalBridge()
 		self.app_settings = _DummySettings()
 
+	def _go_home(self) -> None:
+		pass
+
 
 def test_mode_cards_stay_within_viewport_on_narrow_width() -> None:
 	app = _app()
@@ -168,3 +171,23 @@ def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
 
 	assert window._global_log_panel.messages == ["hello"]
 	assert window.manual.messages == []
+
+
+from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
+
+
+class TestCollapsibleLogEntry:
+	def test_creates_with_summary(self, qtbot):
+		entry = CollapsibleLogEntry(summary="TX BootNotification", detail='{"vendor": "CG"}')
+		qtbot.addWidget(entry)
+		assert entry._summary_label.text() is not None
+		assert not entry._detail_label.isVisible()
+
+	def test_click_toggles_detail(self, qtbot):
+		entry = CollapsibleLogEntry(summary="TX BootNotification", detail='{"vendor": "CG"}')
+		qtbot.addWidget(entry)
+		assert not entry._detail_label.isVisible()
+		entry._on_toggle()
+		assert entry._detail_label.isVisible()
+		entry._on_toggle()
+		assert not entry._detail_label.isVisible()
