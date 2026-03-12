@@ -1,4 +1,5 @@
 """Tests for Bridge._inject_limit_getter and _on_adapter_registered behaviour."""
+import logging
 import threading
 
 import pytest
@@ -38,6 +39,7 @@ class _MockRunner:
 		self.adapter = None
 		self._connected = False
 		self.loop = None
+		self.logger = logging.getLogger("chargeghost.bridge")
 
 	@property
 	def is_connected(self) -> bool:
@@ -61,7 +63,6 @@ def _make_bridge(engine, runner):
 	bridge.engine = engine
 	bridge.runner = runner
 	bridge._shutdown_event = threading.Event()
-	bridge.on_log = _NullEvent()
 	bridge._message_queue = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
 	return bridge
 

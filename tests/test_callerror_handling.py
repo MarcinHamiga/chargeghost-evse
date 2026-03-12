@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import logging
 import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,23 +19,18 @@ class TestCallErrorHandling:
 		bridge._message_queue = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
 		return bridge
 
-	def test_handle_future_error_logs_ocpp_error(self):
+	def test_handle_future_error_logs_ocpp_error(self, caplog):
 		"""_handle_future_error should log structured info for OCPP errors."""
 		bridge = self._make_bridge()
-		logs = []
-
-		def on_log(message, **kw):
-			logs.append(message)
-
-		bridge.on_log.subscribe(on_log)
 
 		# Simulate an OCPP error using concurrent.futures.Future (what Bridge uses)
 		future: concurrent.futures.Future = concurrent.futures.Future()
 		future.set_exception(Exception("InternalError: server busy"))
-		bridge._handle_future_error(future)
+		with caplog.at_level(logging.ERROR, logger="chargeghost.bridge"):
+			bridge._handle_future_error(future)
 
-		assert len(logs) == 1
-		assert "OCPP send failed" in logs[0]
+		assert len(caplog.records) == 1
+		assert "OCPP send failed" in caplog.records[0].message
 
 	def _run_loop_until_idle(self, loop: asyncio.AbstractEventLoop) -> None:
 		"""Run loop in a thread, wait for a sentinel to confirm all pending tasks ran."""

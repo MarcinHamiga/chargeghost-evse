@@ -37,6 +37,7 @@ Example:
 import asyncio
 import base64
 import concurrent.futures
+import logging
 import ssl
 import threading
 import traceback
@@ -133,8 +134,8 @@ class AsyncRunner:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.adapter: Optional[Adapter] = None
 
-        # Event for log messages
-        self.on_log = Event()
+        # Python logger for this module
+        self.logger = logging.getLogger("chargeghost.bridge")
 
         # Event emitted after each successful boot notification / registration
         self.on_adapter_registered: Event = Event()
@@ -148,15 +149,16 @@ class AsyncRunner:
         self._shutdown_event: Optional[asyncio.Event] = None
         self._thread_shutdown = threading.Event()
 
-    def _log(self, message: str, **kwargs) -> None:
+    def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
         """
-        Emit a log message event.
+        Emit a log message via the Python logger.
 
         Args:
             message: Log message text.
-            **kwargs: Additional parameters passed to the event.
+            level: Logging level (default INFO).
+            **extra: Additional key-value pairs attached as log record extras.
         """
-        self.on_log.emit(message=message, **kwargs)
+        self.logger.log(level, message, extra={"source": "bridge", **extra})
 
     def run_in_thread(self) -> threading.Thread:
         """
@@ -269,7 +271,9 @@ class AsyncRunner:
                         charge_point_model=self.charge_point_model,
                         charge_point_vendor=self.charge_point_vendor,
                     )
-                    self.adapter.on_log.subscribe(self._log)
+                    self.adapter.on_log.subscribe(
+                        lambda message, **kw: self._log(message=message, **kw)
+                    )
                     self.adapter.on_registration_accepted.subscribe(
                         self.on_adapter_registered.emit
                     )
@@ -303,17 +307,25 @@ class AsyncRunner:
                             pass
                         except Exception as e:
                             self._log(
-                                message=f"Adapter task error: {type(e).__name__}: {e}"
+                                message=f"Adapter task error: {type(e).__name__}: {e}",
+                                level=logging.ERROR,
                             )
 
             except websockets.ConnectionClosed as e:
                 self._log(
-                    message=f"Connection closed: code={e.code}, reason={e.reason}"
+                    message=f"Connection closed: code={e.code}, reason={e.reason}",
+                    level=logging.WARNING,
                 )
             except ConnectionRefusedError:
-                self._log(message="Connection refused by server")
+                self._log(
+                    message="Connection refused by server",
+                    level=logging.ERROR,
+                )
             except Exception as e:
-                self._log(message=f"Connection error: {type(e).__name__}: {e}")
+                self._log(
+                    message=f"Connection error: {type(e).__name__}: {e}",
+                    level=logging.ERROR,
+                )
                 traceback.print_exc()
             finally:
                 self._connected = False
@@ -323,7 +335,7 @@ class AsyncRunner:
 
             # Exponential backoff before retry
             if self._shutdown_event is not None and not self._shutdown_event.is_set():
-                self._log(message=f"Retrying in {retry_delay}s...")
+                self._log(message=f"Retrying in {retry_delay}s...", level=logging.WARNING)
                 try:
                     await asyncio.wait_for(
                         self._shutdown_event.wait(), timeout=retry_delay
@@ -368,7 +380,7 @@ class AsyncRunner:
                 try:
                     await self.adapter.send_heartbeat()
                 except Exception as e:
-                    self._log(message=f"Heartbeat failed: {e}")
+                    self._log(message=f"Heartbeat failed: {e}", level=logging.ERROR)
                     break
 
 
@@ -445,9 +457,6 @@ class Bridge:
             charge_point_model=charge_point_model,
             charge_point_vendor=charge_point_vendor,
         )
-
-        # Forward log events from runner
-        self.on_log = self.runner.on_log
 
         # Offline message queue
         self._message_queue = self._create_message_queue(persist=persist_message_queue)
@@ -708,7 +717,10 @@ class Bridge:
         """Log exceptions from fire-and-forget coroutine futures."""
         exc = future.exception()
         if exc is not None:
-            self._log(message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}")
+            self._log(
+                message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}",
+                level=logging.ERROR,
+            )
 
     async def _send_boot_notification_for_reset(self, reset_type: str) -> None:
         """
@@ -724,15 +736,16 @@ class Bridge:
         self._log(message=f"{reset_type} reset completed. Sending BootNotification.")
         await adapter.send_boot_notification()
 
-    def _log(self, message: str, **kwargs) -> None:
+    def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
         """
-        Emit a log message event.
+        Emit a log message via the runner's Python logger.
 
         Args:
             message: Log message text.
-            **kwargs: Additional parameters passed to the event.
+            level: Logging level (default INFO).
+            **extra: Additional key-value pairs attached as log record extras.
         """
-        self.on_log.emit(message=message, **kwargs)
+        self.runner.logger.log(level, message, extra={"source": "bridge", **extra})
 
     def on_reset_requested(self, reset_type: str) -> None:
         """
@@ -821,7 +834,10 @@ class Bridge:
         loop = self.runner.loop
         if not adapter or not loop:
             self._message_queue.enqueue("StartTransaction", start_kwargs)
-            self._log(message="[yellow]Queued[/yellow] StartTransaction (offline)")
+            self._log(
+                message="[yellow]Queued[/yellow] StartTransaction (offline)",
+                level=logging.WARNING,
+            )
             return
 
         async def send_start_tx() -> None:
@@ -833,10 +849,14 @@ class Bridge:
                     self._log(message=f"Transaction ID assigned: {response.transaction_id}")
             except Exception as e:
                 self._log(
-                    message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}"
+                    message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
+                    level=logging.ERROR,
                 )
                 self._message_queue.enqueue("StartTransaction", start_kwargs)
-                self._log(message="[yellow]Queued[/yellow] StartTransaction for retry")
+                self._log(
+                    message="[yellow]Queued[/yellow] StartTransaction for retry",
+                    level=logging.WARNING,
+                )
 
         future = asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
         future.add_done_callback(self._handle_future_error)
@@ -854,7 +874,10 @@ class Bridge:
         """
         last_session = self.engine.last_stopped_session
         if not last_session:
-            self._log(message=f"No session info available for connector {connector_id}")
+            self._log(
+                message=f"No session info available for connector {connector_id}",
+                level=logging.WARNING,
+            )
             return
 
         transaction_id = last_session.get("transaction_id", 0)
@@ -875,7 +898,10 @@ class Bridge:
         loop = self.runner.loop
         if not adapter or not loop:
             self._message_queue.enqueue("StopTransaction", stop_kwargs)
-            self._log(message="[yellow]Queued[/yellow] StopTransaction (offline)")
+            self._log(
+                message="[yellow]Queued[/yellow] StopTransaction (offline)",
+                level=logging.WARNING,
+            )
             return
 
         async def _send_stop() -> None:
@@ -883,10 +909,14 @@ class Bridge:
                 await adapter.send_stop_transaction(**stop_kwargs)
             except Exception as e:
                 self._log(
-                    message=f"[red]StopTransaction failed:[/red] {type(e).__name__}: {e}"
+                    message=f"[red]StopTransaction failed:[/red] {type(e).__name__}: {e}",
+                    level=logging.ERROR,
                 )
                 self._message_queue.enqueue("StopTransaction", stop_kwargs)
-                self._log(message="[yellow]Queued[/yellow] StopTransaction for retry")
+                self._log(
+                    message="[yellow]Queued[/yellow] StopTransaction for retry",
+                    level=logging.WARNING,
+                )
             if reason in {"SoftReset", "HardReset"}:
                 await self._send_boot_notification_for_reset(reason.removesuffix("Reset"))
 

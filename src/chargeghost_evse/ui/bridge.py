@@ -22,7 +22,8 @@ class QtSignalBridge(QObject):
 
         if hasattr(engine, 'on_log'):
             engine.on_log.subscribe(self._on_engine_log)
-        bridge.on_log.subscribe(self._on_bridge_log)
+        if hasattr(bridge, 'on_log'):
+            bridge.on_log.subscribe(self._on_bridge_log)
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
         engine.session_stopped.subscribe(self._on_session_stopped)
