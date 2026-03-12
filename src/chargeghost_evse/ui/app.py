@@ -1098,7 +1098,7 @@ class MainWindow(QMainWindow):
         message = record.getMessage()
         is_important = record.levelno >= logging.WARNING
 
-        if self.app_settings.log_mode == "compact" and not is_important:
+        if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
 
         tag_map = {
