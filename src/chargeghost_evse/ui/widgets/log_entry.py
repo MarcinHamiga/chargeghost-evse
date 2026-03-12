@@ -38,7 +38,7 @@ class CollapsibleLogEntry(QWidget):
 
 		if detail:
 			self._summary_label.setCursor(Qt.CursorShape.PointingHandCursor)
-			self._summary_label.mousePressEvent = lambda _: self._on_toggle()
+			self._summary_label.mousePressEvent = lambda _: self._on_toggle()  # type: ignore[method-assign]
 
 		self.show()
 

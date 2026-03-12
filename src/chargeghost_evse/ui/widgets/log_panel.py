@@ -100,13 +100,16 @@ class LogPanel(QScrollArea):
 
 		while self._entry_count > _MAX_ENTRIES:
 			item = self._layout.itemAt(0)
-			if item and item.widget():
+			if item:
 				w = item.widget()
-				self._layout.removeWidget(w)
-				w.deleteLater()
-				self._entry_count -= 1
+				if w is not None:
+					self._layout.removeWidget(w)
+					w.deleteLater()
+					self._entry_count -= 1
+				else:
+					break  # safety: don't remove stretch or spacer items
 			else:
-				break  # safety: don't remove stretch or spacer items
+				break
 
 		# Auto-scroll to bottom
 		self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
@@ -115,8 +118,10 @@ class LogPanel(QScrollArea):
 		"""Remove all log entries."""
 		while self._layout.count() > 1:  # keep the stretch
 			item = self._layout.takeAt(0)
-			if item and item.widget():
-				item.widget().deleteLater()
+			if item:
+				w = item.widget()
+				if w is not None:
+					w.deleteLater()
 		self._entry_count = 0
 
 	def _textual_to_html(self, text: str) -> str:

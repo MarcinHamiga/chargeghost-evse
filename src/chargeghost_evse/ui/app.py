@@ -807,7 +807,7 @@ class ManualWidget(QWidget):
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
 
-    def log_record(self, record: object) -> None:
+    def log_record(self, record: logging.LogRecord) -> None:
         self.log_panel.log_record(record)
 
 

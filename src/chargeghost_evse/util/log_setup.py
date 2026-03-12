@@ -55,7 +55,7 @@ class LogBridgeHandler(logging.Handler):
 		self.signal = signal
 
 	def emit(self, record: logging.LogRecord) -> None:
-		self.signal.emit(record)
+		self.signal.emit(record)  # type: ignore[attr-defined]
 
 
 def setup_file_logging(

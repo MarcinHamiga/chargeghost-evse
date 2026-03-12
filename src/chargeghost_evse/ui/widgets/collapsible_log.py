@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from PySide6.QtCore import QPropertyAnimation, Qt, Signal
@@ -156,7 +157,7 @@ class CollapsibleLogPanel(QWidget):
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
 
-    def log_record(self, record: object) -> None:
+    def log_record(self, record: logging.LogRecord) -> None:
         """Add a log record with collapsible support."""
         self.log_panel.log_record(record)
 
