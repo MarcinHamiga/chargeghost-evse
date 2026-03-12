@@ -29,6 +29,7 @@ Example:
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
@@ -79,8 +80,6 @@ class Adapter(cp):
     - FirmwareManager: Firmware update and diagnostics handling
 
     Events:
-        on_log: Emitted for log messages.
-            Parameters: message (str), is_ocpp_message (bool), is_important (bool)
         on_ocpp_message: Emitted for raw OCPP message logging.
             Parameters: direction (str), action (str), payload (str)
         on_registration_accepted: Emitted when BootNotification is accepted.
@@ -137,8 +136,11 @@ class Adapter(cp):
         # Command queue for Engine communication
         self.command_queue = command_queue
 
+        # Loggers
+        self.logger = logging.getLogger("chargeghost.ocpp")
+        self._tx_logger = logging.getLogger("chargeghost.ocpp.tx")
+
         # Event emitters
-        self.on_log = Event()
         self.on_ocpp_message = Event()
         self.on_reset_requested = Event()
 
@@ -212,22 +214,18 @@ class Adapter(cp):
         self,
         message: str,
         *,
-        is_ocpp_message: bool = False,
-        is_important: bool = True,
+        level: int = logging.INFO,
+        **extra,
     ) -> None:
         """
-        Emit a log message event.
+        Emit a log message via Python logging.
 
         Args:
             message: Log message text.
-            is_ocpp_message: Whether this is an OCPP protocol message.
-            is_important: Whether this should be shown in compact log mode.
+            level: Logging level (default INFO).
+            **extra: Additional structured fields for the log record.
         """
-        self.on_log.emit(
-            message=message,
-            is_ocpp_message=is_ocpp_message,
-            is_important=is_important,
-        )
+        self.logger.log(level, message, extra={"source": "ocpp", **extra})
 
     def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
         """
@@ -243,8 +241,6 @@ class Adapter(cp):
             self.local_auth_list.enabled = parse_bool_string(new_value)
             self._log(
                 f"LocalAuthListEnabled changed to {self.local_auth_list.enabled}",
-                is_ocpp_message=False,
-                is_important=True,
             )
         elif key_name == "LocalAuthListMaxLength":
             try:
@@ -252,8 +248,6 @@ class Adapter(cp):
                 self.local_auth_list.max_entries = max_entries
                 self._log(
                     f"LocalAuthListMaxLength changed to {max_entries}",
-                    is_ocpp_message=False,
-                    is_important=True,
                 )
             except (TypeError, ValueError):
                 pass
@@ -262,24 +256,18 @@ class Adapter(cp):
                 self.heartbeat_interval = int(new_value)
                 self._log(
                     f"HeartbeatInterval updated to {new_value}s",
-                    is_ocpp_message=False,
-                    is_important=True,
                 )
             except (TypeError, ValueError):
                 pass
         elif key_name == "MeterValueSampleInterval":
             self._log(
                 f"MeterValueSampleInterval updated to {new_value}s",
-                is_ocpp_message=False,
-                is_important=True,
             )
         elif key_name == "ConnectionTimeout":
             try:
                 self.response_timeout = int(new_value)
                 self._log(
                     f"Response timeout updated to {new_value}s",
-                    is_ocpp_message=False,
-                    is_important=True,
                 )
             except (TypeError, ValueError):
                 pass
@@ -313,8 +301,8 @@ class Adapter(cp):
             raw_msg += f" (id={message_id})"
         raw_msg += f"\n{payload_str}"
 
-        # Determine if this message is important for compact logging
-        is_important = action in {
+        # Important actions shown in shallow mode (INFO), others are DEBUG
+        important_actions = {
             "BootNotification",
             "StartTransaction",
             "StopTransaction",
@@ -323,8 +311,6 @@ class Adapter(cp):
             "RemoteStopTransaction",
             "Reset",
             "StatusNotification",
-            "MeterValues",
-            "Heartbeat",
             "GetDiagnostics",
             "DiagnosticsStatusNotification",
             "UpdateFirmware",
@@ -334,11 +320,27 @@ class Adapter(cp):
             "SendLocalList",
             "GetLocalListVersion",
         }
+        level = logging.INFO if action in important_actions else logging.DEBUG
 
         self.on_ocpp_message.emit(
             direction=direction, action=action, payload=payload_str
         )
-        self._log(raw_msg, is_ocpp_message=True, is_important=is_important)
+        self._tx_logger.log(
+            level,
+            raw_msg,
+            extra={
+                "source": "ocpp",
+                "ocpp_direction": direction,
+                "ocpp_action": action,
+                "ocpp_message_id": message_id,
+                "ocpp_payload": payload if isinstance(payload, dict) else payload_str,
+                # For RX (responses), set correlated_id to match the TX message_id.
+                # In OCPP 1.6, the response uses the same unique_id as the request,
+                # so this equals ocpp_message_id on RX records. The UI can group
+                # TX+RX records by matching TX.ocpp_message_id == RX.ocpp_correlated_id.
+                "ocpp_correlated_id": message_id if direction == "RX" else None,
+            },
+        )
 
     async def _send_call(self, message) -> Any:
         """
@@ -430,8 +432,6 @@ class Adapter(cp):
         """
         self._log(
             f"RemoteStartTransaction: connector_id={connector_id}, id_tag={id_tag}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Validate connector_id if provided
@@ -442,8 +442,7 @@ class Adapter(cp):
             except (TypeError, ValueError):
                 self._log(
                     f"Invalid connector_id: {connector_id}",
-                    is_ocpp_message=False,
-                    is_important=True,
+                    level=logging.WARNING,
                 )
                 return call_result.RemoteStartTransaction(
                     status=RemoteStartStopStatus.rejected
@@ -452,8 +451,7 @@ class Adapter(cp):
             if ocpp_connector_id < 0:
                 self._log(
                     f"Out-of-range connector_id: {ocpp_connector_id}",
-                    is_ocpp_message=False,
-                    is_important=True,
+                    level=logging.WARNING,
                 )
                 return call_result.RemoteStartTransaction(
                     status=RemoteStartStopStatus.rejected
@@ -470,8 +468,7 @@ class Adapter(cp):
             )
             self._log(
                 f"Enqueuing START for {target_desc}",
-                is_ocpp_message=False,
-                is_important=False,
+			level=logging.DEBUG,
             )
             self.command_queue.put(
                 {
@@ -506,8 +503,6 @@ class Adapter(cp):
         """
         self._log(
             f"RemoteStopTransaction: transaction_id={transaction_id}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Find the connector with this transaction
@@ -520,8 +515,7 @@ class Adapter(cp):
         if matching_connector is None:
             self._log(
                 f"No active transaction: {transaction_id}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.RemoteStopTransaction(
                 status=RemoteStartStopStatus.rejected
@@ -531,8 +525,7 @@ class Adapter(cp):
         if self.command_queue:
             self._log(
                 f"Enqueuing STOP for tx {transaction_id}",
-                is_ocpp_message=False,
-                is_important=False,
+			level=logging.DEBUG,
             )
             self.command_queue.put(
                 {
@@ -566,8 +559,6 @@ class Adapter(cp):
         """
         self._log(
             f"Reset: type={type}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         try:
@@ -575,16 +566,14 @@ class Adapter(cp):
         except ValueError:
             self._log(
                 f"Invalid reset type: {type}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.Reset(status=ResetStatus.rejected)
 
         if self.command_queue is None:
             self._log(
                 "Reset rejected: command queue unavailable",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.Reset(status=ResetStatus.rejected)
 
@@ -613,8 +602,6 @@ class Adapter(cp):
         """
         self._log(
             f"ChangeAvailability: connector_id={connector_id}, type={type}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         try:
@@ -622,16 +609,14 @@ class Adapter(cp):
         except ValueError:
             self._log(
                 f"ChangeAvailability: unknown type '{type}', rejecting",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
 
         if self.set_connector_availability is None:
             self._log(
                 "ChangeAvailability: engine callback unavailable, rejecting",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
 
@@ -639,8 +624,7 @@ class Adapter(cp):
         if connector_id != 0 and connector_id not in self.known_connector_ids:
             self._log(
                 f"ChangeAvailability: unknown connector_id={connector_id}, rejecting",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.ChangeAvailability(status=AvailabilityStatus.rejected)
 
@@ -654,8 +638,7 @@ class Adapter(cp):
         status = status_map.get(result, AvailabilityStatus.rejected)
         self._log(
             f"ChangeAvailability: result={status.value}",
-            is_ocpp_message=False,
-            is_important=False,
+			level=logging.DEBUG,
         )
         return call_result.ChangeAvailability(status=status)
 
@@ -679,15 +662,12 @@ class Adapter(cp):
         """
         self._log(
             f"UnlockConnector: connector_id={connector_id}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         if connector_id not in self.known_connector_ids:
             self._log(
                 f"UnlockConnector: unknown connector_id={connector_id}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.UnlockConnector(status=UnlockStatus.not_supported)
 
@@ -695,8 +675,7 @@ class Adapter(cp):
         if connector_id in self.active_transactions and self.command_queue is not None:
             self._log(
                 f"UnlockConnector: stopping active transaction on connector {connector_id}",
-                is_ocpp_message=False,
-                is_important=False,
+			level=logging.DEBUG,
             )
             self.command_queue.put({"action": "STOP", "reason": "UnlockCommand"})
             self.clear_active_transaction(connector_id)
@@ -722,8 +701,6 @@ class Adapter(cp):
         """
         self._log(
             f"GetConfiguration: keys={key}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         configuration_key: list[KeyValue] = []
@@ -778,8 +755,6 @@ class Adapter(cp):
         """
         self._log(
             f"ChangeConfiguration: key={key}, value={value}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         status = self.config_manager.set_key(key, value)
@@ -803,8 +778,6 @@ class Adapter(cp):
         version = self.local_auth_list.version
         self._log(
             f"GetLocalListVersion: version={version}",
-            is_ocpp_message=True,
-            is_important=True,
         )
         return call_result.GetLocalListVersion(list_version=version)
 
@@ -833,8 +806,6 @@ class Adapter(cp):
         self._log(
             f"SendLocalList: version={list_version}, update_type={update_type}, "
             f"entries={len(local_authorization_list) if local_authorization_list else 0}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         try:
@@ -842,8 +813,7 @@ class Adapter(cp):
         except ValueError:
             self._log(
                 f"Invalid update_type: {update_type}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.SendLocalList(status=UpdateStatus.failed)
 
@@ -856,8 +826,6 @@ class Adapter(cp):
         status = UpdateStatus.accepted if success else UpdateStatus.failed
         self._log(
             f"SendLocalList result: {status.value} - {message}",
-            is_ocpp_message=False,
-            is_important=True,
         )
 
         return call_result.SendLocalList(status=status)
@@ -890,8 +858,6 @@ class Adapter(cp):
         """
         self._log(
             f"GetDiagnostics: location={location}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         self.firmware_manager.start_diagnostics_upload(
@@ -923,8 +889,7 @@ class Adapter(cp):
             except Exception as e:
                 self._log(
                     f"Diagnostics upload error: {e}",
-                    is_ocpp_message=False,
-                    is_important=True,
+                    level=logging.ERROR,
                 )
                 await self.send_diagnostics_status_notification(
                     DiagnosticsStatus.upload_failed
@@ -963,8 +928,6 @@ class Adapter(cp):
         """
         self._log(
             f"UpdateFirmware: location={location}, retrieve_date={retrieve_date}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         self.firmware_manager.start_firmware_update(
@@ -994,8 +957,7 @@ class Adapter(cp):
             except Exception as e:
                 self._log(
                     f"Firmware update error: {e}",
-                    is_ocpp_message=False,
-                    is_important=True,
+                    level=logging.ERROR,
                 )
                 await self.send_firmware_status_notification(
                     FirmwareStatus.installation_failed
@@ -1028,8 +990,6 @@ class Adapter(cp):
         self._log(
             f"SetChargingProfile: connector_id={connector_id}, "
             f"profile_id={cs_charging_profiles.get('charging_profile_id')}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         try:
@@ -1037,8 +997,7 @@ class Adapter(cp):
         except (KeyError, ValueError, TypeError) as e:
             self._log(
                 f"Failed to parse charging profile: {e}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
 
@@ -1046,15 +1005,12 @@ class Adapter(cp):
         if error:
             self._log(
                 f"Charging profile rejected: {error}",
-                is_ocpp_message=False,
-                is_important=True,
+                level=logging.WARNING,
             )
             return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
 
         self._log(
             f"Charging profile {profile.charging_profile_id} accepted",
-            is_ocpp_message=False,
-            is_important=True,
         )
         return call_result.SetChargingProfile(status=ChargingProfileStatus.accepted)
 
@@ -1085,8 +1041,6 @@ class Adapter(cp):
         self._log(
             f"ClearChargingProfile: id={id}, connector_id={connector_id}, "
             f"purpose={charging_profile_purpose}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Parse purpose enum if provided
@@ -1109,8 +1063,6 @@ class Adapter(cp):
         if cleared > 0:
             self._log(
                 f"Cleared {cleared} charging profile(s)",
-                is_ocpp_message=False,
-                is_important=True,
             )
             return call_result.ClearChargingProfile(
                 status=ClearChargingProfileStatus.accepted
@@ -1145,8 +1097,6 @@ class Adapter(cp):
         """
         self._log(
             f"GetCompositeSchedule: connector_id={connector_id}, duration={duration}s",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         transaction_id = self.active_transactions.get(connector_id)
@@ -1218,16 +1168,12 @@ class Adapter(cp):
         self._log(
             f"BootNotification: model={self.charge_point_model}, "
             f"vendor={self.charge_point_vendor}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.BootNotification = await self.call(request)
         self._log(
             f"BootNotification response: status={response.status}, "
             f"interval={response.interval}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         self.registration_status = response.status
@@ -1235,15 +1181,11 @@ class Adapter(cp):
             self.heartbeat_interval = response.interval
             self._log(
                 f"Registration accepted. Heartbeat: {self.heartbeat_interval}s",
-                is_ocpp_message=False,
-                is_important=True,
             )
             self.on_registration_accepted.emit()
         else:
             self._log(
                 f"Registration status: {response.status}",
-                is_ocpp_message=False,
-                is_important=True,
             )
 
         return response
@@ -1259,13 +1201,12 @@ class Adapter(cp):
             Heartbeat response with current server time.
         """
         request = call.Heartbeat()
-        self._log("Heartbeat", is_ocpp_message=True, is_important=True)
+        self._log("Heartbeat", level=logging.DEBUG)
 
         response: call_result.Heartbeat = await self.call(request)
         self._log(
             f"Heartbeat response: {response.current_time}",
-            is_ocpp_message=True,
-            is_important=True,
+            level=logging.DEBUG,
         )
         self.on_heartbeat_response.emit(current_time=response.current_time)
 
@@ -1286,8 +1227,6 @@ class Adapter(cp):
         """
         self._log(
             f"Authorize: id_tag={id_tag}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Check local authorization list first
@@ -1296,8 +1235,6 @@ class Adapter(cp):
             local_status, id_tag_info = local_result
             self._log(
                 f"Authorize (local): id_tag={id_tag}, status={local_status.value}",
-                is_ocpp_message=False,
-                is_important=True,
             )
             return call_result.Authorize(id_tag_info=id_tag_info)
 
@@ -1311,8 +1248,6 @@ class Adapter(cp):
         )
         self._log(
             f"Authorize response: status={status}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         return response
@@ -1337,8 +1272,6 @@ class Adapter(cp):
         """
         self._log(
             f"StartTransaction: connector={connector_id}, id_tag={id_tag}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Check local authorization list first
@@ -1347,8 +1280,6 @@ class Adapter(cp):
             local_status, id_tag_info = local_result
             self._log(
                 f"StartTransaction (local auth): id_tag={id_tag}, status={local_status.value}",
-                is_ocpp_message=False,
-                is_important=True,
             )
             self._next_transaction_id += 1
             transaction_id = self._next_transaction_id
@@ -1375,8 +1306,6 @@ class Adapter(cp):
         self._log(
             f"StartTransaction response: tx_id={response.transaction_id}, "
             f"status={id_tag_status}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         if response.transaction_id:
@@ -1413,8 +1342,6 @@ class Adapter(cp):
         )
         self._log(
             f"StopTransaction: tx_id={transaction_id}, meter_stop={meter_stop}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.StopTransaction = await self.call(request)
@@ -1425,8 +1352,6 @@ class Adapter(cp):
         )
         self._log(
             f"StopTransaction response: status={id_tag_status}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         # Clear the active transaction
@@ -1475,8 +1400,7 @@ class Adapter(cp):
         )
         self._log(
             f"MeterValues: connector={connector_id}, value={value}Wh",
-            is_ocpp_message=True,
-            is_important=True,
+            level=logging.DEBUG,
         )
 
         response: call_result.MeterValues = await self.call(request)
@@ -1506,8 +1430,6 @@ class Adapter(cp):
         )
         self._log(
             f"StatusNotification: connector={connector_id}, status={status}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.StatusNotification = await self.call(request)
@@ -1530,8 +1452,6 @@ class Adapter(cp):
         request = call.DiagnosticsStatusNotification(status=status)
         self._log(
             f"DiagnosticsStatusNotification: status={status.value}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.DiagnosticsStatusNotification = await self.call(request)
@@ -1554,8 +1474,6 @@ class Adapter(cp):
         request = call.FirmwareStatusNotification(status=status)
         self._log(
             f"FirmwareStatusNotification: status={status.value}",
-            is_ocpp_message=True,
-            is_important=True,
         )
 
         response: call_result.FirmwareStatusNotification = await self.call(request)
