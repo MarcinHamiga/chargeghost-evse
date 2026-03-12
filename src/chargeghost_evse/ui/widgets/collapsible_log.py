@@ -73,7 +73,7 @@ class CollapsibleLogPanel(QWidget):
 
         header_layout.addStretch()
 
-        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode = QPushButton("Deep")
         self.btn_log_mode.setObjectName("btnLogMode")
         self.btn_log_mode.setCheckable(True)
         self.btn_log_mode.setFlat(True)
@@ -145,7 +145,7 @@ class CollapsibleLogPanel(QWidget):
 
     def _on_log_mode_toggle(self) -> None:
         is_detailed = self.btn_log_mode.isChecked()
-        self.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
+        self.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
         self.log_mode_toggled.emit(is_detailed)
 
     def _on_clear(self) -> None:
