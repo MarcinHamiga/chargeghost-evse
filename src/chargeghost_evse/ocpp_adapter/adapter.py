@@ -158,7 +158,6 @@ class Adapter(cp):
 
         # Firmware and diagnostics management
         self.firmware_manager = FirmwareManager()
-        self.firmware_manager.on_log.subscribe(self._log_from_firmware_manager)
         self._firmware_task: Optional[asyncio.Task] = None
         self._diagnostics_task: Optional[asyncio.Task] = None
 
@@ -284,15 +283,6 @@ class Adapter(cp):
                 )
             except (TypeError, ValueError):
                 pass
-
-    def _log_from_firmware_manager(self, message: str) -> None:
-        """
-        Forward log messages from the firmware manager.
-
-        Args:
-            message: Log message from firmware manager.
-        """
-        self._log(message, is_ocpp_message=False, is_important=True)
 
     def _log_ocpp_raw(
         self,

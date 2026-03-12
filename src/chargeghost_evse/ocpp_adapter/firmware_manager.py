@@ -51,13 +51,14 @@ class FirmwareManager(Subscriber):
 
         self.on_diagnostics_status_changed: Event = Event()
         self.on_firmware_status_changed: Event = Event()
-        self.on_log: Event = Event()
+
+        self.logger = logging.getLogger("chargeghost.ocpp.firmware")
 
         self._diagnostics_upload_callback: Optional[Callable] = None
         self._firmware_update_callback: Optional[Callable] = None
 
-    def _log(self, message: str) -> None:
-        self.on_log.emit(message=message)
+    def _log(self, message: str, *, level: int = logging.INFO) -> None:
+        self.logger.log(level, message, extra={"source": "ocpp"})
 
     def set_diagnostics_upload_callback(self, callback: Optional[Callable]) -> None:
         self._diagnostics_upload_callback = callback
