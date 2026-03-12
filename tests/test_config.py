@@ -82,3 +82,13 @@ def test_log_mode_default_is_shallow():
 	"""Default log_mode must be 'shallow'."""
 	config = SimulationConfig()
 	assert config.log_mode == "shallow"
+
+
+def test_log_mode_unknown_value_defaults_to_shallow(tmp_path, monkeypatch):
+	"""Unknown log_mode values must default to 'shallow'."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"log_mode": "garbage"}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.log_mode == "shallow"

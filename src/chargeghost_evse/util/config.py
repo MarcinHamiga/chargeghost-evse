@@ -140,7 +140,13 @@ class ConnectorConfig:
 def _migrate_log_mode(value: str) -> "LogMode":
 	"""Map old log mode values to new ones. Unknown values default to 'shallow'."""
 	_COMPAT_MAP: dict[str, "LogMode"] = {"compact": "shallow", "verbose": "deep"}
-	return _COMPAT_MAP.get(value, value)  # type: ignore
+	# If value is in the compatibility map, use the mapped value
+	if value in _COMPAT_MAP:
+		return _COMPAT_MAP[value]
+	# If value is a valid LogMode, use it; otherwise default to "shallow"
+	if value in ("shallow", "deep"):
+		return value  # type: ignore
+	return "shallow"
 
 
 @dataclass
