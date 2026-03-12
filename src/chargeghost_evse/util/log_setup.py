@@ -37,9 +37,8 @@ class JsonLogFormatter(logging.Formatter):
 			"message": strip_markup(record.getMessage()),
 		}
 		for key in EXTRA_KEYS:
-			value = getattr(record, key, None)
-			if value is not None:
-				entry[key] = value
+			if hasattr(record, key):
+				entry[key] = getattr(record, key)
 		return json.dumps(entry)
 
 
@@ -53,10 +52,10 @@ class LogBridgeHandler(logging.Handler):
 
 	def __init__(self, signal: object) -> None:
 		super().__init__()
-		self._signal = signal
+		self.signal = signal
 
 	def emit(self, record: logging.LogRecord) -> None:
-		self._signal.emit(record)
+		self.signal.emit(record)
 
 
 def setup_file_logging(

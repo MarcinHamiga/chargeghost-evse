@@ -65,6 +65,15 @@ class TestJsonLogFormatter:
 		assert "ocpp_direction" not in output
 		assert "connector_id" not in output
 
+	def test_includes_falsy_extra_fields(self):
+		formatter = JsonLogFormatter()
+		record = self._make_record("limit hit", computed_limit_amps=0.0, connector_id=0)
+		output = json.loads(formatter.format(record))
+		assert "computed_limit_amps" in output
+		assert output["computed_limit_amps"] == 0.0
+		assert "connector_id" in output
+		assert output["connector_id"] == 0
+
 
 class TestLogBridgeHandler:
 	def test_emit_calls_signal(self):
@@ -81,6 +90,11 @@ class TestLogBridgeHandler:
 		)
 		handler.emit(record)
 		mock_signal.emit.assert_called_once_with(record)
+
+	def test_signal_attribute_is_public(self):
+		mock_signal = MagicMock()
+		handler = LogBridgeHandler(mock_signal)
+		assert handler.signal is mock_signal
 
 	def test_handler_level_filtering(self):
 		mock_signal = MagicMock()
