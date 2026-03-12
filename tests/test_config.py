@@ -46,3 +46,39 @@ def test_num_connectors_field_removed(tmp_path, monkeypatch):
 
 	data = json.loads(config_file.read_text())
 	assert "num_connectors" not in data
+
+
+def test_log_mode_shallow_deep_values(tmp_path, monkeypatch):
+	"""log_mode must accept 'shallow' and 'deep' values."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"log_mode": "deep"}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.log_mode == "deep"
+
+
+def test_log_mode_backward_compat_compact(tmp_path, monkeypatch):
+	"""Old 'compact' value must be migrated to 'shallow'."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"log_mode": "compact"}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.log_mode == "shallow"
+
+
+def test_log_mode_backward_compat_verbose(tmp_path, monkeypatch):
+	"""Old 'verbose' value must be migrated to 'deep'."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"log_mode": "verbose"}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.log_mode == "deep"
+
+
+def test_log_mode_default_is_shallow():
+	"""Default log_mode must be 'shallow'."""
+	config = SimulationConfig()
+	assert config.log_mode == "shallow"

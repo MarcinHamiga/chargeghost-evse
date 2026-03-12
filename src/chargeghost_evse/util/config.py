@@ -50,7 +50,7 @@ CONFIG_FILE = Path.home() / ".chargeghost" / "config.json"
 KEYRING_SERVICE = "ChargeGhost-EVSE"
 
 # Type alias for log mode setting
-LogMode = Literal["verbose", "compact"]
+LogMode = Literal["shallow", "deep"]
 
 # Electrical parameter limits and defaults
 # Voltage: Range for AC EVSE (100V-480V covers global standards)
@@ -137,6 +137,12 @@ class ConnectorConfig:
         return {"voltage": self.voltage, "current": self.current, "phase": self.phase}
 
 
+def _migrate_log_mode(value: str) -> "LogMode":
+	"""Map old log mode values to new ones. Unknown values default to 'shallow'."""
+	_COMPAT_MAP: dict[str, "LogMode"] = {"compact": "shallow", "verbose": "deep"}
+	return _COMPAT_MAP.get(value, value)  # type: ignore
+
+
 @dataclass
 class SimulationConfig:
     """
@@ -154,7 +160,7 @@ class SimulationConfig:
         charge_point_vendor: Vendor name reported in BootNotification.
         connectors: List of per-connector configurations.
         skip_tls_verify: Whether to skip TLS certificate verification.
-        log_mode: OCPP message logging format ('verbose' or 'compact').
+        log_mode: OCPP message logging format ('shallow' or 'deep').
         ignored_version: Version number to skip for update notifications.
 
     Example:
@@ -182,7 +188,7 @@ class SimulationConfig:
     skip_tls_verify: bool = False
 
     # Logging settings
-    log_mode: LogMode = field(default="compact")
+    log_mode: LogMode = field(default="shallow")
 
     # Update settings
     ignored_version: Optional[str] = None
@@ -275,7 +281,7 @@ class SimulationConfig:
                     charge_point_vendor=data.get("charge_point_vendor", "ChargeGhost"),
                     connectors=connectors,
                     skip_tls_verify=data.get("skip_tls_verify", False),
-                    log_mode=data.get("log_mode", "compact"),
+                    log_mode=_migrate_log_mode(data.get("log_mode", "shallow")),
                     ignored_version=data.get("ignored_version"),
                     persist_message_queue=data.get("persist_message_queue", False),
                 )
