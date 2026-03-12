@@ -1106,8 +1106,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_log_received(self, record: object) -> None:
-        import logging as _logging
-        if self.app_settings.log_mode == "shallow" and record.levelno < _logging.INFO:
+        if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
 
         # Derive source tag from logger name
