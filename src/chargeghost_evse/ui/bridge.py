@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, Signal
 class QtSignalBridge(QObject):
     """Bridges internal Event emissions to Qt Signals for thread-safe UI updates."""
 
-    log_received = Signal(str, str, bool)
+    log_record_received = Signal(object)
     status_updated = Signal(object)
     connector_status_changed = Signal(int, object)
     session_started = Signal(int)
@@ -20,10 +20,6 @@ class QtSignalBridge(QObject):
         self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
 
-        if hasattr(engine, 'on_log'):
-            engine.on_log.subscribe(self._on_engine_log)
-        if hasattr(bridge, 'on_log'):
-            bridge.on_log.subscribe(self._on_bridge_log)
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
         engine.session_stopped.subscribe(self._on_session_stopped)
@@ -43,14 +39,6 @@ class QtSignalBridge(QObject):
             signal.emit(*args)
         except RuntimeError:
             pass
-
-    def _on_engine_log(self, message: str, **kwargs):
-        is_important = kwargs.get("is_important", True)
-        self._safe_emit(self.log_received, "Engine", message, is_important)
-
-    def _on_bridge_log(self, message: str, **kwargs):
-        is_important = kwargs.get("is_important", True)
-        self._safe_emit(self.log_received, "OCPP", message, is_important)
 
     def _on_connector_status_changed(self, connector_id: int, status):
         self._safe_emit(self.connector_status_changed, connector_id, status)

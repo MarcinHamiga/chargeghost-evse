@@ -844,7 +844,7 @@ class MainWindow(QMainWindow):
         self._session_logger = SessionFileLogger(self.engine, self.bridge)
 
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
-        self.signal_bridge.log_received.connect(self.on_log_received)
+        self.signal_bridge.log_record_received.connect(self.on_log_received)
         self.signal_bridge.connection_status_changed.connect(
             self.on_connection_status_changed
         )
@@ -1089,8 +1089,15 @@ class MainWindow(QMainWindow):
         elif self.stack.currentWidget() == self.manual:
             self.manual.update_ui()
 
-    @Slot(str, str, bool)
-    def on_log_received(self, source: str, message: str, is_important: bool) -> None:
+    @Slot(object)
+    def on_log_received(self, record: object) -> None:
+        import logging
+        if not isinstance(record, logging.LogRecord):
+            return
+        source = getattr(record, 'source', record.name)
+        message = record.getMessage()
+        is_important = record.levelno >= logging.WARNING
+
         if self.app_settings.log_mode == "compact" and not is_important:
             return
 
