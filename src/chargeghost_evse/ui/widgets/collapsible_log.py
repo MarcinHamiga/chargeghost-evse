@@ -156,6 +156,10 @@ class CollapsibleLogPanel(QWidget):
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
 
+    def log_record(self, record: object) -> None:
+        """Add a log record with collapsible support."""
+        self.log_panel.log_record(record)
+
     def clear(self) -> None:
         self.log_panel.clear()
         self._log_count_label.setText("")

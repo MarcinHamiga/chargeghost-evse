@@ -807,6 +807,9 @@ class ManualWidget(QWidget):
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
 
+    def log_record(self, record: object) -> None:
+        self.log_panel.log_record(record)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -1109,26 +1112,11 @@ class MainWindow(QMainWindow):
         if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
 
-        # Derive source tag from logger name
-        name = record.name
-        if name.startswith("chargeghost.engine"):
-            tag = "engine"
-            source = "Engine"
-        elif name.startswith("chargeghost.ocpp") or name.startswith("chargeghost.bridge"):
-            tag = "ocpp"
-            source = "OCPP"
-        else:
-            tag = "white"
-            source = "System"
-
-        message = record.getMessage()
-        formatted_message = f"[{tag}]{source}:[/] {message}"
-
         if self.stack.currentWidget() != self.mode_select:
-            self._global_log_panel.log_message(formatted_message)
+            self._global_log_panel.log_record(record)
 
         if self.stack.currentWidget() == self.manual:
-            self.manual.log_message(formatted_message)
+            self.manual.log_record(record)
 
     @Slot(bool)
     def on_connection_status_changed(self, connected: bool) -> None:
