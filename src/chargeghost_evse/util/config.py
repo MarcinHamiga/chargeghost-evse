@@ -37,7 +37,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 import keyring
 
@@ -145,7 +145,7 @@ def _migrate_log_mode(value: str) -> "LogMode":
 		return _COMPAT_MAP[value]
 	# If value is a valid LogMode, use it; otherwise default to "shallow"
 	if value in ("shallow", "deep"):
-		return value  # type: ignore
+		return cast("LogMode", value)
 	return "shallow"
 
 
