@@ -271,9 +271,6 @@ class AsyncRunner:
                         charge_point_model=self.charge_point_model,
                         charge_point_vendor=self.charge_point_vendor,
                     )
-                    self.adapter.on_log.subscribe(
-                        lambda message, **kw: self._log(message=message, **kw)
-                    )
                     self.adapter.on_registration_accepted.subscribe(
                         self.on_adapter_registered.emit
                     )
