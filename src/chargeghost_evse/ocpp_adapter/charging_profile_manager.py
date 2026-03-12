@@ -46,6 +46,7 @@ Example:
     ... )
 """
 
+import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -197,6 +198,7 @@ class ChargingProfileManager:
 
         # Profile storage: profile_id -> (connector_id, ChargingProfileData)
         self._profiles: dict[int, tuple[int, ChargingProfileData]] = {}
+        self.logger = logging.getLogger("chargeghost.ocpp.profiles")
 
     def set_profile(
         self, connector_id: int, profile: ChargingProfileData
@@ -240,6 +242,22 @@ class ChargingProfileManager:
                 return "max_profiles_exceeded"
 
             self._profiles[profile.charging_profile_id] = (connector_id, profile)
+            periods = profile.charging_schedule.charging_schedule_period
+            if periods:
+                self.logger.info(
+                    f"Profile installed: {profile.charging_profile_purpose.value} "
+                    f"#{profile.charging_profile_id} "
+                    f"(stack_level={profile.stack_level}, "
+                    f"{profile.charging_profile_kind.value}, "
+                    f"{periods[0].limit}A limit)",
+                    extra={"source": "ocpp", "connector_id": connector_id},
+                )
+            else:
+                self.logger.info(
+                    f"Profile installed: {profile.charging_profile_purpose.value} "
+                    f"#{profile.charging_profile_id}",
+                    extra={"source": "ocpp", "connector_id": connector_id},
+                )
             return None
 
     def clear_profiles(
@@ -281,6 +299,11 @@ class ChargingProfileManager:
             for pid in to_remove:
                 del self._profiles[pid]
 
+            if to_remove:
+                self.logger.info(
+                    f"Profile(s) cleared: {to_remove}",
+                    extra={"source": "ocpp"},
+                )
             return len(to_remove)
 
     def get_profiles_for_purpose(
@@ -376,8 +399,33 @@ class ChargingProfileManager:
         # Return the most restrictive limit
         active_limits = [lim for lim in [cp_max_limit, tx_limit] if lim is not None]
         if not active_limits:
+            self.logger.debug(
+                f"No active profile for connector {connector_id}",
+                extra={
+                    "source": "ocpp",
+                    "connector_id": connector_id,
+                    "evaluated_profiles": [],
+                    "computed_limit_amps": None,
+                },
+            )
             return None
-        return min(active_limits)
+
+        evaluated = []
+        if cp_max_limit is not None:
+            evaluated.append("ChargePointMaxProfile")
+        if tx_limit is not None:
+            evaluated.append("TxProfile/TxDefaultProfile")
+        result = min(active_limits)
+        self.logger.debug(
+            f"Profile evaluation for connector {connector_id}: limit={result}A",
+            extra={
+                "source": "ocpp",
+                "connector_id": connector_id,
+                "evaluated_profiles": evaluated,
+                "computed_limit_amps": result,
+            },
+        )
+        return result
 
     def _resolve_tx_limit(
         self,
