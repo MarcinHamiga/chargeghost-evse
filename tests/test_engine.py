@@ -666,3 +666,7 @@ class TestEngineLogging:
 		"""Engine must not have on_log Event after migration."""
 		engine = Engine()
 		assert not hasattr(engine, 'on_log')
+
+	def test_engine_session_logger_name(self):
+		engine = Engine()
+		assert engine._session_logger.name == "chargeghost.engine.session"

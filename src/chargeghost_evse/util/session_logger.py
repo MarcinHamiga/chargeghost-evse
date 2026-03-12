@@ -40,7 +40,8 @@ class SessionFileLogger:
 		try:
 			if hasattr(engine, 'on_log'):
 				engine.on_log.subscribe(self._on_engine_log)
-			bridge.on_log.subscribe(self._on_bridge_log)
+			if hasattr(bridge, 'on_log'):
+				bridge.on_log.subscribe(self._on_bridge_log)
 		except Exception:
 			self._file.close()
 			raise

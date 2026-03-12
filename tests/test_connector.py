@@ -1,3 +1,4 @@
+import logging
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 
 
@@ -261,7 +262,7 @@ class TestConnector:
 
 	def test_set_parameters_voltage_invalid_high(self):
 		connector = Connector(id=1)
-		error = connector.set_parameters(voltage=600.0)
+		error = connector.set_parameters(voltage=1001.0)
 		assert error is not None
 		assert "Voltage" in error
 
@@ -273,7 +274,7 @@ class TestConnector:
 
 	def test_set_parameters_current_invalid_high(self):
 		connector = Connector(id=1)
-		error = connector.set_parameters(current=100.0)
+		error = connector.set_parameters(current=151.0)
 		assert error is not None
 		assert "Current" in error
 
@@ -308,3 +309,161 @@ class TestConnector:
 
 		# Must transition to FINISHING (still plugged in), same as a normal stop
 		assert connector.status == ConnectorState.FINISHING
+
+
+class TestSuspendedEvse:
+	"""Tests for SUSPENDED_EVSE state machine transitions (smart charging)."""
+
+	def _charging_connector(self) -> Connector:
+		c = Connector(id=1)
+		c.plug_in()
+		c.start_charging()
+		assert c.status == ConnectorState.CHARGING
+		return c
+
+	def test_suspend_evse_from_charging(self):
+		connector = self._charging_connector()
+		error = connector.suspend_evse()
+		assert error is None
+		assert connector.status == ConnectorState.SUSPENDED_EVSE
+
+	def test_suspend_evse_from_preparing_rejected(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		error = connector.suspend_evse()
+		assert error is not None
+		assert connector.status == ConnectorState.PREPARING
+
+	def test_suspend_evse_from_suspended_ev_rejected(self):
+		connector = self._charging_connector()
+		connector.suspend_ev()
+		error = connector.suspend_evse()
+		assert error is not None
+		assert connector.status == ConnectorState.SUSPENDED_EV
+
+	def test_resume_from_suspended_evse(self):
+		connector = self._charging_connector()
+		connector.suspend_evse()
+		error = connector.resume_charging()
+		assert error is None
+		assert connector.status == ConnectorState.CHARGING
+
+	def test_stop_charging_from_suspended_evse(self):
+		connector = self._charging_connector()
+		connector.suspend_evse()
+		error = connector.stop_charging()
+		assert error is None
+		assert connector.status == ConnectorState.FINISHING
+
+	def test_unplug_from_suspended_evse(self):
+		connector = self._charging_connector()
+		connector.suspend_evse()
+		error = connector.unplug()
+		assert error is None
+		assert connector.status == ConnectorState.AVAILABLE
+		assert not connector.is_plugged_in
+
+	def test_status_change_event_on_suspend_evse(self):
+		connector = self._charging_connector()
+		statuses: list = []
+
+		def on_change(connector_id, status):
+			statuses.append(status)
+
+		connector.on_status_change.subscribe(on_change)
+		connector.suspend_evse()
+		assert ConnectorState.SUSPENDED_EVSE in statuses
+
+	def test_status_change_event_on_resume_from_suspended_evse(self):
+		connector = self._charging_connector()
+		connector.suspend_evse()
+		statuses: list = []
+
+		def on_change(connector_id, status):
+			statuses.append(status)
+
+		connector.on_status_change.subscribe(on_change)
+		connector.resume_charging()
+		assert ConnectorState.CHARGING in statuses
+
+
+class TestSetUnavailableOperative:
+	"""Tests for operator-triggered availability changes."""
+
+	def test_set_unavailable_from_available(self):
+		connector = Connector(id=1)
+		connector.set_unavailable()
+		assert connector.status == ConnectorState.UNAVAILABLE
+		assert connector._persistent_status == ConnectorState.UNAVAILABLE
+
+	def test_set_unavailable_noop_when_already_unavailable(self):
+		connector = Connector(id=1)
+		connector.set_unavailable()
+		events: list = []
+
+		def on_change(**kw):
+			events.append(kw)
+
+		connector.on_status_change.subscribe(on_change)
+		connector.set_unavailable()
+		assert len(events) == 0  # No event emitted
+
+	def test_set_unavailable_noop_when_faulted(self):
+		connector = Connector(id=1)
+		connector._status = ConnectorState.FAULTED
+		connector.set_unavailable()
+		assert connector.status == ConnectorState.FAULTED
+
+	def test_unavailable_survives_plug_unplug(self):
+		connector = Connector(id=1)
+		connector.set_unavailable()
+		# Plug in is rejected from UNAVAILABLE
+		error = connector.plug_in()
+		assert error is not None
+		assert connector.status == ConnectorState.UNAVAILABLE
+
+	def test_set_operative_from_unavailable_unplugged(self):
+		connector = Connector(id=1)
+		connector.set_unavailable()
+		connector.set_operative()
+		assert connector.status == ConnectorState.AVAILABLE
+		assert connector._persistent_status == ConnectorState.AVAILABLE
+
+	def test_set_operative_from_unavailable_plugged_in(self):
+		connector = Connector(id=1)
+		connector._status = ConnectorState.UNAVAILABLE
+		connector.is_plugged_in = True
+		connector.set_operative()
+		assert connector.status == ConnectorState.PREPARING
+
+	def test_set_operative_noop_when_faulted(self):
+		connector = Connector(id=1)
+		connector._status = ConnectorState.FAULTED
+		events: list = []
+
+		def on_change(**kw):
+			events.append(kw)
+
+		connector.on_status_change.subscribe(on_change)
+		connector.set_operative()
+		assert connector.status == ConnectorState.FAULTED
+		assert len(events) == 0
+
+
+class TestConnectorLogging:
+	def test_connector_uses_python_logger(self):
+		connector = Connector(id=1, voltage=230.0, current=32.0, phase=1)
+		assert hasattr(connector, 'logger')
+		assert connector.logger.name == "chargeghost.engine.connector"
+
+	def test_connector_no_on_log_event(self):
+		connector = Connector(id=1, voltage=230.0, current=32.0, phase=1)
+		assert not hasattr(connector, 'on_log')
+
+	def test_connector_log_includes_connector_id(self, caplog):
+		connector = Connector(id=1, voltage=230.0, current=32.0, phase=1)
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.engine.connector"):
+			connector._log("test message")
+		assert len(caplog.records) == 1
+		assert caplog.records[0].source == "engine"
+		assert caplog.records[0].connector_id == 1
