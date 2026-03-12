@@ -35,3 +35,11 @@ class TestBridgeLogging:
 			command_queue=MagicMock(),
 		)
 		assert not hasattr(runner, 'on_log')
+
+	def test_bridge_no_on_log_alias(self):
+		from chargeghost_evse.bridge.bridge import Bridge
+		from chargeghost_evse.engine.engine import Engine
+		engine = Engine()
+		engine.add_connector()
+		bridge = Bridge(engine=engine, url="ws://localhost:9000/CP_1")
+		assert not hasattr(bridge, 'on_log')
