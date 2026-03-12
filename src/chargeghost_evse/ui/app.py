@@ -1109,6 +1109,8 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_log_received(self, record: object) -> None:
+        if not isinstance(record, logging.LogRecord):
+            return
         if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
 
