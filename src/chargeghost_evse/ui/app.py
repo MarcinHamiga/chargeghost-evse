@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 import time
 from datetime import datetime, timezone
@@ -42,7 +43,7 @@ from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
 from chargeghost_evse.util.config import ConnectorConfig, LogMode, SimulationConfig
-from chargeghost_evse.util.session_logger import SessionFileLogger
+from chargeghost_evse.util.log_setup import LogBridgeHandler, setup_file_logging
 from chargeghost_evse.util.update_controller import UpdateController
 from chargeghost_evse import __version__
 
@@ -534,7 +535,7 @@ class SimulatorWidget(QWidget):
         self._save_connector_config()
 
     def action_toggle_log_mode(self, is_detailed: bool) -> None:
-        self.main_window.app_settings.log_mode = "verbose" if is_detailed else "compact"
+        self.main_window.app_settings.log_mode = "deep" if is_detailed else "shallow"
 
     def load_ocpp_config_keys(self) -> None:
         adapter = self.bridge.runner.adapter
@@ -679,7 +680,7 @@ class ManualWidget(QWidget):
         self.btn_clear_logs.clicked.connect(self.log_panel.clear)
         log_header.addWidget(self.btn_clear_logs)
 
-        self.btn_log_mode = QPushButton("Detailed")
+        self.btn_log_mode = QPushButton("Deep")
         self.btn_log_mode.setObjectName("btnLogMode")
         self.btn_log_mode.setCheckable(True)
         self.btn_log_mode.setMinimumHeight(24)
@@ -704,13 +705,13 @@ class ManualWidget(QWidget):
     def action_toggle_log_mode(self) -> None:
         is_detailed = self.btn_log_mode.isChecked()
         if is_detailed:
-            self.main_window.app_settings.log_mode = "verbose"
-            self.btn_log_mode.setText("Compact")
+            self.main_window.app_settings.log_mode = "deep"
+            self.btn_log_mode.setText("Shallow")
         else:
-            self.main_window.app_settings.log_mode = "compact"
-            self.btn_log_mode.setText("Detailed")
+            self.main_window.app_settings.log_mode = "shallow"
+            self.btn_log_mode.setText("Deep")
         self.main_window._global_log_panel.btn_log_mode.setChecked(is_detailed)
-        self.main_window._global_log_panel.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
+        self.main_window._global_log_panel.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
 
     def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
@@ -841,9 +842,23 @@ class MainWindow(QMainWindow):
         )
         self.bridge.setup()
 
-        self._session_logger = SessionFileLogger(self.engine, self.bridge)
-
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
+
+        # Set up Python logging for chargeghost namespace
+        cg_logger = logging.getLogger("chargeghost")
+        cg_logger.setLevel(logging.DEBUG)
+
+        # File handler: rotating JSON logs (attach before banner so it's captured)
+        self._file_handler = setup_file_logging()
+        cg_logger.addHandler(self._file_handler)
+
+        # UI handler: bridge to Qt signal
+        self._ui_handler = LogBridgeHandler(self.signal_bridge.log_record_received)
+        self._ui_handler.setLevel(logging.DEBUG)
+        cg_logger.addHandler(self._ui_handler)
+
+        cg_logger.info("=== ChargeGhost session started ===")
+
         self.signal_bridge.log_record_received.connect(self.on_log_received)
         self.signal_bridge.connection_status_changed.connect(
             self.on_connection_status_changed
@@ -899,9 +914,9 @@ class MainWindow(QMainWindow):
 
         self._global_log_panel = CollapsibleLogPanel()
         self._global_log_panel.log_mode_toggled.connect(self._on_global_log_mode_toggle)
-        if self.app_settings.log_mode == "verbose":
+        if self.app_settings.log_mode == "deep":
             self._global_log_panel.btn_log_mode.setChecked(True)
-            self._global_log_panel.btn_log_mode.setText("Compact")
+            self._global_log_panel.btn_log_mode.setText("Shallow")
         self._global_log_panel.setVisible(False)
         self._splitter.addWidget(self._global_log_panel)
 
@@ -920,9 +935,9 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.simulator)
         self.stack.addWidget(self.manual)
 
-        if self.app_settings.log_mode == "verbose":
+        if self.app_settings.log_mode == "deep":
             self.manual.btn_log_mode.setChecked(True)
-            self.manual.btn_log_mode.setText("Compact")
+            self.manual.btn_log_mode.setText("Shallow")
 
         self.stack.setCurrentWidget(self.mode_select)
 
@@ -1047,10 +1062,10 @@ class MainWindow(QMainWindow):
         self.app_settings.log_panel_expanded = is_checked
 
     def _on_global_log_mode_toggle(self, is_detailed: bool) -> None:
-        mode: LogMode = "verbose" if is_detailed else "compact"
+        mode: LogMode = "deep" if is_detailed else "shallow"
         self.app_settings.log_mode = mode
         self.manual.btn_log_mode.setChecked(is_detailed)
-        self.manual.btn_log_mode.setText("Compact" if is_detailed else "Detailed")
+        self.manual.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
 
     def _shortcut_save(self) -> None:
         if self.stack.currentWidget() == self.simulator:
@@ -1091,27 +1106,26 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_log_received(self, record: object) -> None:
-        import logging
-        if not isinstance(record, logging.LogRecord):
+        import logging as _logging
+        if self.app_settings.log_mode == "shallow" and record.levelno < _logging.INFO:
             return
-        source = getattr(record, 'source', record.name)
+
+        # Derive source tag from logger name
+        name = record.name
+        if name.startswith("chargeghost.engine"):
+            tag = "engine"
+            source = "Engine"
+        elif name.startswith("chargeghost.ocpp") or name.startswith("chargeghost.bridge"):
+            tag = "ocpp"
+            source = "OCPP"
+        else:
+            tag = "white"
+            source = "System"
+
         message = record.getMessage()
-        is_important = record.levelno >= logging.WARNING
-
-        if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
-            return
-
-        tag_map = {
-            "Engine": "engine",
-            "OCPP": "ocpp",
-            "UI": "ui",
-        }
-        tag = tag_map.get(source, "white")
         formatted_message = f"[{tag}]{source}:[/] {message}"
 
-        if self.stack.currentWidget() == self.mode_select:
-            pass
-        else:
+        if self.stack.currentWidget() != self.mode_select:
             self._global_log_panel.log_message(formatted_message)
 
         if self.stack.currentWidget() == self.manual:
@@ -1223,7 +1237,10 @@ class MainWindow(QMainWindow):
         ]
         self.config.save()
         self.bridge.shutdown()
-        self._session_logger.close()
+        cg_logger = logging.getLogger("chargeghost")
+        cg_logger.removeHandler(self._file_handler)
+        cg_logger.removeHandler(self._ui_handler)
+        self._file_handler.close()
         event.accept()
 
     def resizeEvent(self, event) -> None:
