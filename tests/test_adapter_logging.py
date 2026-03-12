@@ -34,3 +34,37 @@ class TestAdapterLogging:
 			adapter._log("test config change")
 		assert len(caplog.records) >= 1
 		assert caplog.records[0].source == "ocpp"
+
+
+class TestAdapterLogOcppRaw:
+	def test_log_ocpp_raw_important_action_is_info(self, caplog):
+		adapter = _make_adapter()
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.ocpp.tx"):
+			adapter._log_ocpp_raw("TX", "BootNotification", {"status": "Accepted"}, "msg-1")
+		records = [r for r in caplog.records if r.name == "chargeghost.ocpp.tx"]
+		assert len(records) == 1
+		assert records[0].levelno == logging.INFO
+
+	def test_log_ocpp_raw_non_important_action_is_debug(self, caplog):
+		adapter = _make_adapter()
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.ocpp.tx"):
+			adapter._log_ocpp_raw("TX", "Heartbeat", {}, "msg-2")
+		records = [r for r in caplog.records if r.name == "chargeghost.ocpp.tx"]
+		assert len(records) == 1
+		assert records[0].levelno == logging.DEBUG
+
+	def test_log_ocpp_raw_rx_sets_correlated_id(self, caplog):
+		adapter = _make_adapter()
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.ocpp.tx"):
+			adapter._log_ocpp_raw("RX", "BootNotification", {"status": "Accepted"}, "msg-1")
+		records = [r for r in caplog.records if r.name == "chargeghost.ocpp.tx"]
+		assert len(records) == 1
+		assert records[0].ocpp_correlated_id == "msg-1"
+
+	def test_log_ocpp_raw_tx_correlated_id_is_none(self, caplog):
+		adapter = _make_adapter()
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.ocpp.tx"):
+			adapter._log_ocpp_raw("TX", "BootNotification", {}, "msg-1")
+		records = [r for r in caplog.records if r.name == "chargeghost.ocpp.tx"]
+		assert len(records) == 1
+		assert records[0].ocpp_correlated_id is None
