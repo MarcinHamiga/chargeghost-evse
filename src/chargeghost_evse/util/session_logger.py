@@ -38,7 +38,8 @@ class SessionFileLogger:
 		log_path = log_dir / f"session-{timestamp}.jsonl"
 		self._file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
 		try:
-			engine.on_log.subscribe(self._on_engine_log)
+			if hasattr(engine, 'on_log'):
+				engine.on_log.subscribe(self._on_engine_log)
 			bridge.on_log.subscribe(self._on_bridge_log)
 		except Exception:
 			self._file.close()

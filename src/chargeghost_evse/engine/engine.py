@@ -15,6 +15,7 @@ Classes:
     Engine: Main simulation engine coordinating all EVSE components.
 """
 
+import logging
 import queue
 import time
 from collections import deque
@@ -52,8 +53,6 @@ class Engine(Subscriber):
             Parameters: connector_id (int), status (ConnectorState)
         connector_parameters_changed: Emitted when connector params change.
             Parameters: connector_id (int), voltage (float), current (float), phase (int)
-        on_log: Emitted for log messages.
-            Parameters: message (str), **kwargs
 
     Attributes:
         session: Currently active charging session, or None.
@@ -79,6 +78,9 @@ class Engine(Subscriber):
         and event emitters. The engine starts with no active session.
         """
         super().__init__()
+        self.logger = logging.getLogger("chargeghost.engine")
+        self._session_logger = logging.getLogger("chargeghost.engine.session")
+
         # Current and previous session tracking
         self.session: Optional[Session] = None
         self.last_stopped_session: Optional[dict] = None
@@ -109,7 +111,6 @@ class Engine(Subscriber):
         self.session_stopped: Event = Event()
         self.connector_status_changed: Event = Event()
         self.connector_parameters_changed: Event = Event()
-        self.on_log: Event = Event()
 
         # Injectable callback for external charging limits (e.g., ChargingProfileManager)
         # Signature: (connector_id: int, transaction_id: Optional[int]) -> Optional[float]
@@ -125,15 +126,16 @@ class Engine(Subscriber):
         """
         return [self._connectors[cid] for cid in sorted(self._connectors.keys())]
 
-    def _log(self, message: str, **kwargs) -> None:
+    def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
         """
-        Emit a log message event.
+        Emit a log message via Python logging.
 
         Args:
             message: Log message text.
-            **kwargs: Additional parameters passed to the event.
+            level: Logging level (default INFO).
+            **extra: Additional key/value pairs passed as log record extras.
         """
-        self.on_log.emit(message=message, **kwargs)
+        self.logger.log(level, message, extra={"source": "engine", **extra})
 
     def add_connector(
         self, voltage: float = 230.0, current: float = 32.0, phase: int = 1
@@ -263,7 +265,10 @@ class Engine(Subscriber):
                         id_tag=pending["id_tag"],
                     )
                 else:
-                    self._log(f"Pending RemoteStart for connector {connector_id} expired.")
+                    self._log(
+                        f"Pending RemoteStart for connector {connector_id} expired.",
+                        level=logging.WARNING,
+                    )
 
                 # Cleanup handled or expired request
                 if connector_id in self._pending_remote_starts:
@@ -290,7 +295,8 @@ class Engine(Subscriber):
             error = connector.plug_in()
             if error:
                 self._log(
-                    f"[yellow]Engine:[/yellow] Cannot plug in connector {connector_id}: {error}"
+                    f"[yellow]Engine:[/yellow] Cannot plug in connector {connector_id}: {error}",
+                    level=logging.ERROR,
                 )
 
     def unplug(self, connector_id: int) -> None:
@@ -338,7 +344,7 @@ class Engine(Subscriber):
         """
         connector = self._connectors.get(connector_id)
         if connector is None:
-            self._log(f"Error: Connector {connector_id} not found.")
+            self._log(f"Error: Connector {connector_id} not found.", level=logging.ERROR)
             return
 
         # Handle unplugged connector
@@ -355,7 +361,7 @@ class Engine(Subscriber):
                     "expiry": time.monotonic() + timeout,
                 }
             else:
-                self._log(f"Error: Connector {connector_id} is not plugged in.")
+                self._log(f"Error: Connector {connector_id} is not plugged in.", level=logging.ERROR)
             return
 
         # Clear any pending start for this connector
@@ -366,14 +372,16 @@ class Engine(Subscriber):
         if connector.status not in (ConnectorState.AVAILABLE, ConnectorState.PREPARING):
             self._log(
                 f"Error: Connector {connector_id} is in status {connector.status.value} "
-                "and cannot start a session."
+                "and cannot start a session.",
+                level=logging.ERROR,
             )
             return
 
         # Enforce single-session constraint
         if self.session:
             self._log(
-                f"Error: Session already active on connector {self.session.connector_id}."
+                f"Error: Session already active on connector {self.session.connector_id}.",
+                level=logging.ERROR,
             )
             return
 
@@ -421,7 +429,8 @@ class Engine(Subscriber):
             error = connector.suspend_ev()
             if error:
                 self._log(
-                    f"[yellow]Engine:[/yellow] Cannot suspend connector {connector_id}: {error}"
+                    f"[yellow]Engine:[/yellow] Cannot suspend connector {connector_id}: {error}",
+                    level=logging.ERROR,
                 )
             if connector.status == ConnectorState.SUSPENDED_EV:
                 self.energy_meter.is_charging = False
@@ -444,7 +453,8 @@ class Engine(Subscriber):
             error = connector.resume_charging()
             if error:
                 self._log(
-                    f"[yellow]Engine:[/yellow] Cannot resume connector {connector_id}: {error}"
+                    f"[yellow]Engine:[/yellow] Cannot resume connector {connector_id}: {error}",
+                    level=logging.ERROR,
                 )
             if connector.status == ConnectorState.CHARGING:
                 self.energy_meter.is_charging = True
@@ -534,7 +544,10 @@ class Engine(Subscriber):
                 connector.unsubscribe_from(self.session.ev_max_charge_reached)
             self.session.unsubscribe_all()
 
-            self._log(f"Session time [s]: {time.time() - self.session.start_time}")
+            self._session_logger.debug(
+                f"Session time [s]: {time.time() - self.session.start_time}",
+                extra={"source": "engine"},
+            )
             self.session_stopped.emit(connector_id=connector_id)
             self.session = None
             self.energy_meter.is_charging = False
@@ -572,6 +585,12 @@ class Engine(Subscriber):
                 limit = self.get_limit(self.session.connector_id, self.session.transaction_id)
                 if limit is not None and limit >= 0:
                     effective_current = min(connector.current, limit)
+
+            # Reflect EVSE-side suspension in connector state when limit drops to 0
+            if effective_current == 0 and connector.status == ConnectorState.CHARGING:
+                connector.suspend_evse()
+            elif effective_current > 0 and connector.status == ConnectorState.SUSPENDED_EVSE:
+                connector.resume_charging()
 
             # Update energy meter with current parameters
             self.energy_meter.update(

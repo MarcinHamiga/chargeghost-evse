@@ -12,6 +12,7 @@ Classes:
 """
 
 import enum
+import logging
 from typing import Optional
 
 from chargeghost_evse.util.config import (
@@ -71,6 +72,9 @@ VALID_TRANSITIONS: dict[tuple[ConnectorState, str], ConnectorState] = {
     # Suspension
     (ConnectorState.CHARGING, "suspend_ev"): ConnectorState.SUSPENDED_EV,
     (ConnectorState.SUSPENDED_EV, "resume"): ConnectorState.CHARGING,
+    (ConnectorState.CHARGING, "suspend_evse"): ConnectorState.SUSPENDED_EVSE,
+    (ConnectorState.SUSPENDED_EVSE, "resume"): ConnectorState.CHARGING,
+    (ConnectorState.SUSPENDED_EVSE, "unplug"): ConnectorState.AVAILABLE,
 }
 
 
@@ -130,6 +134,7 @@ class Connector(Subscriber):
         self.voltage: float = voltage
         self.current: float = current
         self.phase: int = phase
+        self.logger = logging.getLogger("chargeghost.engine.connector")
 
         # Current operational status
         self._status: ConnectorState = ConnectorState.AVAILABLE
@@ -143,6 +148,17 @@ class Connector(Subscriber):
 
         # Events for state change notifications
         self.on_status_change: Event = Event()
+
+    def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
+        """
+        Emit a log message via Python logging.
+
+        Args:
+            message: Log message text.
+            level: Logging level (default INFO).
+            **extra: Additional key/value pairs passed as log record extras.
+        """
+        self.logger.log(level, message, extra={"source": "engine", "connector_id": self.id, **extra})
 
     @property
     def status(self) -> ConnectorState:
@@ -330,12 +346,23 @@ class Connector(Subscriber):
         """
         return self._transition("suspend_ev")
 
+    def suspend_evse(self) -> Optional[str]:
+        """
+        Suspend charging from the EVSE side (e.g., smart charging limit of 0A).
+
+        Transitions from CHARGING to SUSPENDED_EVSE state.
+        Only valid when the connector is actively charging.
+
+        Returns:
+            None on success, error string if transition is invalid.
+        """
+        return self._transition("suspend_evse")
+
     def resume_charging(self) -> Optional[str]:
         """
-        Resume charging after EV suspension.
+        Resume charging after suspension.
 
-        Transitions from SUSPENDED_EV back to CHARGING state.
-        Only valid when the connector is in SUSPENDED_EV state.
+        Transitions from SUSPENDED_EV or SUSPENDED_EVSE back to CHARGING state.
 
         Returns:
             None on success, error string if transition is invalid.

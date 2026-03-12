@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.engine.connector import ConnectorState
@@ -507,3 +509,160 @@ def test_plug_in_on_faulted_connector():
 	engine.get_connector(1).status = ConnectorState.FAULTED
 	engine.plug_in(1)
 	assert engine.get_connector(1).status == ConnectorState.FAULTED
+
+
+# ---------------------------------------------------------------------------
+# set_connector_availability / ChangeAvailability
+# ---------------------------------------------------------------------------
+
+def test_set_connector_availability_inoperative_no_session():
+	"""Immediate unavailability when no active session."""
+	engine = Engine()
+	engine.add_connector()
+	result = engine.set_connector_availability(1, "Inoperative")
+	assert result == "accepted"
+	assert engine.get_connector(1).status == ConnectorState.UNAVAILABLE
+
+
+def test_set_connector_availability_operative_restores_available():
+	"""set_operative restores connector to AVAILABLE."""
+	engine = Engine()
+	engine.add_connector()
+	engine.set_connector_availability(1, "Inoperative")
+	result = engine.set_connector_availability(1, "Operative")
+	assert result == "accepted"
+	assert engine.get_connector(1).status == ConnectorState.AVAILABLE
+
+
+def test_set_connector_availability_deferred_during_active_session():
+	"""Availability change deferred when session is active on that connector."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1)
+	assert engine.session is not None
+
+	result = engine.set_connector_availability(1, "Inoperative")
+	assert result == "scheduled"
+	# Connector still operational during session
+	assert engine.get_connector(1).status == ConnectorState.CHARGING
+
+
+def test_deferred_availability_applied_on_session_stop():
+	"""Deferred ChangeAvailability is applied once the session ends."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1)
+
+	engine.set_connector_availability(1, "Inoperative")
+	engine.stop_session()
+
+	assert engine.session is None
+	assert engine.get_connector(1).status == ConnectorState.UNAVAILABLE
+
+
+def test_set_connector_availability_all_connectors():
+	"""connector_id=0 applies change to all connectors."""
+	engine = Engine()
+	engine.add_connector()
+	engine.add_connector()
+	result = engine.set_connector_availability(0, "Inoperative")
+	assert result == "accepted"
+	assert engine.get_connector(1).status == ConnectorState.UNAVAILABLE
+	assert engine.get_connector(2).status == ConnectorState.UNAVAILABLE
+
+
+def test_set_connector_availability_unknown_connector():
+	"""Unknown connector_id returns rejected."""
+	engine = Engine()
+	engine.add_connector()
+	result = engine.set_connector_availability(99, "Inoperative")
+	assert result == "rejected"
+
+
+def test_deferred_availability_mixed_session_and_idle():
+	"""When connector_id=0 and one connector has active session, result is 'scheduled'."""
+	engine = Engine()
+	engine.add_connector()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1)
+
+	result = engine.set_connector_availability(0, "Inoperative")
+	assert result == "scheduled"
+	# Connector 2 (no session) changed immediately
+	assert engine.get_connector(2).status == ConnectorState.UNAVAILABLE
+	# Connector 1 (active session) deferred
+	assert engine.get_connector(1).status == ConnectorState.CHARGING
+
+
+# ---------------------------------------------------------------------------
+# SUSPENDED_EVSE via simulate() + smart charging limit
+# ---------------------------------------------------------------------------
+
+def test_simulate_suspends_evse_when_limit_is_zero():
+	"""simulate() transitions connector to SUSPENDED_EVSE when limit drops to 0."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0)
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1)
+	engine.get_limit = lambda connector_id, tx_id: 0.0
+
+	engine.simulate(interval_seconds=1.0)
+
+	assert engine.get_connector(1).status == ConnectorState.SUSPENDED_EVSE
+
+
+def test_simulate_resumes_from_suspended_evse_when_limit_restored():
+	"""simulate() returns connector to CHARGING when limit comes back above 0."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0)
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1)
+
+	engine.get_limit = lambda connector_id, tx_id: 0.0
+	engine.simulate(interval_seconds=1.0)
+	assert engine.get_connector(1).status == ConnectorState.SUSPENDED_EVSE
+
+	engine.get_limit = lambda connector_id, tx_id: 16.0
+	engine.simulate(interval_seconds=1.0)
+	assert engine.get_connector(1).status == ConnectorState.CHARGING
+
+
+def test_simulate_no_energy_delivered_when_suspended_evse():
+	"""No energy should accumulate while in SUSPENDED_EVSE (limit=0)."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0)
+	engine.plug_in(1)
+	engine.start_session(connector_id=1, transaction_id=1, max_energy=10000.0)
+	engine.get_limit = lambda connector_id, tx_id: 0.0
+
+	for _ in range(10):
+		engine.simulate(interval_seconds=1.0)
+
+	assert engine.session is not None
+	assert engine.session.energy_charged == 0.0
+
+
+class TestEngineLogging:
+	def test_engine_uses_python_logger(self):
+		"""Engine must use a named Python logger, not Event."""
+		engine = Engine()
+		assert hasattr(engine, 'logger')
+		assert engine.logger.name == "chargeghost.engine"
+
+	def test_engine_log_emits_to_python_logging(self, caplog):
+		"""Engine._log must emit to Python logging system."""
+		engine = Engine()
+		with caplog.at_level(logging.DEBUG, logger="chargeghost.engine"):
+			engine._log("[yellow]Engine:[/yellow] test message")
+
+		assert len(caplog.records) == 1
+		assert caplog.records[0].getMessage() == "[yellow]Engine:[/yellow] test message"
+		assert caplog.records[0].source == "engine"
+
+	def test_engine_no_on_log_event(self):
+		"""Engine must not have on_log Event after migration."""
+		engine = Engine()
+		assert not hasattr(engine, 'on_log')

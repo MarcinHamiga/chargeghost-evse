@@ -20,7 +20,8 @@ class QtSignalBridge(QObject):
         self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
 
-        engine.on_log.subscribe(self._on_engine_log)
+        if hasattr(engine, 'on_log'):
+            engine.on_log.subscribe(self._on_engine_log)
         bridge.on_log.subscribe(self._on_bridge_log)
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
