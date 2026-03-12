@@ -54,7 +54,7 @@ UI (PySide6)  →  QtSignalBridge (ui/bridge.py)  →  Engine + Bridge  →  OCP
 - **Line length**: 100 characters max.
 - **Type hints**: always use them. `Optional[T]` not `T | None`. `list[T]`/`dict[K,V]` (not `List`/`Dict`).
 - **Imports**: stdlib → third-party → local, each group alphabetically, blank lines between. Use `TYPE_CHECKING` block for circular imports.
-- **Logging**: classes expose `on_log: Event`; emit via `self._log(message="...")`. Log prefixes use Rich markup: `"[yellow]Engine:[/yellow]"`.
+- **Logging**: classes use Python `logging` module with named loggers under the `chargeghost` namespace (e.g., `logging.getLogger("chargeghost.engine")`). The `_log()` wrapper standardizes the `source` extra field. Log levels: ERROR (failures), WARNING (rejected/retry), INFO (lifecycle/state changes — shown in shallow mode), DEBUG (payloads/traces — shown in deep mode). Rich markup in messages is supported for UI rendering and stripped for file output. File logs: `~/.chargeghost/logs/chargeghost.log` (rotating JSON).
 - **OCPP connector IDs**: 1-indexed in OCPP protocol; internal `Connector.id` matches (also 1-indexed).
 - **Threading**: all Qt UI operations must occur on the main thread. Cross-thread OCPP calls use `asyncio.run_coroutine_threadsafe`.
 - **QSS**: `opacity` property is **not** supported in PySide6 QSS — use `rgba()` for transparency in `:disabled` states instead.
