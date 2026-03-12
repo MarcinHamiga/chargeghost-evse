@@ -21,7 +21,6 @@ Example:
 """
 
 import time
-from collections import deque
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis

@@ -154,7 +154,6 @@ class UpdateManager:
         Note:
             Uses a 15-second timeout for the API request.
         """
-        from aiohttp import ClientTimeout
 
         timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession() as session:
@@ -236,7 +235,6 @@ class UpdateManager:
             Uses a 5-minute total timeout and 15-second connect timeout.
             Downloads in 64KB chunks for responsive progress updates.
         """
-        from aiohttp import ClientTimeout
 
         timeout = aiohttp.ClientTimeout(total=300, connect=15)
         async with aiohttp.ClientSession() as session:
