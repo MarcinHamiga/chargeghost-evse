@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from ocpp.v16.enums import (
 	ChargingProfileKindType,
@@ -20,7 +21,7 @@ def _make_profile(
 	stack_level: int = 0,
 	purpose: ChargingProfilePurposeType = ChargingProfilePurposeType.tx_default_profile,
 	limit: float = 16.0,
-	transaction_id: int = None,
+	transaction_id: Optional[int] = None,
 ) -> ChargingProfileData:
 	return ChargingProfileData(
 		charging_profile_id=profile_id,
