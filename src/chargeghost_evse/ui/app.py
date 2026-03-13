@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from ocpp.v16.enums import ConfigurationStatus
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPropertyAnimation, QEasingCurve, QSize
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -64,6 +65,7 @@ class ToastManager(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._toasts: list[ToastNotification] = []
+        self._toast_ids: dict[str, ToastNotification] = {}
         self._setup_ui()
         self.hide()
 
@@ -77,9 +79,24 @@ class ToastManager(QWidget):
         self._layout.addStretch()
 
     def show_toast(
-        self, message: str, toast_type: ToastType = "info"
+        self,
+        message: str,
+        toast_type: ToastType = "info",
+        toast_id: Optional[str] = None,
     ) -> ToastNotification:
+        if toast_id:
+            existing = self._toast_ids.get(toast_id)
+            if existing is not None:
+                existing.update_message(message, toast_type)
+                self.adjustSize()
+                self.reposition()
+                self.show()
+                self.raise_()
+                return existing
+
         toast = ToastNotification(message, toast_type)
+        if toast_id:
+            self._toast_ids[toast_id] = toast
         toast.closed.connect(lambda: self._remove_toast(toast))
         self._layout.insertWidget(self._layout.count() - 1, toast)
         self._toasts.append(toast)
@@ -92,6 +109,9 @@ class ToastManager(QWidget):
     def _remove_toast(self, toast: ToastNotification) -> None:
         if toast in self._toasts:
             self._toasts.remove(toast)
+        for current_id, current_toast in list(self._toast_ids.items()):
+            if current_toast is toast:
+                del self._toast_ids[current_id]
         if self._toasts:
             self.adjustSize()
             self.reposition()
@@ -545,10 +565,19 @@ class SimulatorWidget(QWidget):
     def _on_ocpp_key_changed(self, key_name: str, new_value: str) -> None:
         adapter = self.bridge.runner.adapter
         if adapter:
-            adapter.config_manager.set_key(key_name, new_value)
-            self.main_window.log_message(
-                f"[green]Config:[/green] OCPP key '{key_name}' set to '{new_value}'"
-            )
+            status = adapter.config_manager.set_key(key_name, new_value)
+            if status == ConfigurationStatus.accepted:
+                self.main_window.log_message(
+                    f"[green]Config:[/green] OCPP key '{key_name}' set to '{new_value}'"
+                )
+                self.main_window.show_toast(f"Updated OCPP key: {key_name}", "success")
+            else:
+                self.main_window.log_message(
+                    f"[red]Config:[/red] Failed to update OCPP key '{key_name}' ({status.value})"
+                )
+                self.main_window.show_toast(
+                    f"Failed to update OCPP key: {key_name}", "error"
+                )
 
 
 class ManualWidget(QWidget):
@@ -559,6 +588,7 @@ class ManualWidget(QWidget):
         self.engine = self.main_window.engine
         self.bridge = self.main_window.bridge
         self._setup_ui()
+        self.refresh_connection_state()
 
     def _setup_ui(self) -> None:
         main_layout = QHBoxLayout(self)
@@ -722,76 +752,90 @@ class ManualWidget(QWidget):
     def action_boot(self) -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
-        if adapter and loop:
-            asyncio.run_coroutine_threadsafe(adapter.send_boot_notification(), loop)
+        if not adapter or not loop:
+            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            return
+        asyncio.run_coroutine_threadsafe(adapter.send_boot_notification(), loop)
 
     def action_heartbeat(self) -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
-        if adapter and loop:
-            asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
+        if not adapter or not loop:
+            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            return
+        asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
 
     def action_start(self, tag: str = "") -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
-        if adapter and loop:
-            id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
-            self.main_window.app_settings.add_recent_tag(id_tag)
-            self.main_window.update_recent_tags()
-            
-            asyncio.run_coroutine_threadsafe(
-                adapter.send_start_transaction(
-                    connector_id=self.input_connector_id.value(),
-                    id_tag=id_tag,
-                    meter_start=0,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ),
-                loop,
-            )
+        if not adapter or not loop:
+            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            return
+        id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
+        self.main_window.app_settings.add_recent_tag(id_tag)
+        self.main_window.update_recent_tags()
+
+        asyncio.run_coroutine_threadsafe(
+            adapter.send_start_transaction(
+                connector_id=self.input_connector_id.value(),
+                id_tag=id_tag,
+                meter_start=0,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            ),
+            loop,
+        )
 
     def action_stop(self) -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
-        if adapter and loop:
-            tx_id_text = self.input_tx_id.text().strip()
-            if tx_id_text:
-                try:
-                    transaction_id = int(tx_id_text)
-                except ValueError:
-                    self.log_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
-                    return
-            elif self.engine.session:
-                transaction_id = self.engine.session.transaction_id
-            else:
-                transaction_id = 1
+        if not adapter or not loop:
+            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            return
 
-            meter_stop = (
-                int(self.engine.energy_meter.get_meter_reading())
-                if self.engine.energy_meter
-                else 0
+        tx_id_text = self.input_tx_id.text().strip()
+        if tx_id_text:
+            try:
+                transaction_id = int(tx_id_text)
+            except ValueError:
+                self.log_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
+                return
+        elif self.engine.session:
+            transaction_id = self.engine.session.transaction_id
+        else:
+            self.log_panel.log_message(
+                "[yellow]UI:[/yellow] Enter a Transaction ID or start a session first"
             )
+            return
 
-            asyncio.run_coroutine_threadsafe(
-                adapter.send_stop_transaction(
-                    meter_stop=meter_stop,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    transaction_id=transaction_id,
-                ),
-                loop,
-            )
+        meter_stop = (
+            int(self.engine.energy_meter.get_meter_reading())
+            if self.engine.energy_meter
+            else 0
+        )
+
+        asyncio.run_coroutine_threadsafe(
+            adapter.send_stop_transaction(
+                meter_stop=meter_stop,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                transaction_id=transaction_id,
+            ),
+            loop,
+        )
 
     def action_status(self) -> None:
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
-        if adapter and loop:
-            asyncio.run_coroutine_threadsafe(
-                adapter.send_status_notification(
-                    connector_id=self.input_connector_id.value(),
-                    error_code="NoError",
-                    status="Available",
-                ),
-                loop,
-            )
+        if not adapter or not loop:
+            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            return
+        asyncio.run_coroutine_threadsafe(
+            adapter.send_status_notification(
+                connector_id=self.input_connector_id.value(),
+                error_code="NoError",
+                status="Available",
+            ),
+            loop,
+        )
 
     def set_recent_tags(self, tags: list[str]) -> None:
         """Update recent tags in the manual controls panel."""
@@ -799,10 +843,21 @@ class ManualWidget(QWidget):
 
     def update_ui(self) -> None:
         """Update manual controls from current engine state."""
+        self.refresh_connection_state()
         connector_id = self.input_connector_id.value()
         conn = self.engine.get_connector(connector_id)
         if conn:
             self.id_tag_input.set_applied_tag(conn.id_tag)
+
+    def refresh_connection_state(self) -> None:
+        has_connection = self.bridge.runner.adapter is not None and self.bridge.runner.loop is not None
+        self.btn_boot.setEnabled(has_connection)
+        self.btn_heartbeat.setEnabled(has_connection)
+        self.btn_status.setEnabled(has_connection)
+        self.btn_stop.setEnabled(has_connection)
+        self.input_tx_id.setEnabled(has_connection)
+        self.input_connector_id.setEnabled(has_connection)
+        self.id_tag_input.set_enabled(has_connection)
 
     def log_message(self, message: str) -> None:
         self.log_panel.log_message(message)
@@ -959,6 +1014,7 @@ class MainWindow(QMainWindow):
         self._btn_toggle_log.setObjectName("btnToggleLog")
         self._btn_toggle_log.setProperty("flat", True)
         self._btn_toggle_log.setCheckable(True)
+        self._btn_toggle_log.setEnabled(False)
         self._btn_toggle_log.clicked.connect(self._toggle_global_log)
         self.status_bar.addPermanentWidget(self._btn_toggle_log)
 
@@ -1009,29 +1065,28 @@ class MainWindow(QMainWindow):
 
         if self.app_settings.log_panel_expanded:
             self._global_log_panel.expand()
-            self._btn_toggle_log.setChecked(True)
 
         saved_ui_mode = self.app_settings.last_mode
         if saved_ui_mode in ("simulator", "manual"):
             self.switch_to_mode(saved_ui_mode)
+        else:
+            self._sync_log_toggle()
 
     def _go_home(self) -> None:
         if self.stack.currentWidget() != self.mode_select:
             self._fade_to_widget(self.mode_select)
-            self._global_log_panel.setVisible(False)
-            self._btn_toggle_log.setChecked(False)
             self.app_settings.last_mode = ""
+            self._sync_log_toggle()
 
     def switch_to_mode(self, mode: str) -> None:
         if mode == "simulator":
             self._fade_to_widget(self.simulator)
-            self._global_log_panel.setVisible(True)
             self.update_recent_tags()
         elif mode == "manual":
             self._fade_to_widget(self.manual)
-            self._global_log_panel.setVisible(True)
             self.update_recent_tags()
         self.app_settings.last_mode = mode
+        self._sync_log_toggle()
 
     def _fade_to_widget(self, widget: QWidget) -> None:
         if self.stack.currentWidget() == widget:
@@ -1057,12 +1112,23 @@ class MainWindow(QMainWindow):
         widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
     def _toggle_global_log(self) -> None:
-        if self.stack.currentWidget() == self.mode_select:
+        if not self._btn_toggle_log.isEnabled():
             return
 
         is_checked = self._btn_toggle_log.isChecked()
         self._global_log_panel.setVisible(is_checked)
         self.app_settings.log_panel_expanded = is_checked
+
+    def _sync_log_toggle(self) -> None:
+        is_simulator_mode = self.stack.currentWidget() == self.simulator
+        self._btn_toggle_log.setEnabled(is_simulator_mode)
+        if is_simulator_mode:
+            is_visible = self.app_settings.log_panel_expanded
+            self._btn_toggle_log.setChecked(is_visible)
+            self._global_log_panel.setVisible(is_visible)
+        else:
+            self._btn_toggle_log.setChecked(False)
+            self._global_log_panel.setVisible(False)
 
     def _on_global_log_mode_toggle(self, is_detailed: bool) -> None:
         mode: LogMode = "deep" if is_detailed else "shallow"
@@ -1078,9 +1144,8 @@ class MainWindow(QMainWindow):
         self.toast_manager.show_toast(message, toast_type)
 
     def log_message(self, message: str) -> None:
-        self._global_log_panel.log_message(message)
         if self.stack.currentWidget() == self.simulator:
-            return
+            self._global_log_panel.log_message(message)
         elif self.stack.currentWidget() == self.manual:
             self.manual.log_message(message)
 
@@ -1114,14 +1179,14 @@ class MainWindow(QMainWindow):
         if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
 
-        if self.stack.currentWidget() != self.mode_select:
+        if self.stack.currentWidget() == self.simulator:
             self._global_log_panel.log_record(record)
-
-        if self.stack.currentWidget() == self.manual:
+        elif self.stack.currentWidget() == self.manual:
             self.manual.log_record(record)
 
     @Slot(bool)
     def on_connection_status_changed(self, connected: bool) -> None:
+        self.manual.refresh_connection_state()
         if connected:
             self._connection_indicator.setText("Connected")
             self._connection_indicator.setProperty("connected", True)
@@ -1178,7 +1243,9 @@ class MainWindow(QMainWindow):
     @Slot(int)
     def _on_download_progress(self, percent: int) -> None:
         """Show download progress toast."""
-        self.show_toast(f"Downloading update: {percent}%", "info")
+        self.toast_manager.show_toast(
+            f"Downloading update: {percent}%", "info", toast_id="update-download"
+        )
 
     @Slot()
     def _on_ready_to_restart(self) -> None:

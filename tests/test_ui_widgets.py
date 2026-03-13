@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QFrame
 from PySide6.QtWidgets import QMainWindow
 
+from chargeghost_evse.engine.connector import ConnectorState
+from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.ui.app import ManualWidget
 from chargeghost_evse.ui.app import ModeSelectWidget
 from chargeghost_evse.ui.app import ToastManager
+from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets import session_dashboard
 from chargeghost_evse.ui.widgets.connector_strip import ConnectorIndicator
+from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
+from chargeghost_evse.ui.widgets.toast import ToastNotification
 from chargeghost_evse.ui.widgets.session_dashboard import TelemetryChart
+from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 
 
 def _app() -> QApplication:
@@ -94,7 +102,8 @@ class _DummyRunner:
 
 
 class _DummyBridge:
-	runner = _DummyRunner()
+	def __init__(self) -> None:
+		self.runner = _DummyRunner()
 
 
 class _DummySignalBridge:
@@ -108,8 +117,6 @@ class _DummySettings:
 class _DummyMainWithDeps(QMainWindow):
 	def __init__(self) -> None:
 		super().__init__()
-		from chargeghost_evse.engine.engine import Engine
-
 		self.engine = Engine()
 		self.bridge = _DummyBridge()
 		self.signal_bridge = _DummySignalBridge()
@@ -137,6 +144,30 @@ def test_manual_widget_log_button_object_names_match_stylesheet() -> None:
 	widget = ManualWidget(_DummyMainWithDeps())
 	assert widget.btn_clear_logs.objectName() == "btnClearLog"
 	assert widget.btn_log_mode.objectName() == "btnLogMode"
+
+
+def test_manual_widget_disables_actions_without_adapter() -> None:
+	_app()
+	widget = ManualWidget(_DummyMainWithDeps())
+
+	assert not widget.btn_boot.isEnabled()
+	assert not widget.btn_heartbeat.isEnabled()
+	assert not widget.btn_status.isEnabled()
+	assert not widget.btn_stop.isEnabled()
+	assert not widget.id_tag_input._apply_btn.isEnabled()
+
+
+def test_manual_widget_requires_transaction_context_to_stop() -> None:
+	_app()
+	main = _DummyMainWithDeps()
+	main.bridge.runner.adapter = object()
+	main.bridge.runner.loop = object()
+	widget = ManualWidget(main)
+
+	with patch("chargeghost_evse.ui.app.asyncio.run_coroutine_threadsafe") as mock_submit:
+		widget.action_stop()
+
+	assert not mock_submit.called
 
 
 def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
@@ -173,8 +204,141 @@ def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
 	assert window.manual.messages == []
 
 
-from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
+def test_main_window_log_message_does_not_duplicate_in_manual_mode() -> None:
+	class _Panel:
+		def __init__(self) -> None:
+			self.messages: list[str] = []
 
+		def log_message(self, message: str) -> None:
+			self.messages.append(message)
+
+	class _ManualPanel:
+		def __init__(self) -> None:
+			self.messages: list[str] = []
+
+		def log_message(self, message: str) -> None:
+			self.messages.append(message)
+
+	class _Stack:
+		def __init__(self, current_widget: object) -> None:
+			self._current_widget = current_widget
+
+		def currentWidget(self) -> object:
+			return self._current_widget
+
+	window = MainWindow.__new__(MainWindow)
+	window._global_log_panel = _Panel()
+	window.manual = _ManualPanel()
+	window.simulator = object()
+	window.stack = _Stack(window.manual)
+
+	MainWindow.log_message(window, "hello")
+
+	assert window._global_log_panel.messages == []
+	assert window.manual.messages == ["hello"]
+
+
+def test_dashboard_power_metric_uses_effective_delivered_power() -> None:
+	_app()
+	engine = Engine()
+	connector = engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.plug_in(connector.id)
+	engine.get_limit = lambda connector_id, transaction_id: 16.0
+	engine.start_session(connector.id, transaction_id=42)
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard.metric_power._value_label.text() == "3.68"
+
+
+def test_dashboard_details_hide_transaction_for_other_connector() -> None:
+	_app()
+	engine = Engine()
+	first = engine.add_connector()
+	second = engine.add_connector()
+	engine.plug_in(first.id)
+	engine.start_session(first.id, transaction_id=99)
+	dashboard = session_dashboard.SessionDashboard()
+	dashboard.set_selected_connector(second.id)
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard.details.metric_tx_id._value_label.text() == "--"
+
+
+def test_collapsible_details_default_copy_is_consistent() -> None:
+	_app()
+	details = session_dashboard.CollapsibleDetails()
+
+	assert details._toggle_btn.text() == "Show Details"
+	details._toggle()
+	assert details._toggle_btn.text() == "Hide Details"
+
+
+def test_connector_indicator_preserves_meaningful_plugged_status() -> None:
+	_app()
+	indicator = ConnectorIndicator(1)
+
+	indicator.update_status(status=ConnectorState.PREPARING.value, is_plugged=True)
+
+	assert indicator._status_label.text() == ConnectorState.PREPARING.value
+
+
+def test_config_keys_panel_requires_explicit_apply(qtbot) -> None:
+	manager = ConfigurationKeyManager()
+	manager.initialize_defaults()
+	panel = ConfigKeysPanel()
+	qtbot.addWidget(panel)
+	panel.set_keys(manager.get_all_keys())
+
+	emitted: list[tuple[str, str]] = []
+	panel.key_changed.connect(lambda key, value: emitted.append((key, value)))
+
+	line_edit = panel._key_inputs["HeartbeatInterval"]
+	line_edit.setText("123")
+
+	assert emitted == []
+
+	apply_btn = panel._apply_buttons["HeartbeatInterval"]
+	apply_btn.click()
+
+	assert emitted == [("HeartbeatInterval", "123")]
+
+
+def test_config_keys_panel_shows_empty_search_state(qtbot) -> None:
+	manager = ConfigurationKeyManager()
+	manager.initialize_defaults()
+	panel = ConfigKeysPanel()
+	qtbot.addWidget(panel)
+	panel.set_keys(manager.get_all_keys())
+
+	panel._search_input.setText("no-such-config-key")
+
+	assert not panel._empty_search_state.isHidden()
+
+
+def test_toast_manager_reuses_progress_toast() -> None:
+	app = _app()
+	host = QMainWindow()
+	manager = ToastManager(host)
+	host.show()
+	app.processEvents()
+
+	first = manager.show_toast("Downloading update: 10%", "info", toast_id="download")
+	second = manager.show_toast("Downloading update: 20%", "info", toast_id="download")
+	app.processEvents()
+
+	assert first is second
+	assert len(manager._toasts) == 1
+	assert second.message_text() == "Downloading update: 20%"
+
+
+def test_toast_notification_grows_for_multiline_messages() -> None:
+	_app()
+	toast = ToastNotification("Line one\nLine two\nLine three", "info")
+
+	assert toast.minimumHeight() > 48
 
 class TestCollapsibleLogEntry:
 	def test_creates_with_summary(self, qtbot):

@@ -262,7 +262,7 @@ class CollapsibleDetails(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._toggle_btn = QPushButton("Details")
+        self._toggle_btn = QPushButton("Show Details")
         self._toggle_btn.setObjectName("toggleDetailsBtn")
         self._toggle_btn.setProperty("flat", True)
         self._toggle_btn.clicked.connect(self._toggle)
@@ -484,6 +484,11 @@ class IdTagInput(QWidget):
             tag: The tag string to set.
         """
         self._input.setText(tag)
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._input.setEnabled(enabled)
+        self._recent_combo.setEnabled(enabled)
+        self._apply_btn.setEnabled(enabled)
 
 
 def _compute_effective_power_kw(engine: "Engine", connector_id: int) -> float:
@@ -759,7 +764,7 @@ class SessionDashboard(QWidget):
         # Update ID tag placeholder
         self.id_tag_input.set_applied_tag(conn.id_tag)
 
-        power_kw = (conn.voltage * conn.current * conn.phase) / 1000.0
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
         self.metric_power.set_value(f"{power_kw:.2f}")
 
         # Update session-specific metrics if active
@@ -807,8 +812,13 @@ class SessionDashboard(QWidget):
             self.btn_suspend_ev.setEnabled(False)
 
         # Update details panel
+        selected_tx_id = (
+            session.transaction_id
+            if session and session.connector_id == self._selected_connector_id
+            else None
+        )
         self.details.update_metrics(
-            tx_id=session.transaction_id if session else None,
+            tx_id=selected_tx_id,
             voltage=conn.voltage,
             current=conn.current,
             meter=engine.energy_meter.get_meter_reading(),

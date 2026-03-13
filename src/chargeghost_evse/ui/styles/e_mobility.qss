@@ -977,6 +977,12 @@ QSplitter::handle:hover {
 	color: #1EAD98;
 }
 
+#btnToggleLog:disabled {
+	background-color: transparent;
+	border-color: rgba(48, 54, 61, 0.4);
+	color: rgba(139, 148, 158, 0.5);
+}
+
 /* ============================================
    CONNECTOR EDITOR CARD (ConnectorPanel)
    ============================================ */
@@ -1049,6 +1055,17 @@ QComboBox#recentTagsCombo {
 
 QComboBox#recentTagsCombo:hover {
 	border: 1px solid #1EAD98;
+}
+
+QPushButton#configKeyApplyBtn {
+	padding: 8px 14px;
+	min-width: 72px;
+}
+
+QPushButton#configKeyApplyBtn:disabled {
+	background-color: rgba(33, 38, 45, 0.4);
+	color: rgba(139, 148, 158, 0.6);
+	border: 1px solid rgba(48, 54, 61, 0.6);
 }
 
 /* ============================================
@@ -1151,4 +1168,51 @@ QLabel[morePeriods="true"] {
 QScrollArea#profileScrollArea {
 	background-color: transparent;
 	border: none;
+}
+
+/* ============================================
+   UPDATE SURFACES
+   ============================================ */
+
+QDialog#updateDialog {
+	background-color: #0d1117;
+}
+
+QLabel#updateDialogHeader {
+	color: #1EAD98;
+	font-size: 16px;
+	font-weight: 700;
+}
+
+QLabel#updateDialogNotesLabel {
+	color: #e6edf3;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+QTextEdit#updateDialogReleaseNotes {
+	min-height: 220px;
+}
+
+QPushButton#updateIgnoreButton {
+	color: #8b949e;
+}
+
+QPushButton#updateIgnoreButton:hover {
+	color: #e6edf3;
+}
+
+QPushButton#updateStatusChip {
+	background-color: rgba(30, 173, 152, 0.12);
+	border: 1px solid rgba(30, 173, 152, 0.45);
+	border-radius: 12px;
+	color: #1EAD98;
+	font-size: 12px;
+	font-weight: 700;
+	padding: 4px 12px;
+}
+
+QPushButton#updateStatusChip:hover {
+	background-color: rgba(30, 173, 152, 0.2);
+	border-color: #1EAD98;
 }

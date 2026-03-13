@@ -104,7 +104,7 @@ class ConnectorIndicator(QFrame):
             self._soc_label.setText(f"{soc:.0f}%")
             self._soc_label.show()
             self._start_pulse_animation()
-        elif is_plugged:
+        elif is_plugged and status == "Available":
             self._status_label.setText("Plugged")
             self._soc_label.hide()
             self._stop_pulse_animation()

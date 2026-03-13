@@ -1,4 +1,3 @@
-import sys
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.util.config import SimulationConfig
 from unittest.mock import patch, MagicMock

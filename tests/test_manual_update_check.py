@@ -1,8 +1,5 @@
 from chargeghost_evse.ui.app import MainWindow
-from chargeghost_evse import __version__
-from chargeghost_evse.util.config import SimulationConfig
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 import sys
 
 
@@ -76,9 +73,8 @@ def test_about_dialog_shows_version_info(qtbot):
 	window = MainWindow()
 	qtbot.addWidget(window)
 
-	# Call about dialog (this will show the dialog)
-	# We can't easily test the dialog content in unit tests, but we can verify it doesn't crash
-	window._show_about_dialog()
+	with patch('chargeghost_evse.ui.app.QMessageBox.exec') as mock_exec:
+		window._show_about_dialog()
+		mock_exec.assert_called_once()
 
-	# Verify the method exists and doesn't crash
 	assert True

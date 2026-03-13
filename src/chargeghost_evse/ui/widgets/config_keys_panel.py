@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -22,10 +23,10 @@ class ConfigKeysPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._key_inputs: dict[str, QLineEdit] = {}
+        self._apply_buttons: dict[str, QPushButton] = {}
         self._category_groups: dict[str, QGroupBox] = {}
         self._category_forms: dict[str, QFormLayout] = {}
-        self._debounce_timers: dict[str, QTimer] = {}
-        self._pending_values: dict[str, str] = {}
+        self._applied_values: dict[str, str] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -40,6 +41,11 @@ class ConfigKeysPanel(QWidget):
         self._search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self._search_input)
         layout.addLayout(search_layout)
+
+        self._empty_search_state = QLabel("No configuration keys match your search.")
+        self._empty_search_state.setObjectName("emptyMessage")
+        self._empty_search_state.hide()
+        layout.addWidget(self._empty_search_state)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -84,12 +90,6 @@ class ConfigKeysPanel(QWidget):
         self._category_forms[category] = form
 
     def _clear_forms(self) -> None:
-        for timer in self._debounce_timers.values():
-            timer.stop()
-            timer.deleteLater()
-        self._debounce_timers.clear()
-        self._pending_values.clear()
-
         for i in reversed(range(self._content_layout.count())):
             item = self._content_layout.itemAt(i)
             if item is not None:
@@ -103,10 +103,13 @@ class ConfigKeysPanel(QWidget):
         self._category_groups.clear()
         self._category_forms.clear()
         self._key_inputs.clear()
+        self._apply_buttons.clear()
+        self._applied_values.clear()
 
     def _add_key_row(self, key: "ConfigurationKey", form: QFormLayout) -> None:
         line_edit = QLineEdit()
         line_edit.setText(key.value)
+        self._applied_values[key.key] = key.value
 
         label_text = key.key
         if key.mandatory:
@@ -126,24 +129,32 @@ class ConfigKeysPanel(QWidget):
         if key.readonly:
             line_edit.setEnabled(False)
 
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.setInterval(800)
-        key_name = key.key
-        timer.timeout.connect(
-            lambda k=key_name: self.key_changed.emit(k, self._pending_values.get(k, ""))
-        )
-        self._debounce_timers[key_name] = timer
+        field_widget = QWidget()
+        field_layout = QHBoxLayout(field_widget)
+        field_layout.setContentsMargins(0, 0, 0, 0)
+        field_layout.setSpacing(8)
+        field_layout.addWidget(line_edit, 1)
 
-        line_edit.textChanged.connect(
-            lambda text, k=key.key: self._on_text_changed_debounced(k, text)
-        )
+        apply_btn = QPushButton("Apply")
+        apply_btn.setObjectName("configKeyApplyBtn")
+        apply_btn.setMinimumHeight(32)
+        apply_btn.setEnabled(False)
+        apply_btn.clicked.connect(lambda _checked=False, k=key.key: self._apply_key(k))
+        field_layout.addWidget(apply_btn)
 
         self._key_inputs[key.key] = line_edit
-        form.addRow(f"{label_text}:", line_edit)
+        self._apply_buttons[key.key] = apply_btn
+
+        if not key.readonly:
+            line_edit.textChanged.connect(
+                lambda text, k=key.key: self._on_text_changed(k, text)
+            )
+
+        form.addRow(f"{label_text}:", field_widget)
 
     def _on_search_changed(self, text: str) -> None:
         search_term = text.lower()
+        has_any_visible_rows = False
         for category, form in self._category_forms.items():
             has_visible_rows = False
             for row in range(form.rowCount()):
@@ -172,13 +183,20 @@ class ConfigKeysPanel(QWidget):
 
             # Hide category group if no rows are visible
             self._category_groups[category].setVisible(has_visible_rows)
+            has_any_visible_rows = has_any_visible_rows or has_visible_rows
 
-    def _on_text_changed_debounced(self, key_name: str, new_value: str) -> None:
-        self._pending_values[key_name] = new_value
-        timer = self._debounce_timers.get(key_name)
-        if timer:
-            timer.stop()
-            timer.start()
+        self._empty_search_state.setVisible(bool(search_term) and not has_any_visible_rows)
+
+    def _on_text_changed(self, key_name: str, new_value: str) -> None:
+        apply_btn = self._apply_buttons.get(key_name)
+        if apply_btn is not None:
+            apply_btn.setEnabled(new_value != self._applied_values.get(key_name, ""))
+
+    def _apply_key(self, key_name: str) -> None:
+        line_edit = self._key_inputs.get(key_name)
+        if line_edit is None:
+            return
+        self.key_changed.emit(key_name, line_edit.text())
 
     def update_key(self, key_name: str, new_value: str) -> None:
         line_edit = self._key_inputs.get(key_name)
@@ -186,3 +204,7 @@ class ConfigKeysPanel(QWidget):
             line_edit.blockSignals(True)
             line_edit.setText(new_value)
             line_edit.blockSignals(False)
+            self._applied_values[key_name] = new_value
+        apply_btn = self._apply_buttons.get(key_name)
+        if apply_btn:
+            apply_btn.setEnabled(False)
