@@ -119,6 +119,22 @@ def test_connector_strip_preserves_selected_connector_after_status_refresh() -> 
 	assert strip._indicators[0].property("selected") is False
 
 
+def test_connector_strip_uses_available_width_for_tiles(qtbot) -> None:
+	engine = Engine()
+	engine.add_connector()
+	engine.add_connector()
+	engine.add_connector()
+	strip = session_dashboard.ConnectorStrip()
+	qtbot.addWidget(strip)
+	strip.resize(1800, 90)
+	strip.update_connectors(engine)
+	strip.show()
+	qtbot.waitExposed(strip)
+
+	last_indicator = strip._indicators[-1]
+	assert last_indicator.geometry().right() >= strip.rect().right() - 24
+
+
 def test_toast_manager_is_hidden_when_empty() -> None:
 	app = _app()
 	host = QMainWindow()

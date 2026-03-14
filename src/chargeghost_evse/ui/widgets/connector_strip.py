@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -35,6 +36,10 @@ class ConnectorIndicator(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(72)
         self.setMinimumWidth(120)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
@@ -186,7 +191,6 @@ class ConnectorStrip(QWidget):
         self._indicators_layout = QHBoxLayout()
         self._indicators_layout.setSpacing(8)
         self._main_layout.addLayout(self._indicators_layout)
-        self._main_layout.addStretch()
 
     def set_selected_connector(self, connector_id: int) -> None:
         self._selected_id = connector_id
@@ -223,7 +227,9 @@ class ConnectorStrip(QWidget):
                 # Add new
                 indicator = ConnectorIndicator(conn.id)
                 indicator.clicked.connect(self._on_indicator_clicked)
-                self._indicators_layout.insertWidget(len(self._indicators), indicator)
+                self._indicators_layout.insertWidget(
+                    len(self._indicators), indicator, 1
+                )
                 self._indicators.append(indicator)
             else:
                 indicator = found_indicator
