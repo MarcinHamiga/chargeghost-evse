@@ -403,6 +403,40 @@ QFrame#metricCard {
 	border-radius: 8px;
 }
 
+QFrame#sessionHero {
+	background-color: #121923;
+	border: 1px solid #2c4450;
+	border-radius: 14px;
+}
+
+QFrame#sessionHero[sessionState="charging"] {
+	background-color: #132028;
+	border: 1px solid #1EAD98;
+}
+
+QFrame#sessionHero[sessionState="idle"] {
+	background-color: #121923;
+}
+
+QFrame#sessionHero[sessionState="plugged"] {
+	background-color: #15202a;
+	border: 1px solid #36505c;
+}
+
+QFrame#sessionHeroContext,
+QFrame#heroLimitSummary,
+QFrame#telemetryPanel,
+QFrame#sessionContextRail {
+	background-color: #161f2a;
+	border: 1px solid #2f3f4d;
+	border-radius: 12px;
+}
+
+QFrame#sessionHeroMetrics,
+QFrame#sessionHeroActions {
+	background-color: transparent;
+}
+
 QLabel#metricTitle {
 	color: #8b949e;
 	font-size: 11px;
@@ -421,6 +455,46 @@ QLabel#metricUnit {
 	color: #6e7681;
 	font-size: 12px;
 	font-weight: 500;
+}
+
+QLabel#heroConnectorValue {
+	color: #e6edf3;
+	font-size: 24px;
+	font-weight: 700;
+}
+
+QLabel#heroStateValue {
+	color: #8fcfc4;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+QLabel#heroPrimaryValue {
+	color: #1EAD98;
+	font-size: 24px;
+	font-weight: 700;
+	font-family: "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+}
+
+QLabel#contextLimitValue {
+	color: #e6edf3;
+	font-size: 16px;
+	font-weight: 700;
+}
+
+QLabel#contextLimitValue[limited="true"] {
+	color: #f59e0b;
+}
+
+QLabel#telemetryTitle {
+	color: #e6edf3;
+	font-size: 15px;
+	font-weight: 700;
+}
+
+QLabel#telemetrySubtitle {
+	color: #8b949e;
+	font-size: 12px;
 }
 
 /* ============================================
@@ -461,6 +535,12 @@ QLabel#connectorIdLabel {
 QLabel#connectorStatusLabel {
 	color: #8b949e;
 	font-size: 11px;
+	font-weight: 500;
+}
+
+QLabel#connectorHardwareLabel {
+	color: #6e7681;
+	font-size: 10px;
 	font-weight: 500;
 }
 

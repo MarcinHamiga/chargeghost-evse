@@ -33,7 +33,7 @@ class ConnectorIndicator(QFrame):
         self.setProperty("connectorIndicator", True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(60)
+        self.setFixedHeight(72)
         self.setMinimumWidth(120)
 
         layout = QVBoxLayout(self)
@@ -55,6 +55,10 @@ class ConnectorIndicator(QFrame):
         self._status_label = QLabel("Available")
         self._status_label.setObjectName("connectorStatusLabel")
         layout.addWidget(self._status_label)
+
+        self._hardware_label = QLabel("--")
+        self._hardware_label.setObjectName("connectorHardwareLabel")
+        layout.addWidget(self._hardware_label)
 
         self._soc_label = QLabel("")
         self._soc_label.setObjectName("connectorSocLabel")
@@ -78,6 +82,12 @@ class ConnectorIndicator(QFrame):
 
     def connector_id(self) -> int:
         return self._connector_id
+
+    def set_hardware_summary(self, voltage: float, current: float, phase: int) -> None:
+        voltage_text = f"{voltage:.0f}V"
+        current_text = f"{current:.0f}A"
+        phase_text = f"{phase}Ph"
+        self._hardware_label.setText(f"{voltage_text} · {current_text} · {phase_text}")
 
     def set_selected(self, selected: bool) -> None:
         if self._is_selected != selected:
@@ -225,6 +235,7 @@ class ConnectorStrip(QWidget):
                 soc=session.state_of_charge if session else None,
                 id_tag=conn.id_tag,
             )
+            indicator.set_hardware_summary(conn.voltage, conn.current, conn.phase)
             indicator.set_selected(conn.id == self._selected_id)
 
         if self._selected_id is None and self._indicators:

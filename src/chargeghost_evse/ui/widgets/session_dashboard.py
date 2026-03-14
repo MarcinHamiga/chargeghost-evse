@@ -556,32 +556,166 @@ class SessionDashboard(QWidget):
 
     def _setup_ui(self) -> None:
         """
-        Build the complete dashboard UI with a high-density grid layout.
+        Build the complete dashboard UI with a status-first layout.
         """
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(16)
         main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # 1. Connector selection strip (Full width at top)
         self.connector_strip = ConnectorStrip()
         self.connector_strip.connector_selected.connect(self._on_connector_selected)
         main_layout.addWidget(self.connector_strip)
 
-        # Main content area below the strip
+        self._hero_frame = QFrame()
+        self._hero_frame.setObjectName("sessionHero")
+        self._hero_frame.setProperty("card", True)
+        self._hero_frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        hero_layout = QVBoxLayout(self._hero_frame)
+        hero_layout.setSpacing(12)
+        hero_layout.setContentsMargins(16, 16, 16, 16)
+
+        hero_header = QHBoxLayout()
+        hero_header.setSpacing(12)
+
+        hero_identity = QVBoxLayout()
+        hero_identity.setSpacing(4)
+
+        hero_title = QLabel("Active Session")
+        hero_title.setObjectName("sectionHeader")
+        hero_identity.addWidget(hero_title)
+
+        self._hero_connector_value = QLabel("Connector 1")
+        self._hero_connector_value.setObjectName("heroConnectorValue")
+        hero_identity.addWidget(self._hero_connector_value)
+
+        self._hero_state_value = QLabel("Idle")
+        self._hero_state_value.setObjectName("heroStateValue")
+        hero_identity.addWidget(self._hero_state_value)
+
+        hero_header.addLayout(hero_identity)
+        hero_header.addStretch()
+        hero_layout.addLayout(hero_header)
+
+        self._hero_metrics_frame = QFrame()
+        self._hero_metrics_frame.setObjectName("sessionHeroMetrics")
+        hero_metrics_layout = QGridLayout(self._hero_metrics_frame)
+        hero_metrics_layout.setContentsMargins(0, 0, 0, 0)
+        hero_metrics_layout.setHorizontalSpacing(12)
+        hero_metrics_layout.setVerticalSpacing(8)
+
+        self._hero_power_value = QLabel("0.00 kW")
+        self._hero_power_value.setObjectName("heroPrimaryValue")
+        self._hero_soc_value = QLabel("0.0%")
+        self._hero_soc_value.setObjectName("heroPrimaryValue")
+        self._hero_duration_value = QLabel("--")
+        self._hero_duration_value.setObjectName("heroPrimaryValue")
+
+        hero_metrics_layout.addWidget(QLabel("Power"), 0, 0)
+        hero_metrics_layout.addWidget(QLabel("State of Charge"), 0, 1)
+        hero_metrics_layout.addWidget(QLabel("Duration"), 0, 2)
+        hero_metrics_layout.addWidget(self._hero_power_value, 1, 0)
+        hero_metrics_layout.addWidget(self._hero_soc_value, 1, 1)
+        hero_metrics_layout.addWidget(self._hero_duration_value, 1, 2)
+        hero_layout.addWidget(self._hero_metrics_frame)
+
+        self._hero_actions_frame = QFrame()
+        self._hero_actions_frame.setObjectName("sessionHeroActions")
+        hero_actions_layout = QGridLayout(self._hero_actions_frame)
+        hero_actions_layout.setContentsMargins(0, 0, 0, 0)
+        hero_actions_layout.setSpacing(8)
+
+        self.btn_plug = QPushButton("Plug In")
+        self.btn_plug.setObjectName("btnPlug")
+        self.btn_plug.setProperty("primary", True)
+        self.btn_plug.setMinimumHeight(40)
+        self.btn_plug.clicked.connect(self.plug_in_clicked)
+        hero_actions_layout.addWidget(self.btn_plug, 0, 0)
+
+        self.btn_unplug = QPushButton("Unplug")
+        self.btn_unplug.setObjectName("btnUnplug")
+        self.btn_unplug.setProperty("danger", True)
+        self.btn_unplug.setMinimumHeight(40)
+        self.btn_unplug.clicked.connect(self.unplug_clicked)
+        hero_actions_layout.addWidget(self.btn_unplug, 0, 1)
+
+        self.btn_start_charge = QPushButton("Start Charging")
+        self.btn_start_charge.setObjectName("btnStartCharge")
+        self.btn_start_charge.setProperty("success", True)
+        self.btn_start_charge.setMinimumHeight(40)
+        self.btn_start_charge.clicked.connect(self.start_charging_clicked)
+        hero_actions_layout.addWidget(self.btn_start_charge, 1, 0)
+
+        self.btn_stop_charge = QPushButton("Stop Charging")
+        self.btn_stop_charge.setObjectName("btnStopCharge")
+        self.btn_stop_charge.setProperty("danger", True)
+        self.btn_stop_charge.setMinimumHeight(40)
+        self.btn_stop_charge.clicked.connect(self.stop_charging_clicked)
+        hero_actions_layout.addWidget(self.btn_stop_charge, 1, 1)
+
+        self.btn_suspend_ev = QPushButton("Suspend EV")
+        self.btn_suspend_ev.setObjectName("btnSuspendEV")
+        self.btn_suspend_ev.setMinimumHeight(40)
+        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
+        hero_actions_layout.addWidget(self.btn_suspend_ev, 2, 0, 1, 2)
+
+        hero_layout.addWidget(self._hero_actions_frame)
+
+        self._hero_context_frame = QFrame()
+        self._hero_context_frame.setObjectName("sessionHeroContext")
+        hero_context_layout = QHBoxLayout(self._hero_context_frame)
+        hero_context_layout.setContentsMargins(0, 0, 0, 0)
+        hero_context_layout.setSpacing(12)
+
+        self.id_tag_input = IdTagInput()
+        self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)
+        hero_context_layout.addWidget(self.id_tag_input, 1)
+
+        limit_summary = QFrame()
+        limit_summary.setObjectName("heroLimitSummary")
+        limit_layout = QVBoxLayout(limit_summary)
+        limit_layout.setContentsMargins(12, 8, 12, 8)
+        limit_layout.setSpacing(2)
+
+        limit_title = QLabel("Effective Limit")
+        limit_title.setObjectName("idTagLabel")
+        limit_layout.addWidget(limit_title)
+
+        self._context_limit_value = QLabel("No limit")
+        self._context_limit_value.setObjectName("contextLimitValue")
+        limit_layout.addWidget(self._context_limit_value)
+
+        hero_context_layout.addWidget(limit_summary)
+        hero_layout.addWidget(self._hero_context_frame)
+        main_layout.addWidget(self._hero_frame)
+
         content_layout = QHBoxLayout()
         content_layout.setSpacing(20)
         main_layout.addLayout(content_layout, 1)
 
-        # 2. Left Panel: Telemetry & Progress (approx. 70%)
         left_panel = QVBoxLayout()
         left_panel.setSpacing(16)
         content_layout.addLayout(left_panel, 7)
 
-        # Real-time telemetry chart
-        self.telemetry_chart = TelemetryChart()
-        left_panel.addWidget(self.telemetry_chart, 1)
+        telemetry_panel = QFrame()
+        telemetry_panel.setObjectName("telemetryPanel")
+        telemetry_panel.setProperty("card", True)
+        telemetry_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        telemetry_layout = QVBoxLayout(telemetry_panel)
+        telemetry_layout.setContentsMargins(12, 12, 12, 12)
+        telemetry_layout.setSpacing(8)
 
-        # State of charge progress section
+        telemetry_title = QLabel("Live Power Telemetry")
+        telemetry_title.setObjectName("telemetryTitle")
+        telemetry_layout.addWidget(telemetry_title)
+
+        telemetry_subtitle = QLabel("Rolling 60-second delivered power view")
+        telemetry_subtitle.setObjectName("telemetrySubtitle")
+        telemetry_layout.addWidget(telemetry_subtitle)
+
+        self.telemetry_chart = TelemetryChart()
+        telemetry_layout.addWidget(self.telemetry_chart, 1)
+        left_panel.addWidget(telemetry_panel, 1)
+
         soc_section = QFrame()
         soc_section.setObjectName("socSection")
         soc_layout = QVBoxLayout(soc_section)
@@ -606,12 +740,10 @@ class SessionDashboard(QWidget):
         soc_layout.addWidget(self.soc_progress)
         left_panel.addWidget(soc_section)
 
-        # 3. Right Panel: Metrics & Controls (approx. 30%)
         right_panel = QVBoxLayout()
         right_panel.setSpacing(16)
         content_layout.addLayout(right_panel, 3)
 
-        # Primary metrics (2x2 grid)
         primary_metrics = QGridLayout()
         primary_metrics.setSpacing(8)
         primary_metrics.setContentsMargins(0, 0, 0, 0)
@@ -627,65 +759,43 @@ class SessionDashboard(QWidget):
         primary_metrics.addWidget(self.metric_soc, 1, 1)
         right_panel.addLayout(primary_metrics)
 
-        # ID tag input section
-        id_tag_section = QFrame()
-        id_tag_section.setObjectName("idTagSection")
-        id_tag_layout = QVBoxLayout(id_tag_section)
-        id_tag_layout.setContentsMargins(12, 12, 12, 12)
-        id_tag_layout.setSpacing(12)
-
-        self.id_tag_input = IdTagInput()
-        self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)
-        id_tag_layout.addWidget(self.id_tag_input)
-        right_panel.addWidget(id_tag_section)
-
-        # Action buttons grid
-        actions_frame = QFrame()
-        actions_grid = QGridLayout(actions_frame)
-        actions_grid.setContentsMargins(0, 0, 0, 0)
-        actions_grid.setSpacing(8)
-
-        self.btn_plug = QPushButton("Plug In")
-        self.btn_plug.setObjectName("btnPlug")
-        self.btn_plug.setProperty("primary", True)
-        self.btn_plug.setMinimumHeight(40)
-        self.btn_plug.clicked.connect(self.plug_in_clicked)
-        actions_grid.addWidget(self.btn_plug, 0, 0)
-
-        self.btn_unplug = QPushButton("Unplug")
-        self.btn_unplug.setObjectName("btnUnplug")
-        self.btn_unplug.setProperty("danger", True)
-        self.btn_unplug.setMinimumHeight(40)
-        self.btn_unplug.clicked.connect(self.unplug_clicked)
-        actions_grid.addWidget(self.btn_unplug, 0, 1)
-
-        self.btn_start_charge = QPushButton("Start Charging")
-        self.btn_start_charge.setObjectName("btnStartCharge")
-        self.btn_start_charge.setProperty("success", True)
-        self.btn_start_charge.setMinimumHeight(40)
-        self.btn_start_charge.clicked.connect(self.start_charging_clicked)
-        actions_grid.addWidget(self.btn_start_charge, 1, 0)
-
-        self.btn_stop_charge = QPushButton("Stop Charging")
-        self.btn_stop_charge.setObjectName("btnStopCharge")
-        self.btn_stop_charge.setProperty("danger", True)
-        self.btn_stop_charge.setMinimumHeight(40)
-        self.btn_stop_charge.clicked.connect(self.stop_charging_clicked)
-        actions_grid.addWidget(self.btn_stop_charge, 1, 1)
-
-        self.btn_suspend_ev = QPushButton("Suspend EV")
-        self.btn_suspend_ev.setObjectName("btnSuspendEV")
-        self.btn_suspend_ev.setMinimumHeight(40)
-        self.btn_suspend_ev.clicked.connect(self._on_suspend_ev_clicked)
-        actions_grid.addWidget(self.btn_suspend_ev, 2, 0, 1, 2)
-
-        right_panel.addWidget(actions_frame)
-
-        # Collapsible details panel
-        self.details = CollapsibleDetails()
-        right_panel.addWidget(self.details)
-
         right_panel.addStretch()
+
+        self._context_rail = QFrame()
+        self._context_rail.setObjectName("sessionContextRail")
+        self._context_rail.setProperty("card", True)
+        self._context_rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        context_layout = QGridLayout(self._context_rail)
+        context_layout.setContentsMargins(12, 12, 12, 12)
+        context_layout.setSpacing(8)
+
+        self.metric_tx_id = MetricCard("Transaction ID")
+        self.metric_tx_id.setObjectName("contextMetricTx")
+        context_layout.addWidget(self.metric_tx_id, 0, 0)
+
+        self.metric_voltage = MetricCard("Voltage", "V")
+        self.metric_voltage.setObjectName("contextMetricVoltage")
+        context_layout.addWidget(self.metric_voltage, 0, 1)
+
+        self.metric_current = MetricCard("Current", "A")
+        self.metric_current.setObjectName("contextMetricCurrent")
+        context_layout.addWidget(self.metric_current, 0, 2)
+
+        self.metric_meter = MetricCard("Total Meter", "Wh")
+        self.metric_meter.setObjectName("contextMetricMeter")
+        context_layout.addWidget(self.metric_meter, 0, 3)
+
+        main_layout.addWidget(self._context_rail)
+
+    def _format_duration(self, start_time: float) -> str:
+        duration = time.time() - start_time
+        total_secs = int(duration)
+        hours = total_secs // 3600
+        minutes = (total_secs % 3600) // 60
+        seconds = total_secs % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes}:{seconds:02d}"
 
     def _on_connector_selected(self, connector_id: int) -> None:
         """
@@ -766,24 +876,22 @@ class SessionDashboard(QWidget):
 
         power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
         self.metric_power.set_value(f"{power_kw:.2f}")
+        self._hero_connector_value.setText(f"Connector {self._selected_connector_id}")
+        self._hero_power_value.setText(f"{power_kw:.2f} kW")
 
         # Update session-specific metrics if active
         session = engine.session
         if session and session.connector_id == self._selected_connector_id:
             self.metric_energy.set_value(f"{session.energy_charged:.1f}")
             self.metric_soc.set_value(f"{session.state_of_charge:.1f}")
-            duration = time.time() - session.start_time
-            total_secs = int(duration)
-            hours = total_secs // 3600
-            minutes = (total_secs % 3600) // 60
-            seconds = total_secs % 60
-            if hours > 0:
-                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
-            else:
-                duration_str = f"{minutes}:{seconds:02d}"
+            duration_str = self._format_duration(session.start_time)
             self.metric_duration.set_value(duration_str)
             self.soc_progress.setValue(int(session.state_of_charge))
             self._soc_percent_label.setText(f"{session.state_of_charge:.0f}%")
+            self._hero_state_value.setText(conn.status.value)
+            self._hero_soc_value.setText(f"{session.state_of_charge:.1f}%")
+            self._hero_duration_value.setText(duration_str)
+            self._hero_frame.setProperty("sessionState", "charging")
 
             self.btn_start_charge.setEnabled(False)
             self.btn_stop_charge.setEnabled(True)
@@ -805,24 +913,42 @@ class SessionDashboard(QWidget):
             self.metric_duration.clear()
             self.soc_progress.setValue(0)
             self._soc_percent_label.setText("0%")
+            idle_state = "plugged" if conn.is_plugged_in else "idle"
+            self._hero_state_value.setText("Plugged In" if conn.is_plugged_in else "Idle")
+            self._hero_soc_value.setText("0.0%")
+            self._hero_duration_value.setText("--")
+            self._hero_frame.setProperty("sessionState", idle_state)
 
             self.btn_start_charge.setEnabled(conn.is_plugged_in)
             self.btn_stop_charge.setEnabled(False)
             self.btn_suspend_ev.setText("Suspend EV")
             self.btn_suspend_ev.setEnabled(False)
 
-        # Update details panel
         selected_tx_id = (
             session.transaction_id
             if session and session.connector_id == self._selected_connector_id
             else None
         )
-        self.details.update_metrics(
-            tx_id=selected_tx_id,
-            voltage=conn.voltage,
-            current=conn.current,
-            meter=engine.energy_meter.get_meter_reading(),
-        )
+        effective_limit: Optional[float] = None
+        if session and session.connector_id == self._selected_connector_id:
+            if engine.get_limit is not None:
+                effective_limit = engine.get_limit(
+                    session.connector_id, session.transaction_id
+                )
+        self.metric_tx_id.set_value(str(selected_tx_id) if selected_tx_id else "--")
+        self.metric_voltage.set_value(f"{conn.voltage:.1f}")
+        self.metric_current.set_value(f"{conn.current:.1f}")
+        self.metric_meter.set_value(f"{engine.energy_meter.get_meter_reading():.1f}")
+        if effective_limit is None or effective_limit < 0:
+            self._context_limit_value.setText("No limit")
+            self._context_limit_value.setProperty("limited", False)
+        else:
+            self._context_limit_value.setText(f"{effective_limit:.1f}A")
+            self._context_limit_value.setProperty("limited", effective_limit < conn.current)
+        self._hero_frame.style().unpolish(self._hero_frame)
+        self._hero_frame.style().polish(self._hero_frame)
+        self._context_limit_value.style().unpolish(self._context_limit_value)
+        self._context_limit_value.style().polish(self._context_limit_value)
 
     def _on_suspend_ev_clicked(self) -> None:
         """

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QFrame
+from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QMainWindow
 
 from chargeghost_evse.engine.connector import ConnectorState
@@ -60,6 +61,21 @@ def test_telemetry_chart_stores_points_within_window(monkeypatch) -> None:
 	assert chart._power_data[1].x() == 40.0
 
 
+def test_dashboard_exposes_named_telemetry_panel() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+
+	assert dashboard.findChild(QFrame, "telemetryPanel") is not None
+	assert dashboard.findChild(QLabel, "telemetryTitle").text() == "Live Power Telemetry"
+
+
+def test_dashboard_exposes_telemetry_panel_supporting_copy() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+
+	assert dashboard.findChild(QLabel, "telemetrySubtitle").text() == "Rolling 60-second delivered power view"
+
+
 def test_connector_indicator_clears_charging_stylesheet() -> None:
 	_app()
 	indicator = ConnectorIndicator(1)
@@ -72,6 +88,35 @@ def test_connector_indicator_clears_charging_stylesheet() -> None:
 
 	assert indicator.property("charging") is False
 	assert indicator.styleSheet() == ""
+
+
+def test_connector_indicator_shows_hardware_summary() -> None:
+	_app()
+	engine = Engine()
+	engine.add_connector(voltage=400.0, current=32.0, phase=3)
+	strip = session_dashboard.ConnectorStrip()
+
+	strip.update_connectors(engine)
+
+	indicator = strip._indicators[0]
+	assert indicator._hardware_label.text() == "400V · 32A · 3Ph"
+
+
+def test_connector_strip_preserves_selected_connector_after_status_refresh() -> None:
+	_app()
+	engine = Engine()
+	engine.add_connector()
+	second = engine.add_connector(voltage=400.0, current=16.0, phase=3)
+	strip = session_dashboard.ConnectorStrip()
+
+	strip.update_connectors(engine)
+	strip.set_selected_connector(second.id)
+	engine.plug_in(second.id)
+	strip.update_connectors(engine)
+
+	assert strip.get_selected_connector_id() == second.id
+	assert strip._indicators[1].property("selected") is True
+	assert strip._indicators[0].property("selected") is False
 
 
 def test_toast_manager_is_hidden_when_empty() -> None:
@@ -252,7 +297,111 @@ def test_dashboard_power_metric_uses_effective_delivered_power() -> None:
 	assert dashboard.metric_power._value_label.text() == "3.68"
 
 
-def test_dashboard_details_hide_transaction_for_other_connector() -> None:
+def test_dashboard_exposes_session_hero_sections() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+
+	assert dashboard.findChild(QFrame, "sessionHero") is not None
+	assert dashboard.findChild(QFrame, "sessionContextRail") is not None
+	assert dashboard.findChild(QFrame, "sessionHeroMetrics") is not None
+	assert dashboard.findChild(QFrame, "sessionHeroActions") is not None
+
+
+def test_dashboard_hero_shows_idle_state_when_no_session() -> None:
+	_app()
+	engine = Engine()
+	engine.add_connector()
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard._hero_state_value.text() == "Idle"
+	assert dashboard._hero_connector_value.text() == "Connector 1"
+	assert dashboard.btn_start_charge.isEnabled() is False
+	assert dashboard.btn_stop_charge.isEnabled() is False
+
+
+def test_dashboard_hero_shows_live_session_state(monkeypatch) -> None:
+	_app()
+	engine = Engine()
+	connector = engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.plug_in(connector.id)
+	engine.get_limit = lambda connector_id, transaction_id: 16.0
+	engine.start_session(connector.id, transaction_id=99)
+	assert engine.session is not None
+	engine.session.start_time = 100.0
+	monkeypatch.setattr(session_dashboard.time, "time", lambda: 160.0)
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard._hero_state_value.text() == "Charging"
+	assert dashboard._hero_power_value.text() == "3.68 kW"
+	assert dashboard._hero_soc_value.text() == "0.0%"
+	assert dashboard._hero_duration_value.text() == "1:00"
+
+
+def test_dashboard_context_metrics_are_always_visible() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+
+	assert dashboard.findChild(QFrame, "sessionContextRail") is not None
+	assert dashboard.findChild(QFrame, "contextMetricTx") is not None
+	assert dashboard.findChild(QFrame, "contextMetricVoltage") is not None
+	assert dashboard.findChild(QFrame, "contextMetricCurrent") is not None
+	assert dashboard.findChild(QFrame, "contextMetricMeter") is not None
+	assert dashboard.findChild(QFrame, "toggleDetailsBtn") is None
+
+
+def test_dashboard_embeds_id_tag_controls_in_hero_context() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+
+	assert dashboard.findChild(QFrame, "sessionHeroContext") is not None
+	assert dashboard.findChild(QFrame, "idTagSection") is None
+	assert dashboard.id_tag_input.parentWidget() is dashboard._hero_context_frame
+
+
+def test_dashboard_context_shows_effective_limit_for_selected_connector() -> None:
+	_app()
+	engine = Engine()
+	connector = engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.plug_in(connector.id)
+	engine.get_limit = lambda connector_id, transaction_id: 16.0
+	engine.start_session(connector.id, transaction_id=7)
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard._context_limit_value.text() == "16.0A"
+
+
+def test_dashboard_hero_exposes_idle_state_property_for_styling() -> None:
+	_app()
+	engine = Engine()
+	engine.add_connector()
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard._hero_frame.property("sessionState") == "idle"
+
+
+def test_dashboard_limit_summary_exposes_limited_property_for_styling() -> None:
+	_app()
+	engine = Engine()
+	connector = engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.plug_in(connector.id)
+	engine.get_limit = lambda connector_id, transaction_id: 16.0
+	engine.start_session(connector.id, transaction_id=3)
+	dashboard = session_dashboard.SessionDashboard()
+
+	dashboard.update_from_engine(engine)
+
+	assert dashboard._context_limit_value.property("limited") is True
+
+
+def test_dashboard_context_hides_transaction_for_other_connector() -> None:
 	_app()
 	engine = Engine()
 	first = engine.add_connector()
@@ -264,16 +413,7 @@ def test_dashboard_details_hide_transaction_for_other_connector() -> None:
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard.details.metric_tx_id._value_label.text() == "--"
-
-
-def test_collapsible_details_default_copy_is_consistent() -> None:
-	_app()
-	details = session_dashboard.CollapsibleDetails()
-
-	assert details._toggle_btn.text() == "Show Details"
-	details._toggle()
-	assert details._toggle_btn.text() == "Hide Details"
+	assert dashboard.metric_tx_id._value_label.text() == "--"
 
 
 def test_connector_indicator_preserves_meaningful_plugged_status() -> None:
