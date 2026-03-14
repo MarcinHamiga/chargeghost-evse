@@ -663,8 +663,8 @@ class SessionDashboard(QWidget):
         self._hero_context_frame = QFrame()
         self._hero_context_frame.setObjectName("sessionHeroContext")
         hero_context_layout = QHBoxLayout(self._hero_context_frame)
-        hero_context_layout.setContentsMargins(0, 0, 0, 0)
-        hero_context_layout.setSpacing(12)
+        hero_context_layout.setContentsMargins(16, 12, 16, 12)
+        hero_context_layout.setSpacing(16)
 
         self.id_tag_input = IdTagInput()
         self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)

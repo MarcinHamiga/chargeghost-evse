@@ -362,6 +362,17 @@ def test_dashboard_embeds_id_tag_controls_in_hero_context() -> None:
 	assert dashboard.id_tag_input.parentWidget() is dashboard._hero_context_frame
 
 
+def test_dashboard_hero_context_uses_inner_margins() -> None:
+	_app()
+	dashboard = session_dashboard.SessionDashboard()
+	margins = dashboard._hero_context_frame.layout().contentsMargins()
+
+	assert margins.left() == 16
+	assert margins.top() == 12
+	assert margins.right() == 16
+	assert margins.bottom() == 12
+
+
 def test_dashboard_context_shows_effective_limit_for_selected_connector() -> None:
 	_app()
 	engine = Engine()
