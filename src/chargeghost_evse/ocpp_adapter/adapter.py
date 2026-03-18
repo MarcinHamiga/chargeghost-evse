@@ -133,6 +133,11 @@ class Adapter(cp):
         """
         super().__init__(id, connection, response_timeout)
 
+        # Mirror response_timeout as a public attribute so handlers can read it.
+        # The base class stores it as _response_timeout; _on_config_key_changed
+        # keeps this in sync when the CSMS sends a ConnectionTimeout update.
+        self.response_timeout = response_timeout
+
         # Command queue for Engine communication
         self.command_queue = command_queue
 

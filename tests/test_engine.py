@@ -292,6 +292,21 @@ class TestEngine:
 		assert engine.session.id_tag == "TEST_TAG"
 		assert engine.session.connector_id == 1
 
+	def test_remote_start_auto_selects_preparing_connector(self):
+		"""Auto-select must prefer a PREPARING connector (EV already plugged in)."""
+		engine = Engine()
+		engine.add_connector()
+		engine.plug_in(1)  # Connector 1 is now PREPARING
+		assert engine.connectors[0].status.value == "Preparing"
+
+		command = {"action": "START", "connector_id": None, "id_tag": "TAG", "timeout": 30}
+		engine.command_queue.put(command)
+		engine._process_commands()
+
+		assert engine.session is not None
+		assert engine.session.connector_id == 1
+		assert engine.session.id_tag == "TAG"
+
 	def test_delayed_remote_start_expired(self):
 		import time
 		engine = Engine()

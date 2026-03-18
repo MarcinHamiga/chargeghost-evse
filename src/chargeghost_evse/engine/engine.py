@@ -637,15 +637,20 @@ class Engine(Subscriber):
         connector_id = command.get("connector_id")
 
         if action == "START":
-            # If connector_id is not provided or 0, find an available connector
+            # If connector_id is not provided or 0, find a suitable connector.
+            # Prefer PREPARING (EV already plugged in) over AVAILABLE (pending plug-in).
             if not connector_id:
+                chosen = None
                 for conn in self.connectors:
-                    if conn.status == ConnectorState.AVAILABLE:
-                        connector_id = conn.id
+                    if conn.status == ConnectorState.PREPARING:
+                        chosen = conn
                         break
-                else:
+                    if conn.status == ConnectorState.AVAILABLE and chosen is None:
+                        chosen = conn
+                if chosen is None:
                     self._log("RemoteStartTransaction failed: No available connectors.")
                     return
+                connector_id = chosen.id
 
             self.start_session(
                 connector_id=connector_id,
