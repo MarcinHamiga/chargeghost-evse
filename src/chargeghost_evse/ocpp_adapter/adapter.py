@@ -8,9 +8,12 @@ messages.
 
 The adapter implements the following OCPP 1.6 features:
 - Core profile: BootNotification, Heartbeat, StatusNotification, etc.
+- Reservation profile: ReserveNow, CancelReservation
+- Core maintenance: ClearCache, TriggerMessage
 - Smart Charging profile: SetChargingProfile, ClearChargingProfile, GetCompositeSchedule
 - Firmware Management profile: UpdateFirmware, GetDiagnostics
 - Local Auth List Management profile: SendLocalList, GetLocalListVersion
+- Vendor extensions: DataTransfer
 
 Classes:
     Adapter: OCPP 1.6 Charge Point implementation.
@@ -31,34 +34,42 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
-    AvailabilityStatus,
-    AvailabilityType,
-    ChargingProfilePurposeType,
+	AvailabilityStatus,
+	AvailabilityType,
+	CancelReservationStatus,
+	ChargingProfilePurposeType,
     ChargingProfileStatus,
-    ChargingRateUnitType,
-    ClearChargingProfileStatus,
-    DiagnosticsStatus,
-    FirmwareStatus,
-    RegistrationStatus,
-    ResetStatus,
-    ResetType,
-    RemoteStartStopStatus,
-    UnlockStatus,
-    UpdateStatus,
-    UpdateType,
+	ChargingRateUnitType,
+	ClearChargingProfileStatus,
+	ClearCacheStatus,
+	DataTransferStatus,
+	DiagnosticsStatus,
+	FirmwareStatus,
+	MessageTrigger,
+	RegistrationStatus,
+	ReservationStatus,
+	ResetStatus,
+	ResetType,
+	RemoteStartStopStatus,
+	TriggerMessageStatus,
+	UnlockStatus,
+	UpdateStatus,
+	UpdateType,
 )
 
 from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
     ChargingProfileManager,
 )
+from chargeghost_evse.ocpp_adapter.auth_cache import AuthorizationCacheManager
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
+from chargeghost_evse.ocpp_adapter.data_transfer import DataTransferRegistry
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
 from chargeghost_evse.util.event import Event
@@ -76,6 +87,7 @@ class Adapter(cp):
     The adapter integrates several managers for different OCPP features:
     - ConfigurationKeyManager: OCPP configuration key storage
     - ChargingProfileManager: Smart Charging profile management
+    - AuthorizationCacheManager: In-memory authorization cache
     - LocalAuthListManager: Local authorization list storage
     - FirmwareManager: Firmware update and diagnostics handling
 
@@ -168,6 +180,17 @@ class Adapter(cp):
         self._firmware_task: Optional[asyncio.Task] = None
         self._diagnostics_task: Optional[asyncio.Task] = None
 
+        # Authorization cache used for CSMS authorize responses
+        self.auth_cache = AuthorizationCacheManager()
+
+        # Lightweight vendor data transfer routing
+        self.data_transfer_registry = DataTransferRegistry()
+        self.register_data_transfer_handler(
+            "ChargeGhost",
+            "Capabilities",
+            self._handle_capabilities_data_transfer,
+        )
+
         # Configuration key management
         self.config_manager = ConfigurationKeyManager()
         self.config_manager.initialize_defaults()
@@ -206,6 +229,10 @@ class Adapter(cp):
         self.get_connector_info: Optional[
             Callable[[int], Optional[tuple[float, int]]]
         ] = None
+        self.get_connector_status: Optional[Callable[[int], Optional[str]]] = None
+        self.get_meter_snapshot: Optional[
+            Callable[[int], Optional[tuple[float, Optional[int]]]]
+        ] = None
 
         # Known connector IDs populated by Bridge after each BootNotification
         self.known_connector_ids: list[int] = []
@@ -214,6 +241,10 @@ class Adapter(cp):
         # Signature: (connector_id: int, availability_type: str) -> str
         # Returns "accepted", "scheduled", or "rejected"
         self.set_connector_availability: Optional[Callable[[int, str], str]] = None
+
+        # Injectable callbacks for reservation handling (set by Bridge)
+        self.reserve_connector: Optional[Callable[..., str]] = None
+        self.cancel_reservation: Optional[Callable[[int], str]] = None
 
     def _log(
         self,
@@ -324,6 +355,7 @@ class Adapter(cp):
             "ChangeConfiguration",
             "SendLocalList",
             "GetLocalListVersion",
+            "DataTransfer",
         }
         level = logging.INFO if action in important_actions else logging.DEBUG
 
@@ -377,6 +409,39 @@ class Adapter(cp):
             )
         return await super()._handle_call(msg)
 
+    def _schedule_background_send(self, awaitable: Awaitable[Any], action: str) -> None:
+        """
+        Schedule an outbound OCPP send without blocking the caller.
+
+        Args:
+            awaitable: Outbound send coroutine.
+            action: OCPP action name for logging context.
+        """
+        task = asyncio.create_task(awaitable)
+        task.add_done_callback(
+            lambda completed: self._handle_background_send_result(completed, action)
+        )
+
+    def _handle_background_send_result(
+        self, task: asyncio.Task[Any], action: str
+    ) -> None:
+        """
+        Log exceptions raised by background send tasks.
+
+        Args:
+            task: The finished asyncio task.
+            action: OCPP action name for logging context.
+        """
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            self._log(
+                f"TriggerMessage {action} failed: {exc}",
+                level=logging.ERROR,
+            )
+
     # -------------------------------------------------------------------------
     # Transaction Management
     # -------------------------------------------------------------------------
@@ -416,6 +481,186 @@ class Adapter(cp):
     # -------------------------------------------------------------------------
     # Incoming OCPP Message Handlers
     # -------------------------------------------------------------------------
+
+    @on("ReserveNow")
+    async def on_reserve_now(
+        self,
+        connector_id: int,
+        expiry_date: str,
+        id_tag: str,
+        reservation_id: int,
+        parent_id_tag: Optional[str] = None,
+        **kwargs,
+    ) -> call_result.ReserveNow:
+        """
+        Handle ReserveNow request from CSMS.
+
+        Reserves an idle connector for a specific id_tag until the given expiry.
+        """
+        self._log(
+            f"ReserveNow: connector_id={connector_id}, reservation_id={reservation_id}, "
+            f"id_tag={id_tag}",
+        )
+
+        if connector_id not in self.known_connector_ids or self.reserve_connector is None:
+            return call_result.ReserveNow(status=ReservationStatus.rejected)
+
+        try:
+            parsed_expiry = datetime.fromisoformat(expiry_date.replace("Z", "+00:00"))
+        except (AttributeError, TypeError, ValueError):
+            self._log(
+                f"ReserveNow: invalid expiry_date={expiry_date}",
+                level=logging.WARNING,
+            )
+            return call_result.ReserveNow(status=ReservationStatus.rejected)
+
+        result = self.reserve_connector(
+            connector_id,
+            reservation_id,
+            id_tag,
+            parsed_expiry,
+            parent_id_tag,
+        )
+        status_map = {
+            "accepted": ReservationStatus.accepted,
+            "occupied": ReservationStatus.occupied,
+            "faulted": ReservationStatus.faulted,
+            "unavailable": ReservationStatus.unavailable,
+            "rejected": ReservationStatus.rejected,
+        }
+        return call_result.ReserveNow(
+            status=status_map.get(result, ReservationStatus.rejected)
+        )
+
+    @on("CancelReservation")
+    async def on_cancel_reservation(
+        self, reservation_id: int, **kwargs
+    ) -> call_result.CancelReservation:
+        """
+        Handle CancelReservation request from CSMS.
+
+        Cancels an existing reservation by reservation ID.
+        """
+        self._log(f"CancelReservation: reservation_id={reservation_id}")
+
+        if self.cancel_reservation is None:
+            return call_result.CancelReservation(
+                status=CancelReservationStatus.rejected
+            )
+
+        result = self.cancel_reservation(reservation_id)
+        status = (
+            CancelReservationStatus.accepted
+            if result == "accepted"
+            else CancelReservationStatus.rejected
+        )
+        return call_result.CancelReservation(status=status)
+
+    @on("TriggerMessage")
+    async def on_trigger_message(
+        self,
+        requested_message,
+        connector_id: Optional[int] = None,
+        **kwargs,
+    ) -> call_result.TriggerMessage:
+        """
+        Handle TriggerMessage request from CSMS.
+
+        Supports the simulator's built-in trigger set only.
+        """
+        try:
+            trigger = (
+                requested_message
+                if isinstance(requested_message, MessageTrigger)
+                else MessageTrigger(requested_message)
+            )
+        except (TypeError, ValueError):
+            self._log(
+                f"TriggerMessage: unsupported message={requested_message}",
+                level=logging.WARNING,
+            )
+            return call_result.TriggerMessage(
+                status=TriggerMessageStatus.not_implemented
+            )
+
+        self._log(
+            f"TriggerMessage: requested_message={trigger.value}, connector_id={connector_id}",
+        )
+
+        if trigger == MessageTrigger.boot_notification:
+            self._schedule_background_send(
+                self.send_boot_notification(), trigger.value
+            )
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        if trigger == MessageTrigger.heartbeat:
+            self._schedule_background_send(self.send_heartbeat(), trigger.value)
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        if trigger == MessageTrigger.status_notification:
+            if (
+                connector_id is None
+                or connector_id not in self.known_connector_ids
+                or self.get_connector_status is None
+            ):
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatus.rejected
+                )
+
+            status = self.get_connector_status(connector_id)
+            if status is None:
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatus.rejected
+                )
+
+            self._schedule_background_send(
+                self.send_status_notification(connector_id, "NoError", status),
+                trigger.value,
+            )
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        if trigger == MessageTrigger.meter_values:
+            if (
+                connector_id is None
+                or connector_id not in self.known_connector_ids
+                or self.get_meter_snapshot is None
+            ):
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatus.rejected
+                )
+
+            snapshot = self.get_meter_snapshot(connector_id)
+            if snapshot is None or len(snapshot) != 2:
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatus.rejected
+                )
+
+            value, transaction_id = snapshot
+            self._schedule_background_send(
+                self.send_meter_values(connector_id, value, transaction_id),
+                trigger.value,
+            )
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        if trigger == MessageTrigger.diagnostics_status_notification:
+            self._schedule_background_send(
+                self.send_diagnostics_status_notification(
+                    self.firmware_manager.get_diagnostics_status()
+                ),
+                trigger.value,
+            )
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        if trigger == MessageTrigger.firmware_status_notification:
+            self._schedule_background_send(
+                self.send_firmware_status_notification(
+                    self.firmware_manager.get_firmware_status()
+                ),
+                trigger.value,
+            )
+            return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
+
+        return call_result.TriggerMessage(status=TriggerMessageStatus.not_implemented)
 
     @on("RemoteStartTransaction")
     async def on_remote_start_transaction(
@@ -473,7 +718,7 @@ class Adapter(cp):
             )
             self._log(
                 f"Enqueuing START for {target_desc}",
-			level=logging.DEBUG,
+                level=logging.DEBUG,
             )
             self.command_queue.put(
                 {
@@ -530,7 +775,7 @@ class Adapter(cp):
         if self.command_queue:
             self._log(
                 f"Enqueuing STOP for tx {transaction_id}",
-			level=logging.DEBUG,
+                level=logging.DEBUG,
             )
             self.command_queue.put(
                 {
@@ -643,7 +888,7 @@ class Adapter(cp):
         status = status_map.get(result, AvailabilityStatus.rejected)
         self._log(
             f"ChangeAvailability: result={status.value}",
-			level=logging.DEBUG,
+            level=logging.DEBUG,
         )
         return call_result.ChangeAvailability(status=status)
 
@@ -680,7 +925,7 @@ class Adapter(cp):
         if connector_id in self.active_transactions and self.command_queue is not None:
             self._log(
                 f"UnlockConnector: stopping active transaction on connector {connector_id}",
-			level=logging.DEBUG,
+                level=logging.DEBUG,
             )
             self.command_queue.put({"action": "STOP", "reason": "UnlockCommand"})
             self.clear_active_transaction(connector_id)
@@ -740,6 +985,41 @@ class Adapter(cp):
             configuration_key=configuration_key,
             unknown_key=unknown_key if unknown_key else None,
         )
+
+    @on("ClearCache")
+    async def on_clear_cache(self, **kwargs) -> call_result.ClearCache:
+        """
+        Handle ClearCache request from CSMS.
+
+        Clears the in-memory authorization cache only.
+        """
+        self._log("ClearCache")
+        self.auth_cache.clear()
+        return call_result.ClearCache(status=ClearCacheStatus.accepted)
+
+    @on("DataTransfer")
+    async def on_data_transfer(
+        self,
+        vendor_id: str,
+        message_id: Optional[str] = None,
+        data: Optional[str] = None,
+        **kwargs,
+    ) -> call_result.DataTransfer:
+        """
+        Handle DataTransfer request from CSMS.
+
+        Routes vendor-specific payloads through the lightweight registry.
+        """
+        self._log(
+            f"DataTransfer: vendor_id={vendor_id}, message_id={message_id}",
+        )
+
+        status, response_data = self.data_transfer_registry.handle(
+            vendor_id,
+            message_id,
+            data,
+        )
+        return call_result.DataTransfer(status=status, data=response_data)
 
     @on("ChangeConfiguration")
     async def on_change_configuration(
@@ -1243,6 +1523,18 @@ class Adapter(cp):
             )
             return call_result.Authorize(id_tag_info=id_tag_info)
 
+        cache_enabled = self.config_manager.get_bool_value(
+            "AuthorizationCacheEnabled", False
+        )
+        if cache_enabled:
+            cached_id_tag_info = self.auth_cache.get(id_tag)
+            if cached_id_tag_info is not None:
+                self._log(
+                    f"Authorize (cache): id_tag={id_tag}, status="
+                    f"{cached_id_tag_info.get('status', 'Unknown')}",
+                )
+                return call_result.Authorize(id_tag_info=cached_id_tag_info)
+
         # Fall back to CSMS
         request = call.Authorize(id_tag=id_tag)
         response: call_result.Authorize = await self.call(request)
@@ -1254,6 +1546,9 @@ class Adapter(cp):
         self._log(
             f"Authorize response: status={status}",
         )
+
+        if cache_enabled and response.id_tag_info is not None:
+            self.auth_cache.put(id_tag, response.id_tag_info)
 
         return response
 
@@ -1484,6 +1779,28 @@ class Adapter(cp):
         response: call_result.FirmwareStatusNotification = await self.call(request)
         return response
 
+    async def send_data_transfer(
+        self,
+        vendor_id: str,
+        message_id: Optional[str] = None,
+        data: Optional[str] = None,
+    ) -> call_result.DataTransfer:
+        """
+        Send DataTransfer to the Central System.
+
+        This is a thin wrapper around the OCPP request type.
+        """
+        request = call.DataTransfer(
+            vendor_id=vendor_id,
+            message_id=message_id,
+            data=data,
+        )
+        self._log(
+            f"DataTransfer TX: vendor_id={vendor_id}, message_id={message_id}",
+        )
+        response: call_result.DataTransfer = await self.call(request)
+        return response
+
     # -------------------------------------------------------------------------
     # Helper Methods
     # -------------------------------------------------------------------------
@@ -1503,3 +1820,33 @@ class Adapter(cp):
         id_tag_info = self.local_auth_list.get_id_tag_info(id_tag) or {}
         id_tag_info["status"] = local_status.value
         return local_status, id_tag_info
+
+    def register_data_transfer_handler(
+        self,
+        vendor_id: str,
+        message_id: str,
+        handler: Callable[[Optional[str]], tuple[DataTransferStatus, Optional[str]]],
+    ) -> None:
+        """
+        Register a vendor-specific DataTransfer handler.
+        """
+        self.data_transfer_registry.register(vendor_id, message_id, handler)
+
+    def _handle_capabilities_data_transfer(
+        self, data: Optional[str]
+    ) -> tuple[DataTransferStatus, Optional[str]]:
+        """
+        Return the simulator's built-in capability list.
+        """
+        payload = json.dumps(
+            {
+                "supports": [
+                    "ReserveNow",
+                    "CancelReservation",
+                    "ClearCache",
+                    "TriggerMessage",
+                    "DataTransfer",
+                ]
+            }
+        )
+        return DataTransferStatus.accepted, payload

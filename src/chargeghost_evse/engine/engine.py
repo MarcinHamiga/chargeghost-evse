@@ -19,10 +19,12 @@ import logging
 import queue
 import time
 from collections import deque
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
+from chargeghost_evse.engine.reservation import Reservation
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
@@ -105,6 +107,9 @@ class Engine(Subscriber):
         # Pending ChangeAvailability changes deferred until active transaction ends
         # Key: connector_id, Value: availability_type ("Operative" | "Inoperative")
         self._pending_availability_changes: dict[int, str] = {}
+
+        # Active reservation by connector
+        self._reservations: dict[int, Reservation] = {}
 
         # Event emitters for state change notifications
         self.session_started: Event = Event()
@@ -236,6 +241,104 @@ class Engine(Subscriber):
         """
         return self._connectors.get(connector_id)
 
+    def get_reservation(self, connector_id: int) -> Optional[Reservation]:
+        """
+        Get the active reservation for a connector, if any.
+
+        Args:
+            connector_id: ID of the connector to inspect.
+
+        Returns:
+            Reservation if one is active, None otherwise.
+        """
+        self._expire_reservations()
+        return self._reservations.get(connector_id)
+
+    def reserve_connector(
+        self,
+        connector_id: int,
+        reservation_id: int,
+        id_tag: str,
+        expiry_date: datetime,
+        parent_id_tag: Optional[str] = None,
+    ) -> str:
+        """
+        Reserve a connector for a future charging session.
+
+        Returns:
+            accepted, occupied, faulted, unavailable, or rejected.
+        """
+        self._expire_reservations()
+
+        connector = self._connectors.get(connector_id)
+        if connector is None:
+            return "rejected"
+        if connector.status == ConnectorState.FAULTED:
+            return "faulted"
+        if connector.status == ConnectorState.UNAVAILABLE:
+            return "unavailable"
+        if self.session is not None and self.session.connector_id == connector_id:
+            return "occupied"
+        if connector.is_plugged_in:
+            return "occupied"
+        if any(
+            reservation.reservation_id == reservation_id
+            for reservation in self._reservations.values()
+        ):
+            return "rejected"
+        if connector_id in self._reservations:
+            return "occupied"
+
+        self._reservations[connector_id] = Reservation(
+            reservation_id=reservation_id,
+            connector_id=connector_id,
+            id_tag=id_tag,
+            expiry_date=expiry_date,
+            parent_id_tag=parent_id_tag,
+        )
+        connector.set_reserved()
+        return "accepted"
+
+    def cancel_reservation(self, reservation_id: int) -> str:
+        """
+        Cancel a reservation by reservation ID.
+
+        Returns:
+            accepted if a reservation was removed, rejected otherwise.
+        """
+        self._expire_reservations()
+
+        for connector_id, reservation in list(self._reservations.items()):
+            if reservation.reservation_id != reservation_id:
+                continue
+            del self._reservations[connector_id]
+            connector = self._connectors.get(connector_id)
+            if connector is not None:
+                connector.clear_reservation()
+            return "accepted"
+
+        return "rejected"
+
+    def _expire_reservations(self) -> None:
+        """
+        Remove reservations that have passed their expiry time.
+        """
+        if not self._reservations:
+            return
+
+        now = datetime.now(timezone.utc)
+        expired_connector_ids = [
+            connector_id
+            for connector_id, reservation in self._reservations.items()
+            if reservation.is_expired(now)
+        ]
+
+        for connector_id in expired_connector_ids:
+            del self._reservations[connector_id]
+            connector = self._connectors.get(connector_id)
+            if connector is not None:
+                connector.clear_reservation()
+
     def handle_connector_status_change(
         self, connector_id: int, status: "ConnectorState"
     ) -> None:
@@ -285,6 +388,8 @@ class Engine(Subscriber):
         Args:
             connector_id: ID of the connector to plug into.
         """
+        self._expire_reservations()
+
         # Auto-unplug any other plugged-in connector (single plug-in policy)
         for conn in self._connectors.values():
             if conn.is_plugged_in and conn.id != connector_id:
@@ -308,6 +413,8 @@ class Engine(Subscriber):
         Args:
             connector_id: ID of the connector to unplug from.
         """
+        self._expire_reservations()
+
         connector = self._connectors.get(connector_id)
         if connector:
             connector.unplug()
@@ -342,10 +449,22 @@ class Engine(Subscriber):
         Note:
             Only one session can be active at a time (single-session EVSE).
         """
+        self._expire_reservations()
+
         connector = self._connectors.get(connector_id)
         if connector is None:
             self._log(f"Error: Connector {connector_id} not found.", level=logging.ERROR)
             return
+
+        reservation = self._reservations.get(connector_id)
+        effective_id_tag = id_tag or connector.id_tag
+        if reservation is not None:
+            if effective_id_tag not in (reservation.id_tag, reservation.parent_id_tag):
+                self._log(
+                    f"Error: Connector {connector_id} is reserved for a different id_tag.",
+                    level=logging.ERROR,
+                )
+                return
 
         # Handle unplugged connector
         if not connector.is_plugged_in:
@@ -384,6 +503,10 @@ class Engine(Subscriber):
                 level=logging.ERROR,
             )
             return
+
+        if reservation is not None:
+            self._reservations.pop(connector_id, None)
+            connector.clear_reservation()
 
         # Create and wire up the session
         self.session = Session(
@@ -572,6 +695,7 @@ class Engine(Subscriber):
         Args:
             interval_seconds: Time elapsed since last simulation step.
         """
+        self._expire_reservations()
         self._process_commands()
 
         if self.session and self.energy_meter.is_charging:
