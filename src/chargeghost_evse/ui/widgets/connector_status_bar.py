@@ -145,10 +145,10 @@ class ConnectorStatusBar(QWidget):
 		self._duration_label.setObjectName("connectorBarStat")
 		stats_layout.addWidget(self._duration_label)
 
+		layout.addStretch()
+
 		layout.addWidget(self._stats_widget)
 		self._stats_widget.hide()
-
-		layout.addStretch()
 
 	def _sep_label(self, text: str) -> QLabel:
 		lbl = QLabel(text)
