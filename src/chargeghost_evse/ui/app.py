@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStackedWidget,
     QStatusBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -256,16 +257,22 @@ class SimulatorWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        self._sidebar_expanded = self.main_window.app_settings.sidebar_expanded
+        self._sidebar_anim: Optional[QPropertyAnimation] = None
+        self._sidebar_anim2: Optional[QPropertyAnimation] = None
+
         main_layout = QHBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
+        # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setFixedWidth(200)
+        self._sidebar.setProperty("expanded", self._sidebar_expanded)
+        self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(8, 16, 8, 16)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(6, 12, 6, 12)
+        sidebar_layout.setSpacing(4)
 
         self._btn_dashboard = self._create_nav_btn("Dashboard", "dashboard")
         self._btn_dashboard.setChecked(True)
@@ -291,17 +298,125 @@ class SimulatorWidget(QWidget):
         self._btn_home.clicked.connect(self.main_window._go_home)
         sidebar_layout.addWidget(self._btn_home)
 
+        self._btn_expand_sidebar = QToolButton()
+        self._btn_expand_sidebar.setObjectName("sidebarExpandBtn")
+        self._btn_expand_sidebar.setToolTip("Expand sidebar")
+        self._btn_expand_sidebar.clicked.connect(self.toggle_sidebar)
+        sidebar_layout.addWidget(self._btn_expand_sidebar)
+
+        self._apply_sidebar_width(animate=False)
         main_layout.addWidget(self._sidebar)
 
+        # ── Content column ───────────────────────────────────────────────────
+        content_col = QWidget()
+        content_col_layout = QVBoxLayout(content_col)
+        content_col_layout.setSpacing(0)
+        content_col_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Connector status bar (always visible)
+        self.connector_bar = ConnectorStatusBar()
+        self.connector_bar.connector_selected.connect(self._on_connector_bar_selected)
+        content_col_layout.addWidget(self.connector_bar)
+
+        # Content stack
         self.stack = QStackedWidget()
         self.stack.setObjectName("contentStack")
-        main_layout.addWidget(self.stack, 1)
+        content_col_layout.addWidget(self.stack, 1)
 
+        # Build tabs
+        self._build_dashboard_tab()
+        self._build_settings_tab()
+        self._build_ocpp_keys_tab()
+        self._build_profiles_tab()
+
+        main_layout.addWidget(content_col, 1)
+
+        # ── Log side panel ───────────────────────────────────────────────────
+        self.log_side_panel = LogSidePanel()
+        self.log_side_panel.log_mode_toggled.connect(
+            self.main_window._on_log_mode_toggle
+        )
+        main_layout.addWidget(self.log_side_panel)
+
+    def _create_nav_btn(self, text: str, icon_name: str) -> QToolButton:
+        btn = QToolButton()
+        btn.setObjectName("sidebarNavBtn")
+        btn.setCheckable(True)
+        btn.setAutoExclusive(True)
+        btn.setText(text)
+        btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
+        btn.setIconSize(QSize(18, 18))
+        btn.setMinimumHeight(40)
+        btn.setMaximumHeight(40)
+        btn.setToolTip(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        return btn
+
+    def _apply_sidebar_width(self, animate: bool = True) -> None:
+        target = 180 if self._sidebar_expanded else 48
+        self._sidebar.setProperty("expanded", self._sidebar_expanded)
+        self._sidebar.style().unpolish(self._sidebar)
+        self._sidebar.style().polish(self._sidebar)
+
+        icon_style = (
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            if self._sidebar_expanded
+            else Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        for btn in (
+            self._btn_dashboard, self._btn_settings,
+            self._btn_ocpp_keys, self._btn_profiles, self._btn_home,
+        ):
+            btn.setToolButtonStyle(icon_style)
+
+        chevron = "\u25b6" if not self._sidebar_expanded else "\u25c0"
+        self._btn_expand_sidebar.setText(chevron)
+        self._btn_expand_sidebar.setToolTip(
+            "Expand sidebar" if not self._sidebar_expanded else "Collapse sidebar"
+        )
+
+        if animate:
+            current = self._sidebar.width()
+            if self._sidebar_anim:
+                self._sidebar_anim.stop()
+            if self._sidebar_anim2:
+                self._sidebar_anim2.stop()
+            anim = QPropertyAnimation(self._sidebar, b"maximumWidth")
+            anim.setDuration(180)
+            anim.setStartValue(current)
+            anim.setEndValue(target)
+            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            anim2 = QPropertyAnimation(self._sidebar, b"minimumWidth")
+            anim2.setDuration(180)
+            anim2.setStartValue(current)
+            anim2.setEndValue(target)
+            anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._sidebar_anim = anim
+            self._sidebar_anim2 = anim2
+            anim.start()
+            anim2.start()
+        else:
+            self._sidebar.setMinimumWidth(target)
+            self._sidebar.setMaximumWidth(target)
+
+    def toggle_sidebar(self) -> None:
+        self._sidebar_expanded = not self._sidebar_expanded
+        self._apply_sidebar_width(animate=True)
+        self.main_window.app_settings.sidebar_expanded = self._sidebar_expanded
+        if hasattr(self.main_window, "manual"):
+            self.main_window.manual._sidebar_expanded = self._sidebar_expanded
+            self.main_window.manual._apply_sidebar_width(animate=True)
+
+    def expand_sidebar(self) -> None:
+        if not self._sidebar_expanded:
+            self.toggle_sidebar()
+
+    def _build_dashboard_tab(self) -> None:
         dashboard_tab = QWidget()
         dashboard_layout = QVBoxLayout(dashboard_tab)
         dashboard_layout.setSpacing(0)
         dashboard_layout.setContentsMargins(0, 0, 0, 0)
-
         self.dashboard = SessionDashboard()
         self.dashboard.plug_in_clicked.connect(self.action_plug_in)
         self.dashboard.unplug_clicked.connect(self.action_unplug)
@@ -311,14 +426,13 @@ class SimulatorWidget(QWidget):
         self.dashboard.resume_charging_clicked.connect(self.action_resume_charging)
         self.dashboard.apply_id_tag_clicked.connect(self.action_apply_id_tag)
         dashboard_layout.addWidget(self.dashboard, 1)
-
         self.stack.addWidget(dashboard_tab)
 
+    def _build_settings_tab(self) -> None:
         settings_tab = QWidget()
         settings_layout = QVBoxLayout(settings_tab)
         settings_layout.setSpacing(0)
         settings_layout.setContentsMargins(0, 0, 0, 0)
-
         self.settings_panel = SettingsPanel()
         self.settings_panel.set_engine(self.engine)
         self.settings_panel.set_config(self.config)
@@ -330,89 +444,40 @@ class SimulatorWidget(QWidget):
         self.settings_panel.save_config_clicked.connect(self.action_save_config)
         self.settings_panel.ocpp_key_changed.connect(self._on_ocpp_key_changed)
         settings_layout.addWidget(self.settings_panel)
-
         self.stack.addWidget(settings_tab)
 
+    def _build_ocpp_keys_tab(self) -> None:
         ocpp_keys_tab = QWidget()
         ocpp_keys_layout = QVBoxLayout(ocpp_keys_tab)
         ocpp_keys_layout.setSpacing(16)
         ocpp_keys_layout.setContentsMargins(16, 16, 16, 16)
-
         ocpp_keys_title = QLabel("OCPP Configuration Keys")
         ocpp_keys_title.setObjectName("sectionHeader")
         ocpp_keys_layout.addWidget(ocpp_keys_title)
-
         self.config_keys_panel = ConfigKeysPanel()
         self.config_keys_panel.key_changed.connect(self._on_ocpp_key_changed)
         self.config_keys_panel.set_keys(self._config_manager.get_all_keys())
         ocpp_keys_layout.addWidget(self.config_keys_panel)
-
         self.stack.addWidget(ocpp_keys_tab)
 
+    def _build_profiles_tab(self) -> None:
         profiles_tab = QWidget()
         profiles_layout = QVBoxLayout(profiles_tab)
         profiles_layout.setSpacing(0)
         profiles_layout.setContentsMargins(0, 0, 0, 0)
-
         self.profiles_panel = ChargingProfilesPanel()
         profiles_layout.addWidget(self.profiles_panel)
-
         self.stack.addWidget(profiles_tab)
 
-    def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setObjectName("sidebarNavBtn")
-        btn.setCheckable(True)
-        btn.setAutoExclusive(True)
-        btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
-        btn.setIconSize(QSize(16, 16))
-        btn.setMinimumHeight(40)
-        btn.setMaximumHeight(40)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        return btn
-
     def _on_nav_clicked(self, index: int) -> None:
-        target_widget = self.stack.widget(index)
-        if self.stack.currentWidget() == target_widget or target_widget is None:
-            return
-
-        # Update icons to reflect active state
-        self._btn_dashboard.setIcon(
-            get_icon(
-                "dashboard", colors.ACCENT_TEAL if index == 0 else colors.TEXT_SECONDARY
-            )
-        )
-        self._btn_settings.setIcon(
-            get_icon(
-                "settings", colors.ACCENT_TEAL if index == 1 else colors.TEXT_SECONDARY
-            )
-        )
-        self._btn_ocpp_keys.setIcon(
-            get_icon("key", colors.ACCENT_TEAL if index == 2 else colors.TEXT_SECONDARY)
-        )
-        self._btn_profiles.setIcon(
-            get_icon("sliders", colors.ACCENT_TEAL if index == 3 else colors.TEXT_SECONDARY)
-        )
-
-        # Fade animation
-        effect = QGraphicsOpacityEffect(target_widget)
-        target_widget.setGraphicsEffect(effect)
-
         self.stack.setCurrentIndex(index)
-
-        self._anim = QPropertyAnimation(effect, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        self._anim.finished.connect(lambda: self._clear_graphics_effect(target_widget))
-        self._anim.start()
 
     def _clear_graphics_effect(self, widget: QWidget) -> None:
         widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
-    def _on_connector_selected(self, connector_id: int) -> None:
+    def _on_connector_bar_selected(self, connector_id: int) -> None:
         self._selected_connector_id = connector_id
+        self.dashboard.set_selected_connector(connector_id)
         self.main_window.app_settings.last_connector_id = connector_id
 
     def _get_selected_connector(self):
@@ -426,12 +491,35 @@ class SimulatorWidget(QWidget):
 
     def update_ui(self) -> None:
         self._ensure_valid_selection()
-        self.dashboard.update_from_engine(self.engine)
-        # Throttle profiles panel updates (10 ticks × 100 ms timer ≈ 1 s).
+        # Update connector status bar pills
+        engine = self.engine
+        for conn in engine.connectors:
+            session = (
+                engine.session
+                if engine.session and engine.session.connector_id == conn.id
+                else None
+            )
+            soc = session.state_of_charge if session else None
+            self.connector_bar.update_connector(conn.id, conn.status.value, soc)
+        self.connector_bar.set_selected_connector(self._selected_connector_id)
+
+        # Update live session stats in bar
+        from chargeghost_evse.ui.widgets.session_dashboard import _compute_effective_power_kw
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
+        session = engine.session
+        if session and session.connector_id == self._selected_connector_id:
+            duration_str = self.dashboard._format_duration(session.start_time)
+            self.connector_bar.update_session_stats(
+                power_kw, session.state_of_charge, duration_str
+            )
+        else:
+            self.connector_bar.update_session_stats(0.0, 0.0, "--")
+
+        self.dashboard.update_from_engine(engine)
         self._profiles_tick_counter += 1
         if self._profiles_tick_counter >= 10:
             self._profiles_tick_counter = 0
-            self.profiles_panel.update_from_engine(self.engine, self.bridge)
+            self.profiles_panel.update_from_engine(engine, self.bridge)
 
     def action_plug_in(self) -> None:
         self.engine.plug_in(self._selected_connector_id)
