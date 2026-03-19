@@ -303,7 +303,6 @@ class SimulatorWidget(QWidget):
         dashboard_layout.setContentsMargins(0, 0, 0, 0)
 
         self.dashboard = SessionDashboard()
-        self.dashboard.connector_selected.connect(self._on_connector_selected)
         self.dashboard.plug_in_clicked.connect(self.action_plug_in)
         self.dashboard.unplug_clicked.connect(self.action_unplug)
         self.dashboard.start_charging_clicked.connect(self.action_start_charging)
