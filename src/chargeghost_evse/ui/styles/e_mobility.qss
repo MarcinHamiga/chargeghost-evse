@@ -1296,3 +1296,139 @@ QPushButton#updateStatusChip:hover {
 	background-color: rgba(30, 173, 152, 0.2);
 	border-color: #1EAD98;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ConnectorStatusBar
+═══════════════════════════════════════════════════════════════ */
+#connectorStatusBar {
+    background-color: #161b22;
+    border-bottom: 1px solid #21262d;
+}
+
+#connectorBarLabel {
+    font-size: 9px;
+    color: #6e7681;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+#connectorPill {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 2px 8px;
+    min-height: 24px;
+    max-height: 24px;
+}
+#connectorPill:hover { border-color: #8b949e; }
+#connectorPill[selected="true"] {
+    background-color: rgba(30, 173, 152, 0.12);
+    border-color: rgba(30, 173, 152, 0.5);
+}
+#connectorPill[status="charging"] { border-color: rgba(30, 173, 152, 0.4); }
+#connectorPill[status="faulted"] { border-color: rgba(218, 54, 51, 0.4); }
+
+#connectorPillLabel { font-size: 11px; color: #8b949e; }
+#connectorPill[selected="true"] #connectorPillLabel { color: #1EAD98; }
+
+#connectorBarSep { color: #30363d; max-width: 1px; min-width: 1px; }
+
+#connectorBarStat { font-size: 11px; color: #1EAD98; font-weight: 600; }
+#connectorBarStatSep { font-size: 11px; color: #484f58; }
+
+/* ═══════════════════════════════════════════════════════════════
+   LogSidePanel
+═══════════════════════════════════════════════════════════════ */
+#logSideTab {
+    background-color: #161b22;
+    border-left: 1px solid #21262d;
+}
+#logSideTab:hover { background-color: #1c2128; }
+
+#logSideBadge {
+    background-color: rgba(30, 173, 152, 0.2);
+    color: #1EAD98;
+    border-radius: 8px;
+    font-size: 8px;
+    padding: 1px 4px;
+}
+
+#logSidePanelContent {
+    background-color: #0a0f16;
+    border-left: 1px solid #21262d;
+}
+
+#logSidePanelHeader {
+    background-color: #161b22;
+    border-bottom: 1px solid #21262d;
+}
+
+#logSidePanelTitle { font-size: 11px; font-weight: 600; color: #e6edf3; }
+#logSideCountLabel {
+    font-size: 9px;
+    color: #8b949e;
+    background-color: #21262d;
+    border-radius: 8px;
+    padding: 1px 6px;
+}
+#btnLogSideClose { font-size: 11px; color: #6e7681; }
+#btnLogSideClose:hover { color: #e6edf3; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Collapsible Sidebar (SimulatorWidget / ManualWidget)
+═══════════════════════════════════════════════════════════════ */
+#sidebar[expanded="false"] QToolButton#sidebarNavBtn {
+    min-width: 36px;
+    max-width: 36px;
+}
+#sidebar[expanded="true"] QToolButton#sidebarNavBtn {
+    min-width: 160px;
+}
+#sidebarExpandBtn {
+    color: #6e7681;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    min-height: 24px;
+    max-height: 24px;
+}
+#sidebarExpandBtn:hover { color: #e6edf3; border-color: #8b949e; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ContextChip (session dashboard context rail)
+═══════════════════════════════════════════════════════════════ */
+#contextChip {
+    background-color: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 5px;
+    padding: 4px 8px;
+}
+#contextChipLabel {
+    font-size: 8px;
+    color: #6e7681;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+#contextChipValue { font-size: 12px; color: #e6edf3; font-family: monospace; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Session state badge (replaces hero header)
+═══════════════════════════════════════════════════════════════ */
+#sessionStateBadge {
+    background-color: rgba(30, 173, 152, 0.1);
+    border: 1px solid rgba(30, 173, 152, 0.3);
+    border-radius: 5px;
+    padding: 6px 10px;
+}
+#sessionStateBadge[state="idle"] {
+    background-color: rgba(72, 79, 88, 0.1);
+    border-color: rgba(72, 79, 88, 0.3);
+}
+#sessionStateBadge[state="plugged"] {
+    background-color: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+#sessionStateName { font-size: 12px; font-weight: 600; color: #1EAD98; }
+#sessionStateBadge[state="idle"] #sessionStateName { color: #8b949e; }
+#sessionStateBadge[state="plugged"] #sessionStateName { color: #f59e0b; }
+#sessionStateSub { font-size: 10px; color: #6e7681; }
