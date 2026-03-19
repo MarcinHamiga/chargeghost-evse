@@ -167,10 +167,11 @@ class LogSidePanel(QWidget):
 		self._btn_clear.clicked.connect(self._on_clear)
 		header_layout.addWidget(self._btn_clear)
 
-		btn_close = QPushButton("✕")
+		btn_close = QPushButton("›")
 		btn_close.setObjectName("btnLogSideClose")
-		btn_close.setFlat(True)
-		btn_close.setFixedWidth(24)
+		btn_close.setFixedWidth(28)
+		btn_close.setToolTip("Collapse log panel  (`)")
+		btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
 		btn_close.clicked.connect(self.toggle)
 		header_layout.addWidget(btn_close)
 

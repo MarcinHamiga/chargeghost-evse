@@ -1342,9 +1342,12 @@ QPushButton#updateStatusChip:hover {
 ═══════════════════════════════════════════════════════════════ */
 #logSideTab {
     background-color: #161b22;
-    border-left: 1px solid #21262d;
+    border-left: 1px solid #30363d;
 }
-#logSideTab:hover { background-color: #1c2128; }
+#logSideTab:hover {
+    background-color: #1c2128;
+    border-left-color: #8b949e;
+}
 
 #logSideBadge {
     background-color: rgba(30, 173, 152, 0.2);
@@ -1372,8 +1375,19 @@ QPushButton#updateStatusChip:hover {
     border-radius: 8px;
     padding: 1px 6px;
 }
-#btnLogSideClose { font-size: 11px; color: #6e7681; }
-#btnLogSideClose:hover { color: #e6edf3; }
+#btnLogSideClose {
+    font-size: 18px;
+    font-weight: bold;
+    color: #8b949e;
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 0px;
+}
+#btnLogSideClose:hover {
+    color: #e6edf3;
+    background-color: rgba(48, 54, 61, 0.6);
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Collapsible Sidebar (SimulatorWidget / ManualWidget)
@@ -1381,6 +1395,10 @@ QPushButton#updateStatusChip:hover {
 #sidebar[expanded="false"] QToolButton#sidebarNavBtn {
     min-width: 36px;
     max-width: 36px;
+    padding: 8px 0px;
+}
+#sidebar[expanded="false"] QToolButton#sidebarNavBtn::icon {
+    margin-right: 0px;
 }
 #sidebar[expanded="true"] QToolButton#sidebarNavBtn {
     min-width: 160px;
