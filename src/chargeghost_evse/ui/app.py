@@ -39,7 +39,6 @@ from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_status_bar import ConnectorStatusBar
 from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 from chargeghost_evse.ui.widgets.icons import get_icon
-from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard, IdTagInput
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
@@ -678,22 +677,26 @@ class ManualWidget(QWidget):
         self.refresh_connection_state()
 
     def _setup_ui(self) -> None:
+        self._sidebar_expanded = self.main_window.app_settings.sidebar_expanded
+        self._sidebar_anim: Optional[QPropertyAnimation] = None
+        self._sidebar_anim2: Optional[QPropertyAnimation] = None
+
         main_layout = QHBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Sidebar
+        # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setFixedWidth(200)
+        self._sidebar.setProperty("expanded", self._sidebar_expanded)
+        self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(8, 16, 8, 16)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(6, 12, 6, 12)
+        sidebar_layout.setSpacing(4)
 
         self._btn_manual = self._create_nav_btn("Manual Controls", "terminal")
         self._btn_manual.setChecked(True)
         sidebar_layout.addWidget(self._btn_manual)
-
         sidebar_layout.addStretch()
 
         self._btn_home = self._create_nav_btn("Switch Mode", "home")
@@ -701,9 +704,16 @@ class ManualWidget(QWidget):
         self._btn_home.clicked.connect(self.main_window._go_home)
         sidebar_layout.addWidget(self._btn_home)
 
+        self._btn_expand_sidebar = QToolButton()
+        self._btn_expand_sidebar.setObjectName("sidebarExpandBtn")
+        self._btn_expand_sidebar.setToolTip("Expand sidebar")
+        self._btn_expand_sidebar.clicked.connect(self._toggle_sidebar)
+        sidebar_layout.addWidget(self._btn_expand_sidebar)
+
+        self._apply_sidebar_width(animate=False)
         main_layout.addWidget(self._sidebar)
 
-        # Content
+        # ── Content ──────────────────────────────────────────────────────────
         content_widget = QWidget()
         layout = QHBoxLayout(content_widget)
         layout.setSpacing(16)
@@ -779,54 +789,77 @@ class ManualWidget(QWidget):
 
         controls.addStretch()
 
-        right_panel = QVBoxLayout()
-        right_panel.setSpacing(8)
-        layout.addLayout(right_panel, 7)
+        # ── Log side panel ───────────────────────────────────────────────────
+        self.log_side_panel = LogSidePanel()
+        self.log_side_panel.log_mode_toggled.connect(
+            self.main_window._on_log_mode_toggle
+        )
+        main_layout.addWidget(self.log_side_panel)
 
-        self.log_panel = LogPanel()
-
-        log_header = QHBoxLayout()
-        log_title = QLabel("Activity Log")
-        log_title.setObjectName("sectionHeader")
-        log_header.addWidget(log_title)
-        log_header.addStretch()
-
-        self.btn_clear_logs = QPushButton("Clear")
-        self.btn_clear_logs.setObjectName("btnClearLog")
-        self.btn_clear_logs.setMinimumHeight(24)
-        self.btn_clear_logs.clicked.connect(self.log_panel.clear)
-        log_header.addWidget(self.btn_clear_logs)
-
-        self.btn_log_mode = QPushButton("Deep")
-        self.btn_log_mode.setObjectName("btnLogMode")
-        self.btn_log_mode.setCheckable(True)
-        self.btn_log_mode.setMinimumHeight(24)
-        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
-        log_header.addWidget(self.btn_log_mode)
-        right_panel.addLayout(log_header)
-
-        right_panel.addWidget(self.log_panel)
-
-    def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
-        btn = QPushButton(text)
+    def _create_nav_btn(self, text: str, icon_name: str) -> QToolButton:
+        btn = QToolButton()
         btn.setObjectName("sidebarNavBtn")
         btn.setCheckable(True)
         btn.setAutoExclusive(True)
+        btn.setText(text)
         btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
-        btn.setIconSize(QSize(16, 16))
+        btn.setIconSize(QSize(18, 18))
         btn.setMinimumHeight(40)
         btn.setMaximumHeight(40)
+        btn.setToolTip(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
 
-    def action_toggle_log_mode(self) -> None:
-        is_detailed = self.btn_log_mode.isChecked()
-        if is_detailed:
-            self.main_window.app_settings.log_mode = "deep"
-            self.btn_log_mode.setText("Shallow")
+    def _apply_sidebar_width(self, animate: bool = True) -> None:
+        target = 180 if self._sidebar_expanded else 48
+        self._sidebar.setProperty("expanded", self._sidebar_expanded)
+        self._sidebar.style().unpolish(self._sidebar)
+        self._sidebar.style().polish(self._sidebar)
+        icon_style = (
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            if self._sidebar_expanded
+            else Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        self._btn_manual.setToolButtonStyle(icon_style)
+        self._btn_home.setToolButtonStyle(icon_style)
+        chevron = "\u25b6" if not self._sidebar_expanded else "\u25c0"
+        self._btn_expand_sidebar.setText(chevron)
+        self._btn_expand_sidebar.setToolTip(
+            "Expand sidebar" if not self._sidebar_expanded else "Collapse sidebar"
+        )
+        if animate:
+            if self._sidebar_anim:
+                self._sidebar_anim.stop()
+            if self._sidebar_anim2:
+                self._sidebar_anim2.stop()
+            current = self._sidebar.width()
+            anim = QPropertyAnimation(self._sidebar, b"maximumWidth")
+            anim.setDuration(180)
+            anim.setStartValue(current)
+            anim.setEndValue(target)
+            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            anim2 = QPropertyAnimation(self._sidebar, b"minimumWidth")
+            anim2.setDuration(180)
+            anim2.setStartValue(current)
+            anim2.setEndValue(target)
+            anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._sidebar_anim = anim
+            self._sidebar_anim2 = anim2
+            anim.start()
+            anim2.start()
         else:
-            self.main_window.app_settings.log_mode = "shallow"
-            self.btn_log_mode.setText("Deep")
+            self._sidebar.setMinimumWidth(target)
+            self._sidebar.setMaximumWidth(target)
+
+    def _toggle_sidebar(self) -> None:
+        self._sidebar_expanded = not self._sidebar_expanded
+        self._apply_sidebar_width(animate=True)
+        self.main_window.app_settings.sidebar_expanded = self._sidebar_expanded
+
+    def expand_sidebar(self) -> None:
+        if not self._sidebar_expanded:
+            self._toggle_sidebar()
 
     def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
@@ -838,7 +871,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(adapter.send_boot_notification(), loop)
 
@@ -846,7 +879,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
 
@@ -854,7 +887,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
         self.main_window.app_settings.add_recent_tag(id_tag)
@@ -874,7 +907,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
 
         tx_id_text = self.input_tx_id.text().strip()
@@ -882,12 +915,12 @@ class ManualWidget(QWidget):
             try:
                 transaction_id = int(tx_id_text)
             except ValueError:
-                self.log_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
+                self.log_side_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
                 return
         elif self.engine.session:
             transaction_id = self.engine.session.transaction_id
         else:
-            self.log_panel.log_message(
+            self.log_side_panel.log_message(
                 "[yellow]UI:[/yellow] Enter a Transaction ID or start a session first"
             )
             return
@@ -911,7 +944,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(
             adapter.send_status_notification(
@@ -945,10 +978,10 @@ class ManualWidget(QWidget):
         self.id_tag_input.set_enabled(has_connection)
 
     def log_message(self, message: str) -> None:
-        self.log_panel.log_message(message)
+        self.log_side_panel.log_message(message)
 
     def log_record(self, record: logging.LogRecord) -> None:
-        self.log_panel.log_record(record)
+        self.log_side_panel.log_record(record)
 
 
 class MainWindow(QMainWindow):

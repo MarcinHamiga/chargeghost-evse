@@ -175,6 +175,7 @@ class _DummySignalBridge:
 
 class _DummySettings:
 	log_mode = "compact"
+	sidebar_expanded = False
 
 
 class _DummyMainWithDeps(QMainWindow):
@@ -186,6 +187,9 @@ class _DummyMainWithDeps(QMainWindow):
 		self.app_settings = _DummySettings()
 
 	def _go_home(self) -> None:
+		pass
+
+	def _on_log_mode_toggle(self, is_detailed: bool) -> None:
 		pass
 
 
@@ -202,11 +206,12 @@ def test_mode_cards_stay_within_viewport_on_narrow_width() -> None:
 		assert card.geometry().right() <= widget.rect().right()
 
 
-def test_manual_widget_log_button_object_names_match_stylesheet() -> None:
+def test_manual_widget_has_log_side_panel() -> None:
 	_app()
 	widget = ManualWidget(_DummyMainWithDeps())
-	assert widget.btn_clear_logs.objectName() == "btnClearLog"
-	assert widget.btn_log_mode.objectName() == "btnLogMode"
+	assert hasattr(widget, "log_side_panel")
+	from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
+	assert isinstance(widget.log_side_panel, LogSidePanel)
 
 
 def test_manual_widget_disables_actions_without_adapter() -> None:
