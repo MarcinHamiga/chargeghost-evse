@@ -1,8 +1,9 @@
 # tests/test_log_side_panel.py
-import pytest
-from unittest.mock import MagicMock
-from PySide6.QtWidgets import QApplication
 import sys
+from unittest.mock import MagicMock
+
+import pytest
+from PySide6.QtWidgets import QApplication
 
 @pytest.fixture(scope="session")
 def qt_app():

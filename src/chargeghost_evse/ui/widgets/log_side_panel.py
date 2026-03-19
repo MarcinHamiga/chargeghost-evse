@@ -61,7 +61,7 @@ class _LogTab(QWidget):
 		# QLabel text rotation is not possible via QSS, so we paint it manually.
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-		painter.setPen(QColor("#6e7681"))
+		painter.setPen(QColor(colors.TEXT_MUTED))
 		font = painter.font()
 		font.setPixelSize(9)
 		painter.setFont(font)
@@ -108,6 +108,7 @@ class LogSidePanel(QWidget):
 		self._unread_count = 0
 		self._entry_count = 0
 		self._animation: Optional[QPropertyAnimation] = None
+		self._anim2: Optional[QPropertyAnimation] = None
 
 		self._setup_ui()
 		self._set_collapsed_geometry()
@@ -153,18 +154,18 @@ class LogSidePanel(QWidget):
 
 		header_layout.addStretch()
 
-		self.btn_log_mode = QPushButton("Deep")
-		self.btn_log_mode.setObjectName("btnLogMode")
-		self.btn_log_mode.setCheckable(True)
-		self.btn_log_mode.setFlat(True)
-		self.btn_log_mode.clicked.connect(self._on_log_mode_toggle)
-		header_layout.addWidget(self.btn_log_mode)
+		self._btn_log_mode = QPushButton("Deep")
+		self._btn_log_mode.setObjectName("btnLogMode")
+		self._btn_log_mode.setCheckable(True)
+		self._btn_log_mode.setFlat(True)
+		self._btn_log_mode.clicked.connect(self._on_log_mode_toggle)
+		header_layout.addWidget(self._btn_log_mode)
 
-		self.btn_clear = QPushButton("Clear")
-		self.btn_clear.setObjectName("btnClearLog")
-		self.btn_clear.setFlat(True)
-		self.btn_clear.clicked.connect(self._on_clear)
-		header_layout.addWidget(self.btn_clear)
+		self._btn_clear = QPushButton("Clear")
+		self._btn_clear.setObjectName("btnClearLog")
+		self._btn_clear.setFlat(True)
+		self._btn_clear.clicked.connect(self._on_clear)
+		header_layout.addWidget(self._btn_clear)
 
 		btn_close = QPushButton("✕")
 		btn_close.setObjectName("btnLogSideClose")
@@ -213,6 +214,8 @@ class LogSidePanel(QWidget):
 	def _animate(self, start: int, end: int) -> None:
 		if self._animation:
 			self._animation.stop()
+		if self._anim2:
+			self._anim2.stop()
 
 		anim = QPropertyAnimation(self, b"maximumWidth")
 		anim.setDuration(ANIM_DURATION_MS)
@@ -227,10 +230,10 @@ class LogSidePanel(QWidget):
 		anim2.setEndValue(end)
 		anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-		anim.start()
-		anim2.start()
 		self._animation = anim
 		self._anim2 = anim2
+		anim.start()
+		anim2.start()
 
 	def increment_unread(self) -> None:
 		if not self._is_open:
@@ -263,8 +266,8 @@ class LogSidePanel(QWidget):
 	# ── Header button handlers ───────────────────────────────────────────────
 
 	def _on_log_mode_toggle(self) -> None:
-		is_detailed = self.btn_log_mode.isChecked()
-		self.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
+		is_detailed = self._btn_log_mode.isChecked()
+		self._btn_log_mode.setText("Shallow" if is_detailed else "Deep")
 		self.log_mode_toggled.emit(is_detailed)
 
 	def _on_clear(self) -> None:
