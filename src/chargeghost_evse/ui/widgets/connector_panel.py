@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -322,10 +323,11 @@ class ConnectorPanel(QWidget):
         layout.addWidget(self._empty_state)
         self._empty_state.hide()  # Hidden by default, shown when no connectors
 
-        # Container layout for connector cards
-        self.cards_container = QVBoxLayout()
-        self.cards_container.setSpacing(12)
-        layout.addLayout(self.cards_container)
+        # Container grid layout for connector cards
+        self._connectors_grid = QGridLayout()
+        self._connectors_grid.setSpacing(12)
+        self._grid_cols = 1
+        layout.addLayout(self._connectors_grid)
 
         # Add connector button
         self.btn_add = QPushButton("+ Add Connector")
@@ -388,14 +390,18 @@ class ConnectorPanel(QWidget):
             self._empty_state.hide()
 
         # Create a card for each connector in the engine
+        cards: list[ConnectorEditorCard] = []
         for connector in self._engine.connectors:
             card = ConnectorEditorCard(connector.id)
             card.set_values(connector.voltage, connector.current, connector.phase)
             # Connect card signals to panel handlers
             card.on_apply.connect(self._on_card_apply)
             card.on_remove.connect(self._on_card_remove)
-            self.cards_container.addWidget(card)
+            cards.append(card)
             self._connector_cards.append(card)
+        for i, card in enumerate(cards):
+            row, col = divmod(i, self._grid_cols)
+            self._connectors_grid.addWidget(card, row, col)
 
     def _clear_cards(self) -> None:
         """
@@ -466,6 +472,33 @@ class ConnectorPanel(QWidget):
                 # Update ID if connector was renumbered
                 if card.connector_id != connector.id:
                     card.set_connector_id(connector.id)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reflow_connector_grid()
+
+    def _reflow_connector_grid(self) -> None:
+        """
+        Reflow connector cards into the appropriate number of columns.
+
+        Switches between 1-column and 2-column layouts based on the panel width.
+        Threshold is 700px: wider panels use 2 columns, narrower use 1.
+        """
+        if not hasattr(self, "_connectors_grid"):
+            return
+        cols = 2 if self.width() > 700 else 1
+        if cols == self._grid_cols:
+            return
+        self._grid_cols = cols
+        # Collect existing card widgets from the grid
+        cards: list[QWidget] = []
+        while self._connectors_grid.count():
+            item = self._connectors_grid.takeAt(0)
+            if item and item.widget():
+                cards.append(item.widget())
+        for i, card in enumerate(cards):
+            row, col = divmod(i, cols)
+            self._connectors_grid.addWidget(card, row, col)
 
     def rebuild_cards(self) -> None:
         """
