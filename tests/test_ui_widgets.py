@@ -234,19 +234,20 @@ def test_manual_widget_requires_transaction_context_to_stop() -> None:
 
 
 def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
-	class _Panel:
+	class _LogSidePanel:
 		def __init__(self) -> None:
 			self.messages: list[str] = []
 
 		def log_message(self, message: str) -> None:
 			self.messages.append(message)
 
-	class _ManualPanel:
+	class _SimulatorWidget:
 		def __init__(self) -> None:
-			self.messages: list[str] = []
+			self.log_side_panel = _LogSidePanel()
 
-		def log_message(self, message: str) -> None:
-			self.messages.append(message)
+	class _ManualWidget:
+		def __init__(self) -> None:
+			self.log_side_panel = _LogSidePanel()
 
 	class _Stack:
 		def __init__(self, current_widget: object) -> None:
@@ -256,31 +257,31 @@ def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
 			return self._current_widget
 
 	window = MainWindow.__new__(MainWindow)
-	window._global_log_panel = _Panel()
-	window.manual = _ManualPanel()
-	window.simulator = object()
+	window.simulator = _SimulatorWidget()
+	window.manual = _ManualWidget()
 	window.stack = _Stack(window.simulator)
 
 	MainWindow.log_message(window, "hello")
 
-	assert window._global_log_panel.messages == ["hello"]
-	assert window.manual.messages == []
+	assert window.simulator.log_side_panel.messages == ["hello"]
+	assert window.manual.log_side_panel.messages == []
 
 
 def test_main_window_log_message_does_not_duplicate_in_manual_mode() -> None:
-	class _Panel:
+	class _LogSidePanel:
 		def __init__(self) -> None:
 			self.messages: list[str] = []
 
 		def log_message(self, message: str) -> None:
 			self.messages.append(message)
 
-	class _ManualPanel:
+	class _SimulatorWidget:
 		def __init__(self) -> None:
-			self.messages: list[str] = []
+			self.log_side_panel = _LogSidePanel()
 
-		def log_message(self, message: str) -> None:
-			self.messages.append(message)
+	class _ManualWidget:
+		def __init__(self) -> None:
+			self.log_side_panel = _LogSidePanel()
 
 	class _Stack:
 		def __init__(self, current_widget: object) -> None:
@@ -290,15 +291,14 @@ def test_main_window_log_message_does_not_duplicate_in_manual_mode() -> None:
 			return self._current_widget
 
 	window = MainWindow.__new__(MainWindow)
-	window._global_log_panel = _Panel()
-	window.manual = _ManualPanel()
-	window.simulator = object()
+	window.simulator = _SimulatorWidget()
+	window.manual = _ManualWidget()
 	window.stack = _Stack(window.manual)
 
 	MainWindow.log_message(window, "hello")
 
-	assert window._global_log_panel.messages == []
-	assert window.manual.messages == ["hello"]
+	assert window.simulator.log_side_panel.messages == []
+	assert window.manual.log_side_panel.messages == ["hello"]
 
 
 def test_dashboard_power_metric_uses_effective_delivered_power() -> None:
