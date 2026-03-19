@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.ui.styles import colors
-from chargeghost_evse.ui.widgets.connector_strip import ConnectorStrip  # noqa: F401
 
 from chargeghost_evse.engine.connector import ConnectorState
 

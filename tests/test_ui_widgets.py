@@ -16,7 +16,7 @@ from chargeghost_evse.ui.app import ModeSelectWidget
 from chargeghost_evse.ui.app import ToastManager
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets import session_dashboard
-from chargeghost_evse.ui.widgets.connector_strip import ConnectorIndicator
+from chargeghost_evse.ui.widgets.connector_strip import ConnectorIndicator, ConnectorStrip
 from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
 from chargeghost_evse.ui.widgets.toast import ToastNotification
 from chargeghost_evse.ui.widgets.session_dashboard import TelemetryChart
@@ -96,7 +96,7 @@ def test_connector_indicator_shows_hardware_summary() -> None:
 	_app()
 	engine = Engine()
 	engine.add_connector(voltage=400.0, current=32.0, phase=3)
-	strip = session_dashboard.ConnectorStrip()
+	strip = ConnectorStrip()
 
 	strip.update_connectors(engine)
 
@@ -109,7 +109,7 @@ def test_connector_strip_preserves_selected_connector_after_status_refresh() -> 
 	engine = Engine()
 	engine.add_connector()
 	second = engine.add_connector(voltage=400.0, current=16.0, phase=3)
-	strip = session_dashboard.ConnectorStrip()
+	strip = ConnectorStrip()
 
 	strip.update_connectors(engine)
 	strip.set_selected_connector(second.id)
@@ -126,7 +126,7 @@ def test_connector_strip_uses_available_width_for_tiles(qtbot) -> None:
 	engine.add_connector()
 	engine.add_connector()
 	engine.add_connector()
-	strip = session_dashboard.ConnectorStrip()
+	strip = ConnectorStrip()
 	qtbot.addWidget(strip)
 	strip.resize(1800, 90)
 	strip.update_connectors(engine)
