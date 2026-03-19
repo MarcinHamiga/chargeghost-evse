@@ -174,13 +174,16 @@ class ConnectorStatusBar(QWidget):
 	def update_session_stats(
 		self, power_kw: float, soc: float, duration_str: str
 	) -> None:
-		if power_kw > 0.0:
-			self._power_label.setText(f"{power_kw:.1f} kW")
-			self._soc_label.setText(f"{soc:.0f}%")
-			self._duration_label.setText(duration_str)
-			self._stats_widget.show()
-		else:
-			self._stats_widget.hide()
+		"""Show live session stats.  Always visible while a session is active,
+		including suspended states where power may be 0."""
+		self._power_label.setText(f"{power_kw:.1f} kW")
+		self._soc_label.setText(f"{soc:.0f}%")
+		self._duration_label.setText(duration_str)
+		self._stats_widget.show()
+
+	def hide_session_stats(self) -> None:
+		"""Hide the session stats row (call when no active session)."""
+		self._stats_widget.hide()
 
 	def set_selected_connector(self, connector_id: int) -> None:
 		for cid, pill in self._pills.items():

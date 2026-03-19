@@ -109,6 +109,7 @@ class LogSidePanel(QWidget):
 		self._entry_count = 0
 		self._animation: Optional[QPropertyAnimation] = None
 		self._anim2: Optional[QPropertyAnimation] = None
+		self._finish_close_pending = False  # True when _finish_close is connected
 
 		self._setup_ui()
 		self._set_collapsed_geometry()
@@ -208,11 +209,23 @@ class LogSidePanel(QWidget):
 
 	def _close(self) -> None:
 		self._is_open = False
+		self._animate(EXPANDED_WIDTH, COLLAPSED_WIDTH)
+		# Defer the panel/tab swap until the animation finishes so content
+		# doesn't vanish before the width has animated to zero.
+		self._animation.finished.connect(self._finish_close)
+		self._finish_close_pending = True
+
+	def _finish_close(self) -> None:
+		self._finish_close_pending = False
 		self._panel.hide()
 		self._tab.show()
-		self._animate(EXPANDED_WIDTH, COLLAPSED_WIDTH)
 
 	def _animate(self, start: int, end: int) -> None:
+		# Disconnect any pending close-finish callback before stopping so it
+		# doesn't fire on the next (open) animation.
+		if self._animation and self._finish_close_pending:
+			self._animation.finished.disconnect(self._finish_close)
+			self._finish_close_pending = False
 		if self._animation:
 			self._animation.stop()
 		if self._anim2:
@@ -263,6 +276,11 @@ class LogSidePanel(QWidget):
 		self._log_panel.clear()
 		self._entry_count = 0
 		self._count_label.setText("")
+
+	def set_log_mode(self, is_detailed: bool) -> None:
+		"""Sync the log-mode toggle button state without emitting log_mode_toggled."""
+		self._btn_log_mode.setChecked(is_detailed)
+		self._btn_log_mode.setText("Shallow" if is_detailed else "Deep")
 
 	# ── Header button handlers ───────────────────────────────────────────────
 

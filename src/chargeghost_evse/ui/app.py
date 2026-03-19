@@ -286,6 +286,14 @@ class SimulatorWidget(QWidget):
         self._btn_profiles.clicked.connect(lambda: self._on_nav_clicked(3))
         sidebar_layout.addWidget(self._btn_profiles)
 
+        # Map index → (button, icon_name) for icon colour updates on nav click
+        self._nav_btns: list[tuple[QToolButton, str]] = [
+            (self._btn_dashboard, "dashboard"),
+            (self._btn_settings, "settings"),
+            (self._btn_ocpp_keys, "key"),
+            (self._btn_profiles, "sliders"),
+        ]
+
         sidebar_layout.addStretch()
 
         self._btn_home = self._create_nav_btn("Switch Mode", "home")
@@ -400,6 +408,9 @@ class SimulatorWidget(QWidget):
 
     def _on_nav_clicked(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        for i, (btn, icon_name) in enumerate(self._nav_btns):
+            color = colors.ACCENT_TEAL if i == index else colors.TEXT_SECONDARY
+            btn.setIcon(get_icon(icon_name, color))
 
     def _clear_graphics_effect(self, widget: QWidget) -> None:
         widget.setGraphicsEffect(None)  # type: ignore[arg-type]
@@ -442,7 +453,7 @@ class SimulatorWidget(QWidget):
                 power_kw, session.state_of_charge, duration_str
             )
         else:
-            self.connector_bar.update_session_stats(0.0, 0.0, "--")
+            self.connector_bar.hide_session_stats()
 
         self.dashboard.update_from_engine(engine)
         self._profiles_tick_counter += 1
@@ -1020,8 +1031,7 @@ class MainWindow(QMainWindow):
         self.simulator.dashboard.set_selected_connector(self.app_settings.last_connector_id)
 
         if self.app_settings.log_panel_expanded:
-            if hasattr(self.simulator, "log_side_panel"):
-                self.simulator.log_side_panel.toggle()
+            self.simulator.log_side_panel.toggle()
 
         saved_ui_mode = self.app_settings.last_mode
         if saved_ui_mode in ("simulator", "manual"):
@@ -1076,8 +1086,7 @@ class MainWindow(QMainWindow):
         self.app_settings.log_mode = mode
         # Sync the other mode's log panel button state
         other = self.manual if self.stack.currentWidget() == self.simulator else self.simulator
-        other.log_side_panel._btn_log_mode.setChecked(is_detailed)
-        other.log_side_panel._btn_log_mode.setText("Shallow" if is_detailed else "Deep")
+        other.log_side_panel.set_log_mode(is_detailed)
 
     def _shortcut_save(self) -> None:
         if self.stack.currentWidget() == self.simulator:
@@ -1122,11 +1131,9 @@ class MainWindow(QMainWindow):
         if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
         if self.stack.currentWidget() == self.simulator:
-            if hasattr(self.simulator, "log_side_panel"):
-                self.simulator.log_side_panel.log_record(record)
+            self.simulator.log_side_panel.log_record(record)
         elif self.stack.currentWidget() == self.manual:
-            if hasattr(self.manual, "log_side_panel"):
-                self.manual.log_side_panel.log_record(record)
+            self.manual.log_side_panel.log_record(record)
 
     @Slot(bool)
     def on_connection_status_changed(self, connected: bool) -> None:
@@ -1229,8 +1236,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.app_settings.window_geometry = self.saveGeometry()
-        if hasattr(self.simulator, "log_side_panel"):
-            self.app_settings.log_panel_expanded = self.simulator.log_side_panel.is_open()
+        self.app_settings.log_panel_expanded = self.simulator.log_side_panel.is_open()
 
         self.config.connectors = [
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
