@@ -42,6 +42,7 @@ class ConnectorState(enum.Enum):
         SUSPENDED_EVSE: Charging suspended by EVSE (e.g., schedule limit).
         SUSPENDED_EV: Charging suspended by EV (e.g., battery full).
         FINISHING: Charging session completed, transaction finalizing.
+        RESERVED: Connector is reserved for a future charging session.
         UNAVAILABLE: Connector is out of service (operator disabled).
         FAULTED: Connector is in a faulted state (hardware error).
     """
@@ -52,6 +53,7 @@ class ConnectorState(enum.Enum):
     SUSPENDED_EVSE = "SuspendedEVSE"
     SUSPENDED_EV = "SuspendedEV"
     FINISHING = "Finishing"
+    RESERVED = "Reserved"
     UNAVAILABLE = "Unavailable"
     FAULTED = "Faulted"
 
@@ -60,6 +62,7 @@ class ConnectorState(enum.Enum):
 VALID_TRANSITIONS: dict[tuple[ConnectorState, str], ConnectorState] = {
     # Plug in/out
     (ConnectorState.AVAILABLE, "plug_in"): ConnectorState.PREPARING,
+    (ConnectorState.RESERVED, "plug_in"): ConnectorState.PREPARING,
     (ConnectorState.PREPARING, "unplug"): ConnectorState.AVAILABLE,
     (ConnectorState.FINISHING, "unplug"): ConnectorState.AVAILABLE,
     (ConnectorState.CHARGING, "unplug"): ConnectorState.AVAILABLE,
@@ -184,6 +187,7 @@ class Connector(Subscriber):
         if self._status != new_status:
             # Persistent states survive plug/unplug cycles
             if new_status in (
+                ConnectorState.RESERVED,
                 ConnectorState.UNAVAILABLE,
                 ConnectorState.FAULTED,
                 ConnectorState.AVAILABLE,
@@ -419,6 +423,26 @@ class Connector(Subscriber):
             return
         self.status = ConnectorState.UNAVAILABLE  # setter updates _persistent_status
 
+    def set_reserved(self) -> None:
+        """
+        Set the connector to RESERVED.
+
+        Bypasses the session state machine. Sets both the current status and
+        the persistent status so the connector remains RESERVED after unplug.
+        When an EV is already plugged in, keep the current status at PREPARING.
+        No-op if already RESERVED, UNAVAILABLE, or FAULTED.
+        """
+        if self._status in (
+            ConnectorState.RESERVED,
+            ConnectorState.UNAVAILABLE,
+            ConnectorState.FAULTED,
+        ):
+            return
+        self._persistent_status = ConnectorState.RESERVED
+        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.RESERVED
+        if self._status != target:
+            self.status = target
+
     def set_operative(self) -> None:
         """
         Set the connector back to operative state (operator-initiated).
@@ -437,3 +461,18 @@ class Connector(Subscriber):
             self._status = target
             self.on_status_change.emit(connector_id=self.id, status=target)
 
+    def clear_reservation(self) -> None:
+        """
+        Clear any reservation from the connector.
+
+        Restores AVAILABLE as the persistent base state. If an EV is still
+        plugged in, the current status becomes PREPARING; otherwise it becomes
+        AVAILABLE.
+        """
+        if self._status in (ConnectorState.UNAVAILABLE, ConnectorState.FAULTED):
+            return
+        self._persistent_status = ConnectorState.AVAILABLE
+        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        if self._status != target:
+            self._status = target
+            self.on_status_change.emit(connector_id=self.id, status=target)

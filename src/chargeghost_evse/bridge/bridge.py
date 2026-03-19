@@ -617,11 +617,58 @@ class Bridge:
                 return None
             return (connector.voltage, connector.phase)
 
+        def get_connector_status(connector_id: int) -> Optional[str]:
+            """
+            Get the current OCPP status for a connector.
+
+            Args:
+                connector_id: ID of the connector.
+
+            Returns:
+                OCPP status string, or None if the connector is unknown.
+            """
+            connector = self.engine.get_connector(connector_id)
+            if not connector:
+                return None
+            return connector.status.value
+
+        def get_meter_snapshot(
+            connector_id: int,
+        ) -> Optional[tuple[float, Optional[int]]]:
+            """
+            Get the current meter reading for a connector session.
+
+            Args:
+                connector_id: ID of the connector.
+
+            Returns:
+                Tuple of (meter reading, transaction ID), or None if unavailable.
+            """
+            session = self.engine.session
+            if session is None or session.connector_id != connector_id:
+                return None
+            return (
+                self.engine.energy_meter.get_meter_reading(),
+                session.transaction_id,
+            )
+
         if self.runner.adapter:
             self.runner.adapter.get_connector_info = get_connector_info
+            self.runner.adapter.get_connector_status = get_connector_status
+            self.runner.adapter.get_meter_snapshot = get_meter_snapshot
             self.runner.adapter.known_connector_ids = [
                 conn.id for conn in self.engine.connectors
             ]
+            self.runner.adapter.reserve_connector = getattr(
+                self.engine,
+                "reserve_connector",
+                None,
+            )
+            self.runner.adapter.cancel_reservation = getattr(
+                self.engine,
+                "cancel_reservation",
+                None,
+            )
             self.runner.adapter.set_connector_availability = (
                 self.engine.set_connector_availability
             )
@@ -635,7 +682,11 @@ class Bridge:
         self.engine.get_limit = None
         if self.runner.adapter:
             self.runner.adapter.get_connector_info = None
+            self.runner.adapter.get_connector_status = None
+            self.runner.adapter.get_meter_snapshot = None
             self.runner.adapter.known_connector_ids = []
+            self.runner.adapter.reserve_connector = None
+            self.runner.adapter.cancel_reservation = None
             self.runner.adapter.set_connector_availability = None
 
     def _send_initial_status_notifications(self) -> None:

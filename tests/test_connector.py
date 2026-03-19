@@ -132,6 +132,25 @@ class TestStateTransitions:
 		assert error is None
 		assert connector.status == ConnectorState.PREPARING
 
+	def test_plug_in_from_reserved_transitions_to_preparing(self):
+		connector = Connector(id=1)
+		connector.set_reserved()
+		error = connector.plug_in()
+		assert error is None
+		assert connector.status == ConnectorState.PREPARING
+
+	def test_clear_reservation_restores_available_when_idle(self):
+		connector = Connector(id=1)
+		connector.set_reserved()
+		connector.clear_reservation()
+		assert connector.status == ConnectorState.AVAILABLE
+
+	def test_set_reserved_preserves_preparing_when_plugged(self):
+		connector = Connector(id=1)
+		connector.plug_in()
+		connector.set_reserved()
+		assert connector.status == ConnectorState.PREPARING
+
 
 class TestConnector:
 	def test_initial_state(self):
