@@ -1,18 +1,13 @@
 from chargeghost_evse.ui.widgets.app_settings import AppSettings
 from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
-from chargeghost_evse.ui.widgets.collapsible_log import CollapsibleLogPanel
 from chargeghost_evse.ui.widgets.connector_panel import (
     ConnectorEditorCard,
     ConnectorPanel,
 )
-from chargeghost_evse.ui.widgets.connector_strip import (
-    ConnectorIndicator,
-    ConnectorStrip,
-)
 from chargeghost_evse.ui.widgets.icons import ICONS, get_icon_svg
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.session_dashboard import (
-    CollapsibleDetails,
+    ContextChip,
     IdTagInput,
     MetricCard,
     SessionDashboard,
@@ -24,12 +19,9 @@ from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatus
 __all__ = [
     "AppSettings",
     "ChargingProfilesPanel",
-    "CollapsibleDetails",
-    "CollapsibleLogPanel",
+    "ContextChip",
     "ConnectorEditorCard",
-    "ConnectorIndicator",
     "ConnectorPanel",
-    "ConnectorStrip",
     "ICONS",
     "IdTagInput",
     "LogPanel",

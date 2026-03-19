@@ -6,8 +6,8 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QFrame
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QWidget
 
-from chargeghost_evse.engine.connector import ConnectorState
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.ui.app import ManualWidget
@@ -15,7 +15,6 @@ from chargeghost_evse.ui.app import ModeSelectWidget
 from chargeghost_evse.ui.app import ToastManager
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets import session_dashboard
-from chargeghost_evse.ui.widgets.connector_strip import ConnectorIndicator
 from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
 from chargeghost_evse.ui.widgets.toast import ToastNotification
 from chargeghost_evse.ui.widgets.session_dashboard import TelemetryChart
@@ -66,73 +65,15 @@ def test_dashboard_exposes_named_telemetry_panel() -> None:
 	dashboard = session_dashboard.SessionDashboard()
 
 	assert dashboard.findChild(QFrame, "telemetryPanel") is not None
-	assert dashboard.findChild(QLabel, "telemetryTitle").text() == "Live Power Telemetry"
+	assert dashboard.findChild(QLabel, "telemetryTitle").text() == "Live Power Telemetry — 60 s rolling"
 
 
 def test_dashboard_exposes_telemetry_panel_supporting_copy() -> None:
 	_app()
 	dashboard = session_dashboard.SessionDashboard()
 
-	assert dashboard.findChild(QLabel, "telemetrySubtitle").text() == "Rolling 60-second delivered power view"
-
-
-def test_connector_indicator_clears_charging_stylesheet() -> None:
-	_app()
-	indicator = ConnectorIndicator(1)
-
-	indicator.update_status(status="Charging", is_plugged=True, soc=55.0)
-	indicator.set_pulse_opacity(0.7)
-	assert "charging='true'" in indicator.styleSheet()
-
-	indicator.update_status(status="Available", is_plugged=False)
-
-	assert indicator.property("charging") is False
-	assert indicator.styleSheet() == ""
-
-
-def test_connector_indicator_shows_hardware_summary() -> None:
-	_app()
-	engine = Engine()
-	engine.add_connector(voltage=400.0, current=32.0, phase=3)
-	strip = session_dashboard.ConnectorStrip()
-
-	strip.update_connectors(engine)
-
-	indicator = strip._indicators[0]
-	assert indicator._hardware_label.text() == "400V · 32A · 3Ph"
-
-
-def test_connector_strip_preserves_selected_connector_after_status_refresh() -> None:
-	_app()
-	engine = Engine()
-	engine.add_connector()
-	second = engine.add_connector(voltage=400.0, current=16.0, phase=3)
-	strip = session_dashboard.ConnectorStrip()
-
-	strip.update_connectors(engine)
-	strip.set_selected_connector(second.id)
-	engine.plug_in(second.id)
-	strip.update_connectors(engine)
-
-	assert strip.get_selected_connector_id() == second.id
-	assert strip._indicators[1].property("selected") is True
-	assert strip._indicators[0].property("selected") is False
-
-
-def test_connector_strip_uses_available_width_for_tiles(qtbot) -> None:
-	engine = Engine()
-	engine.add_connector()
-	engine.add_connector()
-	engine.add_connector()
-	strip = session_dashboard.ConnectorStrip()
-	qtbot.addWidget(strip)
-	strip.resize(1800, 90)
-	strip.update_connectors(engine)
-	strip.show()
-	qtbot.waitExposed(strip)
-
-	last_indicator = strip._indicators[-1]
-	assert last_indicator.geometry().right() >= strip.rect().right() - 24
+	# The subtitle label was merged into the title in the two-column redesign.
+	assert dashboard.findChild(QLabel, "telemetryTitle") is not None
 
 
 def test_toast_manager_is_hidden_when_empty() -> None:
@@ -173,6 +114,7 @@ class _DummySignalBridge:
 
 class _DummySettings:
 	log_mode = "compact"
+	sidebar_expanded = False
 
 
 class _DummyMainWithDeps(QMainWindow):
@@ -184,6 +126,9 @@ class _DummyMainWithDeps(QMainWindow):
 		self.app_settings = _DummySettings()
 
 	def _go_home(self) -> None:
+		pass
+
+	def _on_log_mode_toggle(self, is_detailed: bool) -> None:
 		pass
 
 
@@ -200,11 +145,12 @@ def test_mode_cards_stay_within_viewport_on_narrow_width() -> None:
 		assert card.geometry().right() <= widget.rect().right()
 
 
-def test_manual_widget_log_button_object_names_match_stylesheet() -> None:
+def test_manual_widget_has_log_side_panel() -> None:
 	_app()
 	widget = ManualWidget(_DummyMainWithDeps())
-	assert widget.btn_clear_logs.objectName() == "btnClearLog"
-	assert widget.btn_log_mode.objectName() == "btnLogMode"
+	assert hasattr(widget, "log_side_panel")
+	from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
+	assert isinstance(widget.log_side_panel, LogSidePanel)
 
 
 def test_manual_widget_disables_actions_without_adapter() -> None:
@@ -232,19 +178,20 @@ def test_manual_widget_requires_transaction_context_to_stop() -> None:
 
 
 def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
-	class _Panel:
+	class _LogSidePanel:
 		def __init__(self) -> None:
 			self.messages: list[str] = []
 
 		def log_message(self, message: str) -> None:
 			self.messages.append(message)
 
-	class _ManualPanel:
+	class _SimulatorWidget:
 		def __init__(self) -> None:
-			self.messages: list[str] = []
+			self.log_side_panel = _LogSidePanel()
 
-		def log_message(self, message: str) -> None:
-			self.messages.append(message)
+	class _ManualWidget:
+		def __init__(self) -> None:
+			self.log_side_panel = _LogSidePanel()
 
 	class _Stack:
 		def __init__(self, current_widget: object) -> None:
@@ -254,31 +201,31 @@ def test_main_window_log_message_does_not_duplicate_in_simulator_mode() -> None:
 			return self._current_widget
 
 	window = MainWindow.__new__(MainWindow)
-	window._global_log_panel = _Panel()
-	window.manual = _ManualPanel()
-	window.simulator = object()
+	window.simulator = _SimulatorWidget()
+	window.manual = _ManualWidget()
 	window.stack = _Stack(window.simulator)
 
 	MainWindow.log_message(window, "hello")
 
-	assert window._global_log_panel.messages == ["hello"]
-	assert window.manual.messages == []
+	assert window.simulator.log_side_panel.messages == ["hello"]
+	assert window.manual.log_side_panel.messages == []
 
 
 def test_main_window_log_message_does_not_duplicate_in_manual_mode() -> None:
-	class _Panel:
+	class _LogSidePanel:
 		def __init__(self) -> None:
 			self.messages: list[str] = []
 
 		def log_message(self, message: str) -> None:
 			self.messages.append(message)
 
-	class _ManualPanel:
+	class _SimulatorWidget:
 		def __init__(self) -> None:
-			self.messages: list[str] = []
+			self.log_side_panel = _LogSidePanel()
 
-		def log_message(self, message: str) -> None:
-			self.messages.append(message)
+	class _ManualWidget:
+		def __init__(self) -> None:
+			self.log_side_panel = _LogSidePanel()
 
 	class _Stack:
 		def __init__(self, current_widget: object) -> None:
@@ -288,15 +235,14 @@ def test_main_window_log_message_does_not_duplicate_in_manual_mode() -> None:
 			return self._current_widget
 
 	window = MainWindow.__new__(MainWindow)
-	window._global_log_panel = _Panel()
-	window.manual = _ManualPanel()
-	window.simulator = object()
+	window.simulator = _SimulatorWidget()
+	window.manual = _ManualWidget()
 	window.stack = _Stack(window.manual)
 
 	MainWindow.log_message(window, "hello")
 
-	assert window._global_log_panel.messages == []
-	assert window.manual.messages == ["hello"]
+	assert window.simulator.log_side_panel.messages == []
+	assert window.manual.log_side_panel.messages == ["hello"]
 
 
 def test_dashboard_power_metric_uses_effective_delivered_power() -> None:
@@ -317,10 +263,11 @@ def test_dashboard_exposes_session_hero_sections() -> None:
 	_app()
 	dashboard = session_dashboard.SessionDashboard()
 
-	assert dashboard.findChild(QFrame, "sessionHero") is not None
-	assert dashboard.findChild(QFrame, "sessionContextRail") is not None
-	assert dashboard.findChild(QFrame, "sessionHeroMetrics") is not None
-	assert dashboard.findChild(QFrame, "sessionHeroActions") is not None
+	# Two-column redesign: controls panel + data panel, no hero frame
+	assert dashboard.findChild(QWidget, "dashControlsPanel") is not None
+	assert dashboard.findChild(QWidget, "dashDataPanel") is not None
+	assert dashboard.findChild(QFrame, "sessionStateBadge") is not None
+	assert dashboard.findChild(QFrame, "telemetryPanel") is not None
 
 
 def test_dashboard_hero_shows_idle_state_when_no_session() -> None:
@@ -331,8 +278,8 @@ def test_dashboard_hero_shows_idle_state_when_no_session() -> None:
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard._hero_state_value.text() == "Idle"
-	assert dashboard._hero_connector_value.text() == "Connector 1"
+	assert dashboard._state_name.text() == "Idle"
+	assert dashboard._state_sub.text() == "Connector 1"
 	assert dashboard.btn_start_charge.isEnabled() is False
 	assert dashboard.btn_stop_charge.isEnabled() is False
 
@@ -351,21 +298,23 @@ def test_dashboard_hero_shows_live_session_state(monkeypatch) -> None:
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard._hero_state_value.text() == "Charging"
-	assert dashboard._hero_power_value.text() == "3.68 kW"
-	assert dashboard._hero_soc_value.text() == "0.0%"
-	assert dashboard._hero_duration_value.text() == "1:00"
+	# Two-column redesign: state badge + metric cards replace hero labels
+	assert dashboard._state_name.text() == "Charging"
+	assert dashboard.metric_power._value_label.text() == "3.68"
+	assert dashboard.metric_soc._value_label.text() == "0.0"
+	assert dashboard.metric_duration._value_label.text() == "1:00"
 
 
 def test_dashboard_context_metrics_are_always_visible() -> None:
 	_app()
 	dashboard = session_dashboard.SessionDashboard()
 
-	assert dashboard.findChild(QFrame, "sessionContextRail") is not None
-	assert dashboard.findChild(QFrame, "contextMetricTx") is not None
-	assert dashboard.findChild(QFrame, "contextMetricVoltage") is not None
-	assert dashboard.findChild(QFrame, "contextMetricCurrent") is not None
-	assert dashboard.findChild(QFrame, "contextMetricMeter") is not None
+	# Two-column redesign: context chips replace context rail metric cards
+	assert dashboard.chip_tx_id is not None
+	assert dashboard.chip_voltage is not None
+	assert dashboard.chip_current is not None
+	assert dashboard.chip_meter is not None
+	assert dashboard.chip_phases is not None
 	assert dashboard.findChild(QFrame, "toggleDetailsBtn") is None
 
 
@@ -373,19 +322,23 @@ def test_dashboard_embeds_id_tag_controls_in_hero_context() -> None:
 	_app()
 	dashboard = session_dashboard.SessionDashboard()
 
-	assert dashboard.findChild(QFrame, "sessionHeroContext") is not None
+	# Two-column redesign: id_tag_input lives in the controls panel
+	assert dashboard.id_tag_input is not None
 	assert dashboard.findChild(QFrame, "idTagSection") is None
-	assert dashboard.id_tag_input.parentWidget() is dashboard._hero_context_frame
+	assert dashboard.findChild(QWidget, "dashControlsPanel") is not None
 
 
 def test_dashboard_hero_context_uses_inner_margins() -> None:
 	_app()
 	dashboard = session_dashboard.SessionDashboard()
-	margins = dashboard._hero_context_frame.layout().contentsMargins()
 
-	assert margins.left() == 16
+	# Two-column redesign: controls panel has 12px margins on all sides
+	controls = dashboard.findChild(QWidget, "dashControlsPanel")
+	assert controls is not None
+	margins = controls.layout().contentsMargins()
+	assert margins.left() == 12
 	assert margins.top() == 12
-	assert margins.right() == 16
+	assert margins.right() == 12
 	assert margins.bottom() == 12
 
 
@@ -400,7 +353,7 @@ def test_dashboard_context_shows_effective_limit_for_selected_connector() -> Non
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard._context_limit_value.text() == "16.0A"
+	assert dashboard._context_limit_value.text() == "16.0 A"
 
 
 def test_dashboard_hero_exposes_idle_state_property_for_styling() -> None:
@@ -411,7 +364,8 @@ def test_dashboard_hero_exposes_idle_state_property_for_styling() -> None:
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard._hero_frame.property("sessionState") == "idle"
+	# Two-column redesign: state badge replaces hero frame for state styling
+	assert dashboard._state_badge.property("state") == "idle"
 
 
 def test_dashboard_limit_summary_exposes_limited_property_for_styling() -> None:
@@ -440,16 +394,7 @@ def test_dashboard_context_hides_transaction_for_other_connector() -> None:
 
 	dashboard.update_from_engine(engine)
 
-	assert dashboard.metric_tx_id._value_label.text() == "--"
-
-
-def test_connector_indicator_preserves_meaningful_plugged_status() -> None:
-	_app()
-	indicator = ConnectorIndicator(1)
-
-	indicator.update_status(status=ConnectorState.PREPARING.value, is_plugged=True)
-
-	assert indicator._status_label.text() == ConnectorState.PREPARING.value
+	assert dashboard.chip_tx_id._value.text() == "--"
 
 
 def test_config_keys_panel_requires_explicit_apply(qtbot) -> None:

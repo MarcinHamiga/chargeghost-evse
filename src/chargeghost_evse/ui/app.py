@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
-    QSplitter,
     QStackedWidget,
     QStatusBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,10 +35,10 @@ from chargeghost_evse.ui.bridge import QtSignalBridge
 from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.app_settings import AppSettings
 from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
-from chargeghost_evse.ui.widgets.collapsible_log import CollapsibleLogPanel
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
+from chargeghost_evse.ui.widgets.connector_status_bar import ConnectorStatusBar
+from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 from chargeghost_evse.ui.widgets.icons import get_icon
-from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard, IdTagInput
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
@@ -260,12 +260,14 @@ class SimulatorWidget(QWidget):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
+        # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setFixedWidth(200)
+        self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._sidebar.setFixedWidth(48)
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(8, 16, 8, 16)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(6, 12, 6, 12)
+        sidebar_layout.setSpacing(4)
 
         self._btn_dashboard = self._create_nav_btn("Dashboard", "dashboard")
         self._btn_dashboard.setChecked(True)
@@ -284,6 +286,14 @@ class SimulatorWidget(QWidget):
         self._btn_profiles.clicked.connect(lambda: self._on_nav_clicked(3))
         sidebar_layout.addWidget(self._btn_profiles)
 
+        # Map index → (button, icon_name) for icon colour updates on nav click
+        self._nav_btns: list[tuple[QToolButton, str]] = [
+            (self._btn_dashboard, "dashboard"),
+            (self._btn_settings, "settings"),
+            (self._btn_ocpp_keys, "key"),
+            (self._btn_profiles, "sliders"),
+        ]
+
         sidebar_layout.addStretch()
 
         self._btn_home = self._create_nav_btn("Switch Mode", "home")
@@ -293,17 +303,58 @@ class SimulatorWidget(QWidget):
 
         main_layout.addWidget(self._sidebar)
 
+        # ── Content column ───────────────────────────────────────────────────
+        content_col = QWidget()
+        content_col_layout = QVBoxLayout(content_col)
+        content_col_layout.setSpacing(0)
+        content_col_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Connector status bar (always visible)
+        self.connector_bar = ConnectorStatusBar()
+        self.connector_bar.connector_selected.connect(self._on_connector_bar_selected)
+        content_col_layout.addWidget(self.connector_bar)
+
+        # Content stack
         self.stack = QStackedWidget()
         self.stack.setObjectName("contentStack")
-        main_layout.addWidget(self.stack, 1)
+        content_col_layout.addWidget(self.stack, 1)
 
+        # Build tabs
+        self._build_dashboard_tab()
+        self._build_settings_tab()
+        self._build_ocpp_keys_tab()
+        self._build_profiles_tab()
+
+        main_layout.addWidget(content_col, 1)
+
+        # ── Log side panel ───────────────────────────────────────────────────
+        self.log_side_panel = LogSidePanel()
+        self.log_side_panel.log_mode_toggled.connect(
+            self.main_window._on_log_mode_toggle
+        )
+        main_layout.addWidget(self.log_side_panel)
+
+    def _create_nav_btn(self, text: str, icon_name: str) -> QToolButton:
+        btn = QToolButton()
+        btn.setObjectName("sidebarNavBtn")
+        btn.setCheckable(True)
+        btn.setAutoExclusive(True)
+        btn.setText(text)
+        btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
+        btn.setIconSize(QSize(18, 18))
+        btn.setMinimumHeight(40)
+        btn.setMaximumHeight(40)
+        btn.setToolTip(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        return btn
+
+    def _build_dashboard_tab(self) -> None:
         dashboard_tab = QWidget()
         dashboard_layout = QVBoxLayout(dashboard_tab)
         dashboard_layout.setSpacing(0)
         dashboard_layout.setContentsMargins(0, 0, 0, 0)
-
         self.dashboard = SessionDashboard()
-        self.dashboard.connector_selected.connect(self._on_connector_selected)
         self.dashboard.plug_in_clicked.connect(self.action_plug_in)
         self.dashboard.unplug_clicked.connect(self.action_unplug)
         self.dashboard.start_charging_clicked.connect(self.action_start_charging)
@@ -312,14 +363,13 @@ class SimulatorWidget(QWidget):
         self.dashboard.resume_charging_clicked.connect(self.action_resume_charging)
         self.dashboard.apply_id_tag_clicked.connect(self.action_apply_id_tag)
         dashboard_layout.addWidget(self.dashboard, 1)
-
         self.stack.addWidget(dashboard_tab)
 
+    def _build_settings_tab(self) -> None:
         settings_tab = QWidget()
         settings_layout = QVBoxLayout(settings_tab)
         settings_layout.setSpacing(0)
         settings_layout.setContentsMargins(0, 0, 0, 0)
-
         self.settings_panel = SettingsPanel()
         self.settings_panel.set_engine(self.engine)
         self.settings_panel.set_config(self.config)
@@ -331,89 +381,43 @@ class SimulatorWidget(QWidget):
         self.settings_panel.save_config_clicked.connect(self.action_save_config)
         self.settings_panel.ocpp_key_changed.connect(self._on_ocpp_key_changed)
         settings_layout.addWidget(self.settings_panel)
-
         self.stack.addWidget(settings_tab)
 
+    def _build_ocpp_keys_tab(self) -> None:
         ocpp_keys_tab = QWidget()
         ocpp_keys_layout = QVBoxLayout(ocpp_keys_tab)
         ocpp_keys_layout.setSpacing(16)
         ocpp_keys_layout.setContentsMargins(16, 16, 16, 16)
-
         ocpp_keys_title = QLabel("OCPP Configuration Keys")
         ocpp_keys_title.setObjectName("sectionHeader")
         ocpp_keys_layout.addWidget(ocpp_keys_title)
-
         self.config_keys_panel = ConfigKeysPanel()
         self.config_keys_panel.key_changed.connect(self._on_ocpp_key_changed)
         self.config_keys_panel.set_keys(self._config_manager.get_all_keys())
         ocpp_keys_layout.addWidget(self.config_keys_panel)
-
         self.stack.addWidget(ocpp_keys_tab)
 
+    def _build_profiles_tab(self) -> None:
         profiles_tab = QWidget()
         profiles_layout = QVBoxLayout(profiles_tab)
         profiles_layout.setSpacing(0)
         profiles_layout.setContentsMargins(0, 0, 0, 0)
-
         self.profiles_panel = ChargingProfilesPanel()
         profiles_layout.addWidget(self.profiles_panel)
-
         self.stack.addWidget(profiles_tab)
 
-    def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setObjectName("sidebarNavBtn")
-        btn.setCheckable(True)
-        btn.setAutoExclusive(True)
-        btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
-        btn.setIconSize(QSize(16, 16))
-        btn.setMinimumHeight(40)
-        btn.setMaximumHeight(40)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        return btn
-
     def _on_nav_clicked(self, index: int) -> None:
-        target_widget = self.stack.widget(index)
-        if self.stack.currentWidget() == target_widget or target_widget is None:
-            return
-
-        # Update icons to reflect active state
-        self._btn_dashboard.setIcon(
-            get_icon(
-                "dashboard", colors.ACCENT_TEAL if index == 0 else colors.TEXT_SECONDARY
-            )
-        )
-        self._btn_settings.setIcon(
-            get_icon(
-                "settings", colors.ACCENT_TEAL if index == 1 else colors.TEXT_SECONDARY
-            )
-        )
-        self._btn_ocpp_keys.setIcon(
-            get_icon("key", colors.ACCENT_TEAL if index == 2 else colors.TEXT_SECONDARY)
-        )
-        self._btn_profiles.setIcon(
-            get_icon("sliders", colors.ACCENT_TEAL if index == 3 else colors.TEXT_SECONDARY)
-        )
-
-        # Fade animation
-        effect = QGraphicsOpacityEffect(target_widget)
-        target_widget.setGraphicsEffect(effect)
-
         self.stack.setCurrentIndex(index)
-
-        self._anim = QPropertyAnimation(effect, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        self._anim.finished.connect(lambda: self._clear_graphics_effect(target_widget))
-        self._anim.start()
+        for i, (btn, icon_name) in enumerate(self._nav_btns):
+            color = colors.ACCENT_TEAL if i == index else colors.TEXT_SECONDARY
+            btn.setIcon(get_icon(icon_name, color))
 
     def _clear_graphics_effect(self, widget: QWidget) -> None:
         widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
-    def _on_connector_selected(self, connector_id: int) -> None:
+    def _on_connector_bar_selected(self, connector_id: int) -> None:
         self._selected_connector_id = connector_id
+        self.dashboard.set_selected_connector(connector_id)
         self.main_window.app_settings.last_connector_id = connector_id
 
     def _get_selected_connector(self):
@@ -427,12 +431,35 @@ class SimulatorWidget(QWidget):
 
     def update_ui(self) -> None:
         self._ensure_valid_selection()
-        self.dashboard.update_from_engine(self.engine)
-        # Throttle profiles panel updates (10 ticks × 100 ms timer ≈ 1 s).
+        # Update connector status bar pills
+        engine = self.engine
+        for conn in engine.connectors:
+            session = (
+                engine.session
+                if engine.session and engine.session.connector_id == conn.id
+                else None
+            )
+            soc = session.state_of_charge if session else None
+            self.connector_bar.update_connector(conn.id, conn.status.value, soc)
+        self.connector_bar.set_selected_connector(self._selected_connector_id)
+
+        # Update live session stats in bar
+        from chargeghost_evse.ui.widgets.session_dashboard import _compute_effective_power_kw
+        power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
+        session = engine.session
+        if session and session.connector_id == self._selected_connector_id:
+            duration_str = self.dashboard._format_duration(session.start_time)
+            self.connector_bar.update_session_stats(
+                power_kw, session.state_of_charge, duration_str
+            )
+        else:
+            self.connector_bar.hide_session_stats()
+
+        self.dashboard.update_from_engine(engine)
         self._profiles_tick_counter += 1
         if self._profiles_tick_counter >= 10:
             self._profiles_tick_counter = 0
-            self.profiles_panel.update_from_engine(self.engine, self.bridge)
+            self.profiles_panel.update_from_engine(engine, self.bridge)
 
     def action_plug_in(self) -> None:
         self.engine.plug_in(self._selected_connector_id)
@@ -595,18 +622,18 @@ class ManualWidget(QWidget):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Sidebar
+        # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setFixedWidth(200)
+        self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._sidebar.setFixedWidth(48)
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(8, 16, 8, 16)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(6, 12, 6, 12)
+        sidebar_layout.setSpacing(4)
 
         self._btn_manual = self._create_nav_btn("Manual Controls", "terminal")
         self._btn_manual.setChecked(True)
         sidebar_layout.addWidget(self._btn_manual)
-
         sidebar_layout.addStretch()
 
         self._btn_home = self._create_nav_btn("Switch Mode", "home")
@@ -616,7 +643,7 @@ class ManualWidget(QWidget):
 
         main_layout.addWidget(self._sidebar)
 
-        # Content
+        # ── Content ──────────────────────────────────────────────────────────
         content_widget = QWidget()
         layout = QHBoxLayout(content_widget)
         layout.setSpacing(16)
@@ -692,56 +719,27 @@ class ManualWidget(QWidget):
 
         controls.addStretch()
 
-        right_panel = QVBoxLayout()
-        right_panel.setSpacing(8)
-        layout.addLayout(right_panel, 7)
+        # ── Log side panel ───────────────────────────────────────────────────
+        self.log_side_panel = LogSidePanel()
+        self.log_side_panel.log_mode_toggled.connect(
+            self.main_window._on_log_mode_toggle
+        )
+        main_layout.addWidget(self.log_side_panel)
 
-        self.log_panel = LogPanel()
-
-        log_header = QHBoxLayout()
-        log_title = QLabel("Activity Log")
-        log_title.setObjectName("sectionHeader")
-        log_header.addWidget(log_title)
-        log_header.addStretch()
-
-        self.btn_clear_logs = QPushButton("Clear")
-        self.btn_clear_logs.setObjectName("btnClearLog")
-        self.btn_clear_logs.setMinimumHeight(24)
-        self.btn_clear_logs.clicked.connect(self.log_panel.clear)
-        log_header.addWidget(self.btn_clear_logs)
-
-        self.btn_log_mode = QPushButton("Deep")
-        self.btn_log_mode.setObjectName("btnLogMode")
-        self.btn_log_mode.setCheckable(True)
-        self.btn_log_mode.setMinimumHeight(24)
-        self.btn_log_mode.clicked.connect(self.action_toggle_log_mode)
-        log_header.addWidget(self.btn_log_mode)
-        right_panel.addLayout(log_header)
-
-        right_panel.addWidget(self.log_panel)
-
-    def _create_nav_btn(self, text: str, icon_name: str) -> QPushButton:
-        btn = QPushButton(text)
+    def _create_nav_btn(self, text: str, icon_name: str) -> QToolButton:
+        btn = QToolButton()
         btn.setObjectName("sidebarNavBtn")
         btn.setCheckable(True)
         btn.setAutoExclusive(True)
+        btn.setText(text)
         btn.setIcon(get_icon(icon_name, colors.TEXT_SECONDARY))
-        btn.setIconSize(QSize(16, 16))
+        btn.setIconSize(QSize(18, 18))
         btn.setMinimumHeight(40)
         btn.setMaximumHeight(40)
+        btn.setToolTip(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
-
-    def action_toggle_log_mode(self) -> None:
-        is_detailed = self.btn_log_mode.isChecked()
-        if is_detailed:
-            self.main_window.app_settings.log_mode = "deep"
-            self.btn_log_mode.setText("Shallow")
-        else:
-            self.main_window.app_settings.log_mode = "shallow"
-            self.btn_log_mode.setText("Deep")
-        self.main_window._global_log_panel.btn_log_mode.setChecked(is_detailed)
-        self.main_window._global_log_panel.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
 
     def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
@@ -753,7 +751,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(adapter.send_boot_notification(), loop)
 
@@ -761,7 +759,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
 
@@ -769,7 +767,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
         self.main_window.app_settings.add_recent_tag(id_tag)
@@ -789,7 +787,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
 
         tx_id_text = self.input_tx_id.text().strip()
@@ -797,12 +795,12 @@ class ManualWidget(QWidget):
             try:
                 transaction_id = int(tx_id_text)
             except ValueError:
-                self.log_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
+                self.log_side_panel.log_message("[red]UI:[/red] Invalid Transaction ID")
                 return
         elif self.engine.session:
             transaction_id = self.engine.session.transaction_id
         else:
-            self.log_panel.log_message(
+            self.log_side_panel.log_message(
                 "[yellow]UI:[/yellow] Enter a Transaction ID or start a session first"
             )
             return
@@ -826,7 +824,7 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
             return
         asyncio.run_coroutine_threadsafe(
             adapter.send_status_notification(
@@ -860,10 +858,10 @@ class ManualWidget(QWidget):
         self.id_tag_input.set_enabled(has_connection)
 
     def log_message(self, message: str) -> None:
-        self.log_panel.log_message(message)
+        self.log_side_panel.log_message(message)
 
     def log_record(self, record: logging.LogRecord) -> None:
-        self.log_panel.log_record(record)
+        self.log_side_panel.log_record(record)
 
 
 class MainWindow(QMainWindow):
@@ -876,8 +874,8 @@ class MainWindow(QMainWindow):
         self.app_settings = AppSettings()
 
         self.setWindowTitle("ChargeGhost EVSE")
-        self.setMinimumSize(800, 500)
-        self.resize(1100, 700)
+        self.setMinimumSize(1280, 720)
+        self.resize(1600, 900)
 
         self.config = SimulationConfig.load()
         self.engine = Engine()
@@ -963,23 +961,8 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._splitter = QSplitter(Qt.Orientation.Vertical)
-        self._splitter.setObjectName("mainSplitter")
-        main_layout.addWidget(self._splitter, 1)
-
         self.stack = QStackedWidget()
-        self._splitter.addWidget(self.stack)
-
-        self._global_log_panel = CollapsibleLogPanel()
-        self._global_log_panel.log_mode_toggled.connect(self._on_global_log_mode_toggle)
-        if self.app_settings.log_mode == "deep":
-            self._global_log_panel.btn_log_mode.setChecked(True)
-            self._global_log_panel.btn_log_mode.setText("Shallow")
-        self._global_log_panel.setVisible(False)
-        self._splitter.addWidget(self._global_log_panel)
-
-        self._splitter.setStretchFactor(0, 4)
-        self._splitter.setStretchFactor(1, 1)
+        main_layout.addWidget(self.stack, 1)
 
         self.toast_manager = ToastManager(self)
 
@@ -993,10 +976,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.simulator)
         self.stack.addWidget(self.manual)
 
-        if self.app_settings.log_mode == "deep":
-            self.manual.btn_log_mode.setChecked(True)
-            self.manual.btn_log_mode.setText("Shallow")
-
         self.stack.setCurrentWidget(self.mode_select)
 
         self.status_bar = QStatusBar()
@@ -1005,28 +984,18 @@ class MainWindow(QMainWindow):
         self._connection_indicator = QLabel("Disconnected")
         self._connection_indicator.setObjectName("connection_indicator")
         self._connection_indicator.setProperty("connected", False)
-        self._connection_indicator.setAttribute(
-            Qt.WidgetAttribute.WA_StyledBackground, True
-        )
+        self._connection_indicator.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.status_bar.addPermanentWidget(self._connection_indicator)
-
-        self._btn_toggle_log = QPushButton("Logs")
-        self._btn_toggle_log.setObjectName("btnToggleLog")
-        self._btn_toggle_log.setProperty("flat", True)
-        self._btn_toggle_log.setCheckable(True)
-        self._btn_toggle_log.setEnabled(False)
-        self._btn_toggle_log.clicked.connect(self._toggle_global_log)
-        self.status_bar.addPermanentWidget(self._btn_toggle_log)
 
     def _setup_shortcuts(self) -> None:
         shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
         shortcut_save.activated.connect(self._shortcut_save)
 
         shortcut_log = QShortcut(QKeySequence("`"), self)
-        shortcut_log.activated.connect(self._toggle_global_log)
+        shortcut_log.activated.connect(self._toggle_active_log)
 
         shortcut_f1 = QShortcut(QKeySequence("F1"), self)
-        shortcut_f1.activated.connect(self._toggle_global_log)
+        shortcut_f1.activated.connect(self._toggle_active_log)
 
         shortcut_home = QShortcut(QKeySequence("Esc"), self)
         shortcut_home.activated.connect(self._go_home)
@@ -1059,24 +1028,19 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geometry)
 
         self.simulator._selected_connector_id = self.app_settings.last_connector_id
-        self.simulator.dashboard.set_selected_connector(
-            self.app_settings.last_connector_id
-        )
+        self.simulator.dashboard.set_selected_connector(self.app_settings.last_connector_id)
 
         if self.app_settings.log_panel_expanded:
-            self._global_log_panel.expand()
+            self.simulator.log_side_panel.toggle()
 
         saved_ui_mode = self.app_settings.last_mode
         if saved_ui_mode in ("simulator", "manual"):
             self.switch_to_mode(saved_ui_mode)
-        else:
-            self._sync_log_toggle()
 
     def _go_home(self) -> None:
         if self.stack.currentWidget() != self.mode_select:
             self._fade_to_widget(self.mode_select)
             self.app_settings.last_mode = ""
-            self._sync_log_toggle()
 
     def switch_to_mode(self, mode: str) -> None:
         if mode == "simulator":
@@ -1086,7 +1050,6 @@ class MainWindow(QMainWindow):
             self._fade_to_widget(self.manual)
             self.update_recent_tags()
         self.app_settings.last_mode = mode
-        self._sync_log_toggle()
 
     def _fade_to_widget(self, widget: QWidget) -> None:
         if self.stack.currentWidget() == widget:
@@ -1111,30 +1074,19 @@ class MainWindow(QMainWindow):
     def _clear_graphics_effect(self, widget: QWidget) -> None:
         widget.setGraphicsEffect(None)  # type: ignore[arg-type]
 
-    def _toggle_global_log(self) -> None:
-        if not self._btn_toggle_log.isEnabled():
-            return
+    def _toggle_active_log(self) -> None:
+        current = self.stack.currentWidget()
+        if current is self.simulator:
+            self.simulator.log_side_panel.toggle()
+        elif current is self.manual:
+            self.manual.log_side_panel.toggle()
 
-        is_checked = self._btn_toggle_log.isChecked()
-        self._global_log_panel.setVisible(is_checked)
-        self.app_settings.log_panel_expanded = is_checked
-
-    def _sync_log_toggle(self) -> None:
-        is_simulator_mode = self.stack.currentWidget() == self.simulator
-        self._btn_toggle_log.setEnabled(is_simulator_mode)
-        if is_simulator_mode:
-            is_visible = self.app_settings.log_panel_expanded
-            self._btn_toggle_log.setChecked(is_visible)
-            self._global_log_panel.setVisible(is_visible)
-        else:
-            self._btn_toggle_log.setChecked(False)
-            self._global_log_panel.setVisible(False)
-
-    def _on_global_log_mode_toggle(self, is_detailed: bool) -> None:
+    def _on_log_mode_toggle(self, is_detailed: bool) -> None:
         mode: LogMode = "deep" if is_detailed else "shallow"
         self.app_settings.log_mode = mode
-        self.manual.btn_log_mode.setChecked(is_detailed)
-        self.manual.btn_log_mode.setText("Shallow" if is_detailed else "Deep")
+        # Sync the other mode's log panel button state
+        other = self.manual if self.stack.currentWidget() == self.simulator else self.simulator
+        other.log_side_panel.set_log_mode(is_detailed)
 
     def _shortcut_save(self) -> None:
         if self.stack.currentWidget() == self.simulator:
@@ -1145,9 +1097,9 @@ class MainWindow(QMainWindow):
 
     def log_message(self, message: str) -> None:
         if self.stack.currentWidget() == self.simulator:
-            self._global_log_panel.log_message(message)
+            self.simulator.log_side_panel.log_message(message)
         elif self.stack.currentWidget() == self.manual:
-            self.manual.log_message(message)
+            self.manual.log_side_panel.log_message(message)
 
     def simulate_step(self) -> None:
         current_time = time.monotonic()
@@ -1178,11 +1130,10 @@ class MainWindow(QMainWindow):
             return
         if self.app_settings.log_mode == "shallow" and record.levelno < logging.INFO:
             return
-
         if self.stack.currentWidget() == self.simulator:
-            self._global_log_panel.log_record(record)
+            self.simulator.log_side_panel.log_record(record)
         elif self.stack.currentWidget() == self.manual:
-            self.manual.log_record(record)
+            self.manual.log_side_panel.log_record(record)
 
     @Slot(bool)
     def on_connection_status_changed(self, connected: bool) -> None:
@@ -1285,7 +1236,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.app_settings.window_geometry = self.saveGeometry()
-        self.app_settings.log_panel_expanded = self._global_log_panel.is_expanded()
+        self.app_settings.log_panel_expanded = self.simulator.log_side_panel.is_open()
 
         self.config.connectors = [
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
