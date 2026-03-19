@@ -502,7 +502,21 @@ class Adapter(cp):
             f"id_tag={id_tag}",
         )
 
-        if connector_id not in self.known_connector_ids or self.reserve_connector is None:
+        if self.reserve_connector is None:
+            return call_result.ReserveNow(status=ReservationStatus.rejected)
+
+        # connector_id=0 means "reserve any available connector" per OCPP 1.6 §5.10
+        if connector_id == 0:
+            target_id: Optional[int] = None
+            if self.get_connector_status is not None:
+                for cid in self.known_connector_ids:
+                    if self.get_connector_status(cid) == "Available":
+                        target_id = cid
+                        break
+            if target_id is None:
+                return call_result.ReserveNow(status=ReservationStatus.unavailable)
+            connector_id = target_id
+        elif connector_id not in self.known_connector_ids:
             return call_result.ReserveNow(status=ReservationStatus.rejected)
 
         try:
@@ -559,7 +573,7 @@ class Adapter(cp):
     @on("TriggerMessage")
     async def on_trigger_message(
         self,
-        requested_message,
+        requested_message: str,
         connector_id: Optional[int] = None,
         **kwargs,
     ) -> call_result.TriggerMessage:
