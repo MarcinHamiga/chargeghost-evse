@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.ui.styles import colors
-from chargeghost_evse.ui.widgets.icons import get_icon_html
 
 
 _STATUS_COLORS: dict[str, str] = {
@@ -46,7 +45,6 @@ class ConnectorPill(QWidget):
 
 		self._dot = QLabel()
 		self._dot.setObjectName("connectorPillDot")
-		self._dot.setFixedSize(7, 7)
 		layout.addWidget(self._dot)
 
 		self._label = QLabel(f"{connector_id} · Available")
@@ -55,7 +53,7 @@ class ConnectorPill(QWidget):
 
 	def update_status(self, status: str, soc: Optional[float]) -> None:
 		color = _STATUS_COLORS.get(status, colors.TEXT_MUTED)
-		dot_html = get_icon_html("circle_green", color, 7)
+		dot_html = f'<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="{color}"/></svg>'
 		self._dot.setTextFormat(Qt.TextFormat.RichText)
 		self._dot.setText(dot_html)
 

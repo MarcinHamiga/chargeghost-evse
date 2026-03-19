@@ -1,6 +1,7 @@
 # tests/test_connector_status_bar.py
-import pytest
 import sys
+
+import pytest
 from PySide6.QtWidgets import QApplication
 
 @pytest.fixture(scope="session")
