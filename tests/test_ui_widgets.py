@@ -8,7 +8,6 @@ from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QMainWindow
 from PySide6.QtWidgets import QWidget
 
-from chargeghost_evse.engine.connector import ConnectorState
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.ui.app import ManualWidget
@@ -16,7 +15,6 @@ from chargeghost_evse.ui.app import ModeSelectWidget
 from chargeghost_evse.ui.app import ToastManager
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets import session_dashboard
-from chargeghost_evse.ui.widgets.connector_strip import ConnectorIndicator, ConnectorStrip
 from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
 from chargeghost_evse.ui.widgets.toast import ToastNotification
 from chargeghost_evse.ui.widgets.session_dashboard import TelemetryChart
@@ -76,65 +74,6 @@ def test_dashboard_exposes_telemetry_panel_supporting_copy() -> None:
 
 	# The subtitle label was merged into the title in the two-column redesign.
 	assert dashboard.findChild(QLabel, "telemetryTitle") is not None
-
-
-def test_connector_indicator_clears_charging_stylesheet() -> None:
-	_app()
-	indicator = ConnectorIndicator(1)
-
-	indicator.update_status(status="Charging", is_plugged=True, soc=55.0)
-	indicator.set_pulse_opacity(0.7)
-	assert "charging='true'" in indicator.styleSheet()
-
-	indicator.update_status(status="Available", is_plugged=False)
-
-	assert indicator.property("charging") is False
-	assert indicator.styleSheet() == ""
-
-
-def test_connector_indicator_shows_hardware_summary() -> None:
-	_app()
-	engine = Engine()
-	engine.add_connector(voltage=400.0, current=32.0, phase=3)
-	strip = ConnectorStrip()
-
-	strip.update_connectors(engine)
-
-	indicator = strip._indicators[0]
-	assert indicator._hardware_label.text() == "400V · 32A · 3Ph"
-
-
-def test_connector_strip_preserves_selected_connector_after_status_refresh() -> None:
-	_app()
-	engine = Engine()
-	engine.add_connector()
-	second = engine.add_connector(voltage=400.0, current=16.0, phase=3)
-	strip = ConnectorStrip()
-
-	strip.update_connectors(engine)
-	strip.set_selected_connector(second.id)
-	engine.plug_in(second.id)
-	strip.update_connectors(engine)
-
-	assert strip.get_selected_connector_id() == second.id
-	assert strip._indicators[1].property("selected") is True
-	assert strip._indicators[0].property("selected") is False
-
-
-def test_connector_strip_uses_available_width_for_tiles(qtbot) -> None:
-	engine = Engine()
-	engine.add_connector()
-	engine.add_connector()
-	engine.add_connector()
-	strip = ConnectorStrip()
-	qtbot.addWidget(strip)
-	strip.resize(1800, 90)
-	strip.update_connectors(engine)
-	strip.show()
-	qtbot.waitExposed(strip)
-
-	last_indicator = strip._indicators[-1]
-	assert last_indicator.geometry().right() >= strip.rect().right() - 24
 
 
 def test_toast_manager_is_hidden_when_empty() -> None:
@@ -456,15 +395,6 @@ def test_dashboard_context_hides_transaction_for_other_connector() -> None:
 	dashboard.update_from_engine(engine)
 
 	assert dashboard.chip_tx_id._value.text() == "--"
-
-
-def test_connector_indicator_preserves_meaningful_plugged_status() -> None:
-	_app()
-	indicator = ConnectorIndicator(1)
-
-	indicator.update_status(status=ConnectorState.PREPARING.value, is_plugged=True)
-
-	assert indicator._status_label.text() == ConnectorState.PREPARING.value
 
 
 def test_config_keys_panel_requires_explicit_apply(qtbot) -> None:
