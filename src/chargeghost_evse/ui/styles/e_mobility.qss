@@ -962,26 +962,19 @@ QSplitter::handle:hover {
 	background-color: transparent;
 	border: none;
 	border-radius: 6px;
-	padding: 10px 16px;
-	color: #8b949e;
-	text-align: left;
-	font-weight: 500;
-	font-size: 13px;
+	padding: 0px;
+	min-width: 36px;
+	max-width: 36px;
+	min-height: 36px;
+	max-height: 36px;
 }
 
 #sidebarNavBtn:hover {
 	background-color: rgba(48, 54, 61, 0.5);
-	color: #e6edf3;
 }
 
 #sidebarNavBtn:checked {
 	background-color: rgba(30, 173, 152, 0.1);
-	color: #1EAD98;
-	font-weight: 600;
-}
-
-#sidebarNavBtn::icon {
-	margin-right: 8px;
 }
 
 /* ============================================
@@ -1389,28 +1382,6 @@ QPushButton#updateStatusChip:hover {
     background-color: rgba(48, 54, 61, 0.6);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   Collapsible Sidebar (SimulatorWidget / ManualWidget)
-═══════════════════════════════════════════════════════════════ */
-#sidebar[expanded="false"] QToolButton#sidebarNavBtn {
-    min-width: 36px;
-    max-width: 36px;
-    padding: 8px 0px;
-}
-#sidebar[expanded="false"] QToolButton#sidebarNavBtn::icon {
-    margin-right: 0px;
-}
-#sidebar[expanded="true"] QToolButton#sidebarNavBtn {
-    min-width: 160px;
-}
-#sidebarExpandBtn {
-    color: #6e7681;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    min-height: 24px;
-    max-height: 24px;
-}
-#sidebarExpandBtn:hover { color: #e6edf3; border-color: #8b949e; }
 
 /* ═══════════════════════════════════════════════════════════════
    ContextChip (session dashboard context rail)

@@ -11,7 +11,6 @@ class AppSettings:
     SETTING_LAST_CONNECTOR_ID = "ui/lastConnectorId"
     SETTING_RECENT_TAGS = "ui/recentTags"
     SETTING_LAST_MODE = "ui/lastMode"
-    SETTING_SIDEBAR_EXPANDED = "ui/sidebarExpanded"
     MAX_RECENT_TAGS = 10
 
     def __init__(self) -> None:
@@ -101,10 +100,3 @@ class AppSettings:
     def last_mode(self, mode: str) -> None:
         self._settings.setValue(self.SETTING_LAST_MODE, mode)
 
-    @property
-    def sidebar_expanded(self) -> bool:
-        return bool(self._settings.value(self.SETTING_SIDEBAR_EXPANDED, False))
-
-    @sidebar_expanded.setter
-    def sidebar_expanded(self, expanded: bool) -> None:
-        self._settings.setValue(self.SETTING_SIDEBAR_EXPANDED, expanded)

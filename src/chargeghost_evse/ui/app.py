@@ -256,10 +256,6 @@ class SimulatorWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        self._sidebar_expanded = self.main_window.app_settings.sidebar_expanded
-        self._sidebar_anim: Optional[QPropertyAnimation] = None
-        self._sidebar_anim2: Optional[QPropertyAnimation] = None
-
         main_layout = QHBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -267,8 +263,8 @@ class SimulatorWidget(QWidget):
         # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setProperty("expanded", self._sidebar_expanded)
         self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._sidebar.setFixedWidth(48)
         sidebar_layout = QVBoxLayout(self._sidebar)
         sidebar_layout.setContentsMargins(6, 12, 6, 12)
         sidebar_layout.setSpacing(4)
@@ -297,13 +293,6 @@ class SimulatorWidget(QWidget):
         self._btn_home.clicked.connect(self.main_window._go_home)
         sidebar_layout.addWidget(self._btn_home)
 
-        self._btn_expand_sidebar = QToolButton()
-        self._btn_expand_sidebar.setObjectName("sidebarExpandBtn")
-        self._btn_expand_sidebar.setToolTip("Expand sidebar")
-        self._btn_expand_sidebar.clicked.connect(self.toggle_sidebar)
-        sidebar_layout.addWidget(self._btn_expand_sidebar)
-
-        self._apply_sidebar_width(animate=False)
         main_layout.addWidget(self._sidebar)
 
         # ── Content column ───────────────────────────────────────────────────
@@ -351,65 +340,6 @@ class SimulatorWidget(QWidget):
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
-
-    def _apply_sidebar_width(self, animate: bool = True) -> None:
-        target = 180 if self._sidebar_expanded else 48
-        self._sidebar.setProperty("expanded", self._sidebar_expanded)
-        self._sidebar.style().unpolish(self._sidebar)
-        self._sidebar.style().polish(self._sidebar)
-
-        icon_style = (
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-            if self._sidebar_expanded
-            else Qt.ToolButtonStyle.ToolButtonIconOnly
-        )
-        for btn in (
-            self._btn_dashboard, self._btn_settings,
-            self._btn_ocpp_keys, self._btn_profiles, self._btn_home,
-        ):
-            btn.setToolButtonStyle(icon_style)
-
-        chevron = "\u25b6" if not self._sidebar_expanded else "\u25c0"
-        self._btn_expand_sidebar.setText(chevron)
-        self._btn_expand_sidebar.setToolTip(
-            "Expand sidebar" if not self._sidebar_expanded else "Collapse sidebar"
-        )
-
-        if animate:
-            current = self._sidebar.width()
-            if self._sidebar_anim:
-                self._sidebar_anim.stop()
-            if self._sidebar_anim2:
-                self._sidebar_anim2.stop()
-            anim = QPropertyAnimation(self._sidebar, b"maximumWidth")
-            anim.setDuration(180)
-            anim.setStartValue(current)
-            anim.setEndValue(target)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            anim2 = QPropertyAnimation(self._sidebar, b"minimumWidth")
-            anim2.setDuration(180)
-            anim2.setStartValue(current)
-            anim2.setEndValue(target)
-            anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self._sidebar_anim = anim
-            self._sidebar_anim2 = anim2
-            anim.start()
-            anim2.start()
-        else:
-            self._sidebar.setMinimumWidth(target)
-            self._sidebar.setMaximumWidth(target)
-
-    def toggle_sidebar(self) -> None:
-        self._sidebar_expanded = not self._sidebar_expanded
-        self._apply_sidebar_width(animate=True)
-        self.main_window.app_settings.sidebar_expanded = self._sidebar_expanded
-        if hasattr(self.main_window, "manual"):
-            self.main_window.manual._sidebar_expanded = self._sidebar_expanded
-            self.main_window.manual._apply_sidebar_width(animate=True)
-
-    def expand_sidebar(self) -> None:
-        if not self._sidebar_expanded:
-            self.toggle_sidebar()
 
     def _build_dashboard_tab(self) -> None:
         dashboard_tab = QWidget()
@@ -677,10 +607,6 @@ class ManualWidget(QWidget):
         self.refresh_connection_state()
 
     def _setup_ui(self) -> None:
-        self._sidebar_expanded = self.main_window.app_settings.sidebar_expanded
-        self._sidebar_anim: Optional[QPropertyAnimation] = None
-        self._sidebar_anim2: Optional[QPropertyAnimation] = None
-
         main_layout = QHBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -688,8 +614,8 @@ class ManualWidget(QWidget):
         # ── Sidebar ──────────────────────────────────────────────────────────
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
-        self._sidebar.setProperty("expanded", self._sidebar_expanded)
         self._sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._sidebar.setFixedWidth(48)
         sidebar_layout = QVBoxLayout(self._sidebar)
         sidebar_layout.setContentsMargins(6, 12, 6, 12)
         sidebar_layout.setSpacing(4)
@@ -704,13 +630,6 @@ class ManualWidget(QWidget):
         self._btn_home.clicked.connect(self.main_window._go_home)
         sidebar_layout.addWidget(self._btn_home)
 
-        self._btn_expand_sidebar = QToolButton()
-        self._btn_expand_sidebar.setObjectName("sidebarExpandBtn")
-        self._btn_expand_sidebar.setToolTip("Expand sidebar")
-        self._btn_expand_sidebar.clicked.connect(self._toggle_sidebar)
-        sidebar_layout.addWidget(self._btn_expand_sidebar)
-
-        self._apply_sidebar_width(animate=False)
         main_layout.addWidget(self._sidebar)
 
         # ── Content ──────────────────────────────────────────────────────────
@@ -810,56 +729,6 @@ class ManualWidget(QWidget):
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
-
-    def _apply_sidebar_width(self, animate: bool = True) -> None:
-        target = 180 if self._sidebar_expanded else 48
-        self._sidebar.setProperty("expanded", self._sidebar_expanded)
-        self._sidebar.style().unpolish(self._sidebar)
-        self._sidebar.style().polish(self._sidebar)
-        icon_style = (
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-            if self._sidebar_expanded
-            else Qt.ToolButtonStyle.ToolButtonIconOnly
-        )
-        self._btn_manual.setToolButtonStyle(icon_style)
-        self._btn_home.setToolButtonStyle(icon_style)
-        chevron = "\u25b6" if not self._sidebar_expanded else "\u25c0"
-        self._btn_expand_sidebar.setText(chevron)
-        self._btn_expand_sidebar.setToolTip(
-            "Expand sidebar" if not self._sidebar_expanded else "Collapse sidebar"
-        )
-        if animate:
-            if self._sidebar_anim:
-                self._sidebar_anim.stop()
-            if self._sidebar_anim2:
-                self._sidebar_anim2.stop()
-            current = self._sidebar.width()
-            anim = QPropertyAnimation(self._sidebar, b"maximumWidth")
-            anim.setDuration(180)
-            anim.setStartValue(current)
-            anim.setEndValue(target)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            anim2 = QPropertyAnimation(self._sidebar, b"minimumWidth")
-            anim2.setDuration(180)
-            anim2.setStartValue(current)
-            anim2.setEndValue(target)
-            anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self._sidebar_anim = anim
-            self._sidebar_anim2 = anim2
-            anim.start()
-            anim2.start()
-        else:
-            self._sidebar.setMinimumWidth(target)
-            self._sidebar.setMaximumWidth(target)
-
-    def _toggle_sidebar(self) -> None:
-        self._sidebar_expanded = not self._sidebar_expanded
-        self._apply_sidebar_width(animate=True)
-        self.main_window.app_settings.sidebar_expanded = self._sidebar_expanded
-
-    def expand_sidebar(self) -> None:
-        if not self._sidebar_expanded:
-            self._toggle_sidebar()
 
     def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
@@ -1150,12 +1019,6 @@ class MainWindow(QMainWindow):
         self.simulator._selected_connector_id = self.app_settings.last_connector_id
         self.simulator.dashboard.set_selected_connector(self.app_settings.last_connector_id)
 
-        if self.app_settings.sidebar_expanded:
-            if hasattr(self.simulator, "expand_sidebar"):
-                self.simulator.expand_sidebar()
-            if hasattr(self.manual, "expand_sidebar"):
-                self.manual.expand_sidebar()
-
         if self.app_settings.log_panel_expanded:
             if hasattr(self.simulator, "log_side_panel"):
                 self.simulator.log_side_panel.toggle()
@@ -1368,8 +1231,6 @@ class MainWindow(QMainWindow):
         self.app_settings.window_geometry = self.saveGeometry()
         if hasattr(self.simulator, "log_side_panel"):
             self.app_settings.log_panel_expanded = self.simulator.log_side_panel.is_open()
-        if hasattr(self.simulator, "_sidebar_expanded"):
-            self.app_settings.sidebar_expanded = self.simulator._sidebar_expanded
 
         self.config.connectors = [
             ConnectorConfig(voltage=c.voltage, current=c.current, phase=c.phase)
