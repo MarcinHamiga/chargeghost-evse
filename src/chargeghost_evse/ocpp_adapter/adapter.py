@@ -21,7 +21,7 @@ Classes:
 Example:
     >>> import websockets
     >>> from chargeghost_evse.ocpp_adapter.adapter import Adapter
-    >>> 
+    >>>
     >>> async with websockets.connect(
     ...     "wss://csms.example.com/CP_1",
     ...     subprotocols=["ocpp1.6"]
@@ -41,39 +41,80 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.datatypes import KeyValue
 from ocpp.v16.enums import (
-	AvailabilityStatus,
-	AvailabilityType,
-	CancelReservationStatus,
-	ChargingProfilePurposeType,
+    AvailabilityStatus,
+    AvailabilityType,
+    CancelReservationStatus,
+    ChargingProfileKindType,
+    ChargingProfilePurposeType,
     ChargingProfileStatus,
-	ChargingRateUnitType,
-	ClearChargingProfileStatus,
-	ClearCacheStatus,
-	DataTransferStatus,
-	DiagnosticsStatus,
-	FirmwareStatus,
-	MessageTrigger,
-	RegistrationStatus,
-	ReservationStatus,
-	ResetStatus,
-	ResetType,
-	RemoteStartStopStatus,
-	TriggerMessageStatus,
-	UnlockStatus,
-	UpdateStatus,
-	UpdateType,
+    ChargingRateUnitType,
+    ClearChargingProfileStatus,
+    ClearCacheStatus,
+    DataTransferStatus,
+    DiagnosticsStatus,
+    FirmwareStatus,
+    MessageTrigger,
+    RegistrationStatus,
+    ReservationStatus,
+    ResetStatus,
+    ResetType,
+    RemoteStartStopStatus,
+    TriggerMessageStatus,
+    UnlockStatus,
+    UpdateStatus,
+    UpdateType,
 )
 
 from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
+    ChargingProfileData,
     ChargingProfileManager,
 )
 from chargeghost_evse.ocpp_adapter.auth_cache import AuthorizationCacheManager
-from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
+from chargeghost_evse.ocpp_adapter.config_keys import (
+    ConfigurationKey,
+    ConfigurationKeyManager,
+)
 from chargeghost_evse.ocpp_adapter.data_transfer import DataTransferRegistry
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.helpers import parse_bool_string
+
+
+def validate_charging_profile(profile: ChargingProfileData) -> Optional[str]:
+    """
+    Validate a charging profile according to OCPP 1.6J specification.
+
+    Performs Kind-specific validation as required by OCPP 1.6J Smart Charging:
+
+    - Absolute profiles: startSchedule is required
+    - Recurring profiles: startSchedule AND recurrencyKind are required
+    - Relative profiles: no Kind-specific requirements
+
+    Args:
+            profile: The charging profile to validate.
+
+    Returns:
+            Error code string if validation fails, None if valid.
+             Possible errors:
+            - "absolute_missing_start_schedule"
+            - "recurring_missing_start_schedule"
+            - "recurring_missing_recurrency_kind"
+    """
+    kind = profile.charging_profile_kind
+    schedule = profile.charging_schedule
+
+    if kind == ChargingProfileKindType.absolute:
+        if schedule.start_schedule is None:
+            return "absolute_missing_start_schedule"
+
+    elif kind == ChargingProfileKindType.recurring:
+        if schedule.start_schedule is None:
+            return "recurring_missing_start_schedule"
+        if profile.recurrency_kind is None:
+            return "recurring_missing_recurrency_kind"
+
+    return None
 
 
 class Adapter(cp):
@@ -219,6 +260,22 @@ class Adapter(cp):
             max_profiles=max_profiles,
             max_stack_level=max_stack_level,
             max_schedule_periods=max_periods,
+        )
+
+        # Register dynamic config key for installed profile IDs
+        self.config_manager.register_key(
+            ConfigurationKey(
+                key="GetProfileIds",
+                value="",
+                readonly=True,
+                default="",
+                description="Comma-separated list of installed charging profile IDs",
+                mandatory=False,
+                category="SmartCharging",
+                value_provider=lambda: ",".join(
+                    str(pid) for pid in self.charging_profile_manager.get_profile_ids()
+                ),
+            )
         )
 
         # Subscribe to configuration changes
@@ -404,9 +461,7 @@ class Adapter(cp):
         """
         if hasattr(msg, "unique_id") and hasattr(msg, "action"):
             payload = getattr(msg, "payload", msg.__dict__)
-            self._log_ocpp_raw(
-                "RX", msg.action, payload, getattr(msg, "unique_id", "")
-            )
+            self._log_ocpp_raw("RX", msg.action, payload, getattr(msg, "unique_id", ""))
         return await super()._handle_call(msg)
 
     def _schedule_background_send(self, awaitable: Awaitable[Any], action: str) -> None:
@@ -602,9 +657,7 @@ class Adapter(cp):
         )
 
         if trigger == MessageTrigger.boot_notification:
-            self._schedule_background_send(
-                self.send_boot_notification(), trigger.value
-            )
+            self._schedule_background_send(self.send_boot_notification(), trigger.value)
             return call_result.TriggerMessage(status=TriggerMessageStatus.accepted)
 
         if trigger == MessageTrigger.heartbeat:
@@ -617,15 +670,11 @@ class Adapter(cp):
                 or connector_id not in self.known_connector_ids
                 or self.get_connector_status is None
             ):
-                return call_result.TriggerMessage(
-                    status=TriggerMessageStatus.rejected
-                )
+                return call_result.TriggerMessage(status=TriggerMessageStatus.rejected)
 
             status = self.get_connector_status(connector_id)
             if status is None:
-                return call_result.TriggerMessage(
-                    status=TriggerMessageStatus.rejected
-                )
+                return call_result.TriggerMessage(status=TriggerMessageStatus.rejected)
 
             self._schedule_background_send(
                 self.send_status_notification(connector_id, "NoError", status),
@@ -639,15 +688,11 @@ class Adapter(cp):
                 or connector_id not in self.known_connector_ids
                 or self.get_meter_snapshot is None
             ):
-                return call_result.TriggerMessage(
-                    status=TriggerMessageStatus.rejected
-                )
+                return call_result.TriggerMessage(status=TriggerMessageStatus.rejected)
 
             snapshot = self.get_meter_snapshot(connector_id)
             if snapshot is None or len(snapshot) != 2:
-                return call_result.TriggerMessage(
-                    status=TriggerMessageStatus.rejected
-                )
+                return call_result.TriggerMessage(status=TriggerMessageStatus.rejected)
 
             value, transaction_id = snapshot
             self._schedule_background_send(
@@ -977,7 +1022,7 @@ class Adapter(cp):
                     KeyValue(
                         key=config_key.key,
                         readonly=config_key.readonly,
-                        value=config_key.value,
+                        value=config_key.get_value(),
                     )
                 )
         else:
@@ -989,7 +1034,7 @@ class Adapter(cp):
                         KeyValue(
                             key=found_key.key,
                             readonly=found_key.readonly,
-                            value=found_key.value,
+                            value=found_key.get_value(),
                         )
                     )
                 else:
@@ -1246,7 +1291,9 @@ class Adapter(cp):
                 await self.send_firmware_status_notification(FirmwareStatus.downloading)
                 success = await self.firmware_manager.simulate_firmware_update()
                 if success:
-                    await self.send_firmware_status_notification(FirmwareStatus.installed)
+                    await self.send_firmware_status_notification(
+                        FirmwareStatus.installed
+                    )
                 else:
                     await self.send_firmware_status_notification(
                         FirmwareStatus.installation_failed
@@ -1296,6 +1343,14 @@ class Adapter(cp):
         except (KeyError, ValueError, TypeError) as e:
             self._log(
                 f"Failed to parse charging profile: {e}",
+                level=logging.WARNING,
+            )
+            return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
+
+        validation_error = validate_charging_profile(profile)
+        if validation_error:
+            self._log(
+                f"Charging profile validation failed: {validation_error}",
                 level=logging.WARNING,
             )
             return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
@@ -1564,6 +1619,20 @@ class Adapter(cp):
         if cache_enabled and response.id_tag_info is not None:
             self.auth_cache.put(id_tag, response.id_tag_info)
 
+        # Emit SecurityEventNotification for failed authorizations
+        if status in ("Blocked", "Expired", "Invalid", "ConcurrentTx"):
+            try:
+                await self.send_security_event_notification(
+                    event_type="FailedToAuthenticate",
+                    timestamp=datetime.now(timezone.utc),
+                    tech_info=f"id_tag={id_tag}, status={status}",
+                )
+            except Exception:
+                self._log(
+                    "SecurityEventNotification failed (non-critical)",
+                    level=logging.DEBUG,
+                )
+
         return response
 
     async def send_start_transaction(
@@ -1793,6 +1862,37 @@ class Adapter(cp):
         response: call_result.FirmwareStatusNotification = await self.call(request)
         return response
 
+    async def send_security_event_notification(
+        self,
+        event_type: str,
+        timestamp: datetime,
+        tech_info: Optional[str] = None,
+    ) -> call_result.SecurityEventNotification:
+        """
+        Send SecurityEventNotification to the Central System.
+
+        Reports security-related events such as failed authentication
+        attempts, invalid messages, or tampering detection.
+
+        Args:
+            event_type: Security event type (e.g. "FailedToAuthenticate").
+            timestamp: When the event occurred.
+            tech_info: Optional technical details about the event.
+
+        Returns:
+            SecurityEventNotification response.
+        """
+        request = call.SecurityEventNotification(
+            type=event_type,
+            timestamp=timestamp.isoformat(),
+            tech_info=tech_info,
+        )
+        self._log(
+            f"SecurityEventNotification: type={event_type}, tech_info={tech_info}",
+        )
+        response: call_result.SecurityEventNotification = await self.call(request)
+        return response
+
     async def send_data_transfer(
         self,
         vendor_id: str,
@@ -1819,9 +1919,7 @@ class Adapter(cp):
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _check_local_auth(
-        self, id_tag: str
-    ) -> Optional[tuple[Optional[Any], dict]]:
+    def _check_local_auth(self, id_tag: str) -> Optional[tuple[Optional[Any], dict]]:
         """
         Check the local authorization list for an id_tag.
 
