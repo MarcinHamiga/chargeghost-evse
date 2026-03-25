@@ -1702,6 +1702,7 @@ class Adapter(cp):
         timestamp: str,
         transaction_id: int,
         reason: Optional[str] = None,
+        meter_history: Optional[list[dict]] = None,
     ) -> call_result.StopTransaction:
         """
         Send StopTransaction to the Central System.
@@ -1713,15 +1714,43 @@ class Adapter(cp):
             timestamp: ISO 8601 timestamp of transaction end.
             transaction_id: The transaction to stop.
             reason: Reason for stopping (Local, Remote, EVDisconnected, etc.).
+            meter_history: Meter value history for transactionData.
 
         Returns:
             StopTransaction response.
         """
+        transaction_data: Optional[list[dict]] = None
+        max_values = self.config_manager.get_int_value("StopTransactionMaxLength", 0)
+
+        if max_values > 0 and meter_history:
+            recent = (
+                meter_history[-max_values:]
+                if len(meter_history) > max_values
+                else meter_history
+            )
+            transaction_data = [
+                {
+                    "timestamp": entry["timestamp"],
+                    "sampledValue": [
+                        {
+                            "value": str(entry["value"]),
+                            "context": "Sample.Periodic",
+                            "measurand": "Energy.Active.Import.Register",
+                            "unit": "Wh",
+                            "format": "Raw",
+                            "location": "Outlet",
+                        }
+                    ],
+                }
+                for entry in recent
+            ]
+
         request = call.StopTransaction(
             meter_stop=meter_stop,
             timestamp=timestamp,
             transaction_id=transaction_id,
             reason=reason,
+            transaction_data=transaction_data,
         )
         self._log(
             f"StopTransaction: tx_id={transaction_id}, meter_stop={meter_stop}",
@@ -1750,6 +1779,7 @@ class Adapter(cp):
         connector_id: int,
         value: float,
         transaction_id: Optional[int] = None,
+        context: str = "Sample.Periodic",
     ) -> call_result.MeterValues:
         """
         Send MeterValues to the Central System.
@@ -1760,6 +1790,7 @@ class Adapter(cp):
             connector_id: The connector being monitored.
             value: Meter reading in Watt-hours.
             transaction_id: Associated transaction ID if during a session.
+            context: Meter value context (Sample.Periodic or Sample.Clock).
 
         Returns:
             MeterValues response.
@@ -1773,9 +1804,11 @@ class Adapter(cp):
                     "sampled_value": [
                         {
                             "value": str(value),
-                            "context": "Sample.Periodic",
+                            "context": context,
                             "measurand": "Energy.Active.Import.Register",
                             "unit": "Wh",
+                            "format": "Raw",
+                            "location": "Outlet",
                         }
                     ],
                 }

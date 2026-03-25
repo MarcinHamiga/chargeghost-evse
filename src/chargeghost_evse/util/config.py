@@ -20,14 +20,14 @@ Constants:
 
 Example:
     >>> from chargeghost_evse.util.config import SimulationConfig
-    >>> 
+    >>>
     >>> # Load existing config or create defaults
     >>> config = SimulationConfig.load()
-    >>> 
+    >>>
     >>> # Modify settings
     >>> config.connection_url = "wss://my-csms.example.com/CP_1"
     >>> config.ocpp_id = "CP_1"
-    >>> 
+    >>>
     >>> # Save to disk (password stored in keyring)
     >>> config.save()
 """
@@ -138,15 +138,15 @@ class ConnectorConfig:
 
 
 def _migrate_log_mode(value: str) -> "LogMode":
-	"""Map old log mode values to new ones. Unknown values default to 'shallow'."""
-	_COMPAT_MAP: dict[str, "LogMode"] = {"compact": "shallow", "verbose": "deep"}
-	# If value is in the compatibility map, use the mapped value
-	if value in _COMPAT_MAP:
-		return _COMPAT_MAP[value]
-	# If value is a valid LogMode, use it; otherwise default to "shallow"
-	if value in ("shallow", "deep"):
-		return cast("LogMode", value)
-	return "shallow"
+    """Map old log mode values to new ones. Unknown values default to 'shallow'."""
+    _COMPAT_MAP: dict[str, "LogMode"] = {"compact": "shallow", "verbose": "deep"}
+    # If value is in the compatibility map, use the mapped value
+    if value in _COMPAT_MAP:
+        return _COMPAT_MAP[value]
+    # If value is a valid LogMode, use it; otherwise default to "shallow"
+    if value in ("shallow", "deep"):
+        return cast("LogMode", value)
+    return "shallow"
 
 
 @dataclass
@@ -292,7 +292,9 @@ class SimulationConfig:
                     persist_message_queue=data.get("persist_message_queue", False),
                 )
             except (json.JSONDecodeError, IOError) as e:
-                logging.warning("Failed to load config from %s, using defaults: %s", CONFIG_FILE, e)
+                logging.warning(
+                    "Failed to load config from %s, using defaults: %s", CONFIG_FILE, e
+                )
 
         return cls()
 

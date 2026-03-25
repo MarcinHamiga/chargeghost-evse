@@ -8,7 +8,15 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from ocpp.v16.enums import ConfigurationStatus
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPropertyAnimation, QEasingCurve, QSize
+from PySide6.QtCore import (
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+    QPropertyAnimation,
+    QEasingCurve,
+    QSize,
+)
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -444,7 +452,10 @@ class SimulatorWidget(QWidget):
         self.connector_bar.set_selected_connector(self._selected_connector_id)
 
         # Update live session stats in bar
-        from chargeghost_evse.ui.widgets.session_dashboard import _compute_effective_power_kw
+        from chargeghost_evse.ui.widgets.session_dashboard import (
+            _compute_effective_power_kw,
+        )
+
         power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
         session = engine.session
         if session and session.connector_id == self._selected_connector_id:
@@ -741,7 +752,9 @@ class ManualWidget(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
 
-    def update_connector_range(self, min_id: int = 1, max_id: Optional[int] = None) -> None:
+    def update_connector_range(
+        self, min_id: int = 1, max_id: Optional[int] = None
+    ) -> None:
         """Sync the connector spinner's upper bound to the current connector count."""
         if max_id is None:
             max_id = max(len(self.engine.connectors), 1)
@@ -751,7 +764,9 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message(
+                "[yellow]UI:[/yellow] Manual controls unavailable while disconnected"
+            )
             return
         asyncio.run_coroutine_threadsafe(adapter.send_boot_notification(), loop)
 
@@ -759,7 +774,9 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message(
+                "[yellow]UI:[/yellow] Manual controls unavailable while disconnected"
+            )
             return
         asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
 
@@ -767,7 +784,9 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message(
+                "[yellow]UI:[/yellow] Manual controls unavailable while disconnected"
+            )
             return
         id_tag = tag or self.id_tag_input.get_tag() or "MANUAL_TAG"
         self.main_window.app_settings.add_recent_tag(id_tag)
@@ -787,7 +806,9 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message(
+                "[yellow]UI:[/yellow] Manual controls unavailable while disconnected"
+            )
             return
 
         tx_id_text = self.input_tx_id.text().strip()
@@ -824,7 +845,9 @@ class ManualWidget(QWidget):
         adapter = self.bridge.runner.adapter
         loop = self.bridge.runner.loop
         if not adapter or not loop:
-            self.log_side_panel.log_message("[yellow]UI:[/yellow] Manual controls unavailable while disconnected")
+            self.log_side_panel.log_message(
+                "[yellow]UI:[/yellow] Manual controls unavailable while disconnected"
+            )
             return
         asyncio.run_coroutine_threadsafe(
             adapter.send_status_notification(
@@ -848,7 +871,10 @@ class ManualWidget(QWidget):
             self.id_tag_input.set_applied_tag(conn.id_tag)
 
     def refresh_connection_state(self) -> None:
-        has_connection = self.bridge.runner.adapter is not None and self.bridge.runner.loop is not None
+        has_connection = (
+            self.bridge.runner.adapter is not None
+            and self.bridge.runner.loop is not None
+        )
         self.btn_boot.setEnabled(has_connection)
         self.btn_heartbeat.setEnabled(has_connection)
         self.btn_status.setEnabled(has_connection)
@@ -970,7 +996,9 @@ class MainWindow(QMainWindow):
         self.simulator = SimulatorWidget(self)
         self.manual = ManualWidget(self)
 
-        self.simulator.connector_range_changed.connect(self.manual.update_connector_range)
+        self.simulator.connector_range_changed.connect(
+            self.manual.update_connector_range
+        )
 
         self.stack.addWidget(self.mode_select)
         self.stack.addWidget(self.simulator)
@@ -984,7 +1012,9 @@ class MainWindow(QMainWindow):
         self._connection_indicator = QLabel("Disconnected")
         self._connection_indicator.setObjectName("connection_indicator")
         self._connection_indicator.setProperty("connected", False)
-        self._connection_indicator.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._connection_indicator.setAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground, True
+        )
         self.status_bar.addPermanentWidget(self._connection_indicator)
 
     def _setup_shortcuts(self) -> None:
@@ -1003,21 +1033,21 @@ class MainWindow(QMainWindow):
     def _setup_menu(self) -> None:
         """Setup the application menu bar."""
         menubar = self.menuBar()
-        
+
         # Help menu
         help_menu = menubar.addMenu("Help")
-        
+
         # Check for Updates action (only enabled in production builds)
         check_updates_action = help_menu.addAction("Check for Updates...")
         check_updates_action.triggered.connect(self._manual_update_check)
-        
+
         # Disable in development mode
         if not getattr(sys, "frozen", False):
             check_updates_action.setEnabled(False)
             check_updates_action.setText("Check for Updates... (Disabled in Dev Mode)")
-        
+
         help_menu.addSeparator()
-        
+
         # About action
         about_action = help_menu.addAction("About ChargeGhost EVSE")
         about_action.triggered.connect(self._show_about_dialog)
@@ -1028,7 +1058,9 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geometry)
 
         self.simulator._selected_connector_id = self.app_settings.last_connector_id
-        self.simulator.dashboard.set_selected_connector(self.app_settings.last_connector_id)
+        self.simulator.dashboard.set_selected_connector(
+            self.app_settings.last_connector_id
+        )
 
         if self.app_settings.log_panel_expanded:
             self.simulator.log_side_panel.toggle()
@@ -1085,7 +1117,11 @@ class MainWindow(QMainWindow):
         mode: LogMode = "deep" if is_detailed else "shallow"
         self.app_settings.log_mode = mode
         # Sync the other mode's log panel button state
-        other = self.manual if self.stack.currentWidget() == self.simulator else self.simulator
+        other = (
+            self.manual
+            if self.stack.currentWidget() == self.simulator
+            else self.simulator
+        )
         other.log_side_panel.set_log_mode(is_detailed)
 
     def _shortcut_save(self) -> None:
@@ -1226,7 +1262,7 @@ class MainWindow(QMainWindow):
         <p>© 2026 Marcin Hamiga</p>
         <p>License: AGPLv3</p>
         """
-        
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("About ChargeGhost EVSE")
         msg_box.setTextFormat(Qt.TextFormat.RichText)

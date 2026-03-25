@@ -360,7 +360,9 @@ class Engine(Subscriber):
             pending = self._pending_remote_starts.get(connector_id)
             if pending:
                 if time.monotonic() < pending["expiry"]:
-                    self._log(f"Executing pending RemoteStart for connector {connector_id}")
+                    self._log(
+                        f"Executing pending RemoteStart for connector {connector_id}"
+                    )
                     self.start_session(
                         connector_id=connector_id,
                         transaction_id=pending["transaction_id"],
@@ -453,7 +455,9 @@ class Engine(Subscriber):
 
         connector = self._connectors.get(connector_id)
         if connector is None:
-            self._log(f"Error: Connector {connector_id} not found.", level=logging.ERROR)
+            self._log(
+                f"Error: Connector {connector_id} not found.", level=logging.ERROR
+            )
             return
 
         reservation = self._reservations.get(connector_id)
@@ -480,7 +484,10 @@ class Engine(Subscriber):
                     "expiry": time.monotonic() + timeout,
                 }
             else:
-                self._log(f"Error: Connector {connector_id} is not plugged in.", level=logging.ERROR)
+                self._log(
+                    f"Error: Connector {connector_id} is not plugged in.",
+                    level=logging.ERROR,
+                )
             return
 
         # Clear any pending start for this connector
@@ -585,7 +592,9 @@ class Engine(Subscriber):
                     f"[green]Engine:[/green] Connector {connector_id} resumed charging"
                 )
 
-    def set_connector_availability(self, connector_id: int, availability_type: str) -> str:
+    def set_connector_availability(
+        self, connector_id: int, availability_type: str
+    ) -> str:
         """
         Set one or all connectors to Operative or Inoperative.
 
@@ -611,7 +620,9 @@ class Engine(Subscriber):
 
         scheduled = False
         for cid in target_ids:
-            has_active_session = self.session is not None and self.session.connector_id == cid
+            has_active_session = (
+                self.session is not None and self.session.connector_id == cid
+            )
             if has_active_session:
                 self._pending_availability_changes[cid] = availability_type
                 scheduled = True
@@ -620,7 +631,9 @@ class Engine(Subscriber):
 
         return "scheduled" if scheduled else "accepted"
 
-    def _apply_connector_availability(self, connector_id: int, availability_type: str) -> None:
+    def _apply_connector_availability(
+        self, connector_id: int, availability_type: str
+    ) -> None:
         """
         Apply an availability change to a connector immediately.
 
@@ -659,6 +672,7 @@ class Engine(Subscriber):
                 "id_tag": self.session.id_tag,
                 "meter_stop": self.energy_meter.get_meter_reading(),
                 "reason": reason,
+                "meter_history": self.session.get_meter_history(),
             }
 
             # Clean up subscriptions
@@ -706,14 +720,19 @@ class Engine(Subscriber):
             # Apply charging limit if configured (e.g., from ChargingProfileManager)
             effective_current = connector.current
             if self.get_limit is not None:
-                limit = self.get_limit(self.session.connector_id, self.session.transaction_id)
+                limit = self.get_limit(
+                    self.session.connector_id, self.session.transaction_id
+                )
                 if limit is not None and limit >= 0:
                     effective_current = min(connector.current, limit)
 
             # Reflect EVSE-side suspension in connector state when limit drops to 0
             if effective_current == 0 and connector.status == ConnectorState.CHARGING:
                 connector.suspend_evse()
-            elif effective_current > 0 and connector.status == ConnectorState.SUSPENDED_EVSE:
+            elif (
+                effective_current > 0
+                and connector.status == ConnectorState.SUSPENDED_EVSE
+            ):
                 connector.resume_charging()
 
             # Update energy meter with current parameters

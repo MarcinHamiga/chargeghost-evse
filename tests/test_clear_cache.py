@@ -69,7 +69,8 @@ def test_send_authorize_ignores_expired_cached_response() -> None:
 	response = asyncio.run(adapter.send_authorize("TAG-1"))
 
 	assert response.id_tag_info["status"] == AuthorizationStatus.blocked.value
-	adapter.call.assert_awaited_once()
+	# call is awaited twice: once for Authorize, once for SecurityEventNotification
+	assert adapter.call.await_count == 2
 	assert adapter.auth_cache.get("TAG-1")["status"] == AuthorizationStatus.blocked.value
 
 

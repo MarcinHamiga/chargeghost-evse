@@ -222,7 +222,6 @@ class ConnectorEditorCard(QFrame):
         if result == QMessageBox.StandardButton.Yes:
             self.on_remove.emit(self.connector_id)
 
-
     def set_connector_id(self, connector_id: int) -> None:
         """
         Update the connector ID and refresh the title label.

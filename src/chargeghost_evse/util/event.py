@@ -13,14 +13,14 @@ Classes:
 
 Example:
     >>> from chargeghost_evse.util.event import Event
-    >>> 
+    >>>
     >>> class TemperatureSensor:
     ...     def __init__(self):
     ...         self.on_reading = Event()
-    ...     
+    ...
     ...     def read(self, temp: float):
     ...         self.on_reading.emit(temperature=temp)
-    >>> 
+    >>>
     >>> sensor = TemperatureSensor()
     >>> sensor.on_reading.subscribe(lambda temperature: print(f"Temp: {temperature}°C"))
     >>> sensor.read(23.5)
@@ -56,11 +56,11 @@ class Event:
 
     Example:
         >>> event = Event()
-        >>> 
+        >>>
         >>> class Handler:
         ...     def on_event(self, value: int):
         ...         print(f"Received: {value}")
-        >>> 
+        >>>
         >>> handler = Handler()
         >>> event.subscribe(handler.on_event)
         >>> event.emit(value=42)  # Prints: Received: 42

@@ -6,12 +6,12 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 
 | Profile | Status | Description |
 | :--- | :--- | :--- |
-| **Core** | Partial | Basic charging loop, heartbeat, transaction management, remote reset, ChangeAvailability, and UnlockConnector are implemented. ClearCache and DataTransfer are still missing. |
+| **Core** | Implemented | Full support: BootNotification, Heartbeat, StatusNotification, Authorize, StartTransaction, StopTransaction, MeterValues, RemoteStart/Stop, Reset, ChangeAvailability, UnlockConnector, ChangeConfiguration, GetConfiguration, ClearCache, DataTransfer. |
 | **Firmware Management** | Implemented | Full support for diagnostics upload and firmware updates with complete status reporting. |
 | **Local Auth List** | Implemented | Full support for local authorization lists, caching, and list updates. |
 | **Smart Charging** | Implemented | Full support for SetChargingProfile, ClearChargingProfile, and GetCompositeSchedule with all profile purposes (ChargePointMaxProfile, TxDefaultProfile, TxProfile) and schedule kinds (Absolute, Recurring, Relative). |
-| **Reservation** | Missing | No support for connector reservations (ReserveNow, CancelReservation). |
-| **Remote Trigger** | Missing | No support for Central System triggered messages (TriggerMessage). |
+| **Reservation** | Implemented | Full support for ReserveNow and CancelReservation with expiry management. |
+| **Remote Trigger** | Implemented | Full support for TriggerMessage (Heartbeat, StatusNotification, MeterValues, BootNotification, DiagnosticsStatusNotification, FirmwareStatusNotification). |
 
 ---
 
@@ -25,6 +25,17 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 - [x] **Reset**: Trigger a Soft (application restart) or Hard (reboot) reset.
 - [x] **ChangeConfiguration**: Update OCPP configuration keys.
 - [x] **GetConfiguration**: Retrieve OCPP configuration key values.
+- [x] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
+- [x] **UnlockConnector**: Remotely unlock a connector's physical lock.
+- [x] **ClearCache**: Clear the in-memory authorization cache.
+- [x] **DataTransfer**: Generic message for vendor-specific extensions.
+
+**Reservation Profile**
+- [x] **ReserveNow**: Reserve a connector for a specific `idTag` until an `expiryDate`.
+- [x] **CancelReservation**: Cancel a previously made reservation.
+
+**Remote Trigger Profile**
+- [x] **TriggerMessage**: Request the Charge Point to send a specific message immediately.
 
 **Firmware Management Profile**
 - [x] **GetDiagnostics**: Request diagnostics log file upload (simulated).
@@ -49,61 +60,46 @@ This document outlines the current state of OCPP 1.6J compliance for the ChargeG
 - [x] **StopTransaction**: Report transaction termination with final meter value.
 - [x] **StatusNotification**: Report connector status changes.
 - [x] **MeterValues**: Send periodic or on-demand meter readings.
+- [x] **DataTransfer**: Send vendor-specific data to the Central System.
 
 **Firmware Management Profile**
-- [x] **DiagnosticsStatusNotification**: Report progress of diagnostics upload (Uploading, Uploaded, UploadFailed).
-- [x] **FirmwareStatusNotification**: Report firmware update progress (Downloading, Downloaded, Installing, Installed, InstallationFailed).
+- [x] **DiagnosticsStatusNotification**: Report progress of diagnostics upload.
+- [x] **FirmwareStatusNotification**: Report firmware update progress.
+
+**Security Extension**
+- [x] **SecurityEventNotification**: Report security-related events (e.g., failed authentication).
 
 ---
 
-## 3. Missing Messages
+## 3. Configuration Keys
 
-### Inbound Messages Not Yet Implemented
-
-**Core Profile**
-- [x] **ChangeAvailability**: Set a connector (or entire Charge Point) to Inoperative or Operative.
-- [ ] **ClearCache**: Clear the local authorization cache.
-- [x] **UnlockConnector**: Remotely unlock a connector's physical lock.
-- [ ] **DataTransfer**: Generic message for vendor-specific extensions.
-
-**Reservation Profile**
-- [ ] **ReserveNow**: Reserve a connector for a specific `idTag` until an `expiryDate`.
-- [ ] **CancelReservation**: Cancel a previously made reservation.
-
-**Remote Trigger Profile**
-- [ ] **TriggerMessage**: Request the Charge Point to send a specific message immediately (e.g., Heartbeat, StatusNotification, MeterValues).
-
-### Outbound Messages Not Yet Implemented
-
-**Security Profile**
-- [ ] **SecurityEventNotification**: Report security-related events (e.g., failed authentication, invalid certificates, unauthorized access attempts).
-
----
-
-## 4. Configuration Keys
-
-OCPP 1.6 defines mandatory and optional configuration keys. The following are implemented with GUI support:
+OCPP 1.6 defines mandatory and optional configuration keys. All relevant keys are implemented:
 
 ### Implemented Mandatory Keys
 | Key | Default | Description |
 | :--- | :--- | :--- |
-| `ConnectionTimeout` | 30 | Connection timeout in seconds |
-| `HeartbeatInterval` | 300 | Heartbeat interval in seconds (0 = disabled) |
-| `ResetRetries` | 0 | Number of retries for reset operation |
-| `StopTransactionOnEVSideDisconnect` | true | Stop transaction when EV side disconnects |
-
-### Implemented Optional Keys
-| Key | Default | Description |
-| :--- | :--- | :--- |
+| `AllowOfflineTxForUnknownId` | false | Whether to allow offline transactions for unknown ID tags |
+| `AuthorizationCacheEnabled` | true | Whether authorization cache is enabled |
 | `AuthorizeRemoteTxRequests` | true | Whether to authorize remote transaction requests |
-| `ClockAlignedDataInterval` | 900 | Interval for clock-aligned meter value sampling (0=disabled) |
-| `ConnectorPhaseRotation` | RST.RST | Phase rotation for connectors |
+| `ClockAlignedDataInterval` | 0 | Interval for clock-aligned meter value sampling (0=disabled) |
+| `ConnectionTimeout` | 30 | Connection timeout in seconds |
+| `ConnectorPhaseRotation` | 0.RST | Phase rotation for connectors |
+| `GetConfigurationMaxKeys` | 50 | Maximum configuration keys per request |
+| `HeartbeatInterval` | 300 | Heartbeat interval in seconds (0 = disabled) |
 | `LocalAuthListEnabled` | false | Whether local authorization list is enabled |
+| `LocalAuthorizeOffline` | true | Whether to use local auth list when offline |
+| `LocalPreAuthorize` | false | Whether to check local auth list before CSMS |
+| `MeterValuesAlignedData` | Energy.Active.Import.Register | Measurands for clock-aligned meter values |
+| `MeterValuesSampledData` | Energy.Active.Import.Register | Measurands for sampled meter values |
 | `MeterValueSampleInterval` | 60 | Interval for meter value sampling in seconds |
-| `StopTxOnInvalidId` | true | Stop transaction on invalid ID tag |
+| `NumberOfConnectors` | 1 | Number of connectors on this charge point |
+| `ResetRetries` | 1 | Number of retries for reset operation |
+| `StopTransactionOnEVSideDisconnect` | true | Stop transaction when EV side disconnects |
+| `StopTransactionOnInvalidId` | true | Stop transaction on invalid ID tag |
+| `SupportedFeatureProfiles` | (all 6) | List of supported OCPP feature profiles |
 | `TransactionMessageAttempts` | 3 | Number of attempts to send transaction messages |
-| `TransactionMessageRetryInterval` | 30 | Retry interval for transaction messages in seconds |
-| `WebSocketPingInterval` | 10 | WebSocket ping interval in seconds |
+| `TransactionMessageRetryInterval` | 10 | Retry interval for transaction messages in seconds |
+| `UnlockConnectorOnEVSideDisconnect` | true | Unlock connector when EV side disconnects |
 
 ### Read-Only Keys (Device Capabilities)
 | Key | Default | Description |
@@ -111,18 +107,21 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 | `ChargeProfileMaxStackLevel` | 5 | Maximum stack level for charging profiles |
 | `ChargingScheduleAllowedChargingRateUnit` | Current,Power | Allowed charging rate units |
 | `ChargingScheduleMaxPeriods` | 10 | Maximum periods in a charging schedule |
+| `GetProfileIds` | (dynamic) | Comma-separated list of installed charging profile IDs |
 | `LocalAuthListMaxLength` | 100 | Maximum entries in local authorization list |
 | `MaxChargingProfilesInstalled` | 20 | Maximum charging profiles installed |
 | `SendLocalListMaxLength` | 20 | Maximum entries in send local list |
+| `StopTransactionMaxLength` | 10 | Maximum meter values in a StopTransaction |
 
-### Missing Configuration Keys
-- [ ] **GetProfileIds**: List of installed charging profile IDs
-- [ ] **ChargingRateUnit**: Default charging rate unit
-- [ ] **NumberOfConnectors**: Number of physical connectors
+### Optional Keys
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `LightIntensity` | 100 | Intensity of the charge point light in percent |
+| `WebSocketPingInterval` | 10 | WebSocket ping interval in seconds |
 
 ---
 
-## 5. Architectural & Infrastructure Gaps
+## 4. Architectural & Infrastructure Gaps
 
 ### Persistence Layer
 - [ ] **Configuration Store**: Persistent storage (JSON/SQLite) to retain OCPP configuration keys across restarts.
@@ -131,21 +130,20 @@ OCPP 1.6 defines mandatory and optional configuration keys. The following are im
 
 ### Security
 - [ ] **TLS Certificate Management**: Mechanisms to rotate certificates via OCPP.
-- [ ] **SecurityEventNotification**: Reporting security-related events (e.g., failed logins, invalid certificates).
 - [ ] **OCPP 1.6 Security Whitepaper**: Full implementation of the three security profiles (Unsecured, TLS with Basic Auth, TLS with Client Side Certificates).
 
 ### Logic & Robustness
-- [x] **Message Queuing (Offline)**: Buffering mandatory messages (like `MeterValues`, `StopTransaction`) when the connection is lost and re-sending them upon reconnection.
+- [x] **Message Queuing (Offline)**: Buffering mandatory messages when the connection is lost and re-sending them upon reconnection.
 - [x] **CallError Handling**: Gracefully handling error responses from the Central System for all message types.
-- [x] **State Machine Validation**: Ensuring strict adherence to connector states (e.g., not allowing a transaction to start if the connector is `Faulted` or `Inoperative`).
+- [x] **State Machine Validation**: Ensuring strict adherence to connector states.
 
 ---
 
-## 6. Summary Statistics
+## 5. Summary Statistics
 
-- **Inbound Messages**: 13 of 19 implemented (68%)
-- **Outbound Messages**: 9 of 10 implemented (90%)
-- **Feature Profiles**: 4 of 6 implemented (67%)
-- **Configuration Keys**: 16 of 19 implemented (84%)
+- **Inbound Messages**: 19 of 19 implemented (100%)
+- **Outbound Messages**: 10 of 10 implemented (100%)
+- **Feature Profiles**: 6 of 6 implemented (100%)
+- **Configuration Keys**: All mandatory and optional keys implemented
 
-**Last Updated**: March 10, 2026
+**Last Updated**: March 19, 2026

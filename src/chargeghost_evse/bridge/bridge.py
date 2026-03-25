@@ -22,7 +22,7 @@ Classes:
 Example:
     >>> from chargeghost_evse.bridge.bridge import Bridge
     >>> from chargeghost_evse.engine.engine import Engine
-    >>> 
+    >>>
     >>> engine = Engine()
     >>> bridge = Bridge(
     ...     engine=engine,
@@ -332,7 +332,9 @@ class AsyncRunner:
 
             # Exponential backoff before retry
             if self._shutdown_event is not None and not self._shutdown_event.is_set():
-                self._log(message=f"Retrying in {retry_delay}s...", level=logging.WARNING)
+                self._log(
+                    message=f"Retrying in {retry_delay}s...", level=logging.WARNING
+                )
                 try:
                     await asyncio.wait_for(
                         self._shutdown_event.wait(), timeout=retry_delay
@@ -410,10 +412,10 @@ class Bridge:
         >>> engine = Engine()
         >>> bridge = Bridge(engine, url="wss://csms.example.com/CP_1")
         >>> bridge.setup()
-        >>> 
+        >>>
         >>> # Engine events automatically forwarded to OCPP
         >>> engine.start_session(connector_id=1, transaction_id=123)
-        >>> 
+        >>>
         >>> bridge.shutdown()
     """
 
@@ -567,7 +569,10 @@ class Bridge:
         - Engine.get_limit: Returns charging current limit from profiles
         - Adapter.get_connector_info: Returns connector voltage and phases
         """
-        def get_limit(connector_id: int, transaction_id: Optional[int]) -> Optional[float]:
+
+        def get_limit(
+            connector_id: int, transaction_id: Optional[int]
+        ) -> Optional[float]:
             """
             Get charging current limit from charging profiles.
 
@@ -578,7 +583,10 @@ class Bridge:
             Returns:
                 Maximum current in amperes, or None for no limit.
             """
-            if not self.runner.adapter or not self.runner.adapter.charging_profile_manager:
+            if (
+                not self.runner.adapter
+                or not self.runner.adapter.charging_profile_manager
+            ):
                 return None
 
             connector = self.engine.get_connector(connector_id)
@@ -589,7 +597,9 @@ class Bridge:
             session = self.engine.session
             transaction_start = None
             if session and session.connector_id == connector_id:
-                transaction_start = datetime.fromtimestamp(session.start_time, tz=timezone.utc)
+                transaction_start = datetime.fromtimestamp(
+                    session.start_time, tz=timezone.utc
+                )
 
             return self.runner.adapter.charging_profile_manager.get_composite_limit(
                 connector_id=connector_id,
@@ -725,40 +735,48 @@ class Bridge:
         """
         while not self._shutdown_event.is_set():
             # Get sampling interval from configuration
-            interval = 60  # Default to 60 seconds
+            sample_interval = 60  # Default to 60 seconds
             if self.runner.adapter:
-                interval = self.runner.adapter.config_manager.get_int_value(
+                sample_interval = self.runner.adapter.config_manager.get_int_value(
                     "MeterValueSampleInterval", 60
                 )
 
             # Send meter values if session is active and charging
             if (
-                interval > 0
+                sample_interval > 0
                 and self.engine.session
                 and self.engine.session.transaction_id > 0
                 and self.engine.energy_meter.is_charging
             ):
+                # Record meter value for StopTransaction
+                meter_value = self.engine.energy_meter.get_meter_reading()
+                timestamp = datetime.now(timezone.utc).isoformat()
+                self.engine.session.record_meter_value(meter_value, timestamp)
+
                 adapter = self.runner.adapter
                 loop = self.runner.loop
                 if adapter and loop:
                     future = asyncio.run_coroutine_threadsafe(
                         adapter.send_meter_values(
                             connector_id=self.engine.session.connector_id,
-                            value=self.engine.energy_meter.get_meter_reading(),
+                            value=meter_value,
                             transaction_id=self.engine.session.transaction_id,
                         ),
                         loop,
                     )
                     future.add_done_callback(self._handle_future_error)
                 else:
-                    self._message_queue.enqueue("MeterValues", {
-                        "connector_id": self.engine.session.connector_id,
-                        "value": self.engine.energy_meter.get_meter_reading(),
-                        "transaction_id": self.engine.session.transaction_id,
-                    })
+                    self._message_queue.enqueue(
+                        "MeterValues",
+                        {
+                            "connector_id": self.engine.session.connector_id,
+                            "value": meter_value,
+                            "transaction_id": self.engine.session.transaction_id,
+                        },
+                    )
 
             # Wait for the interval or until shutdown
-            wait_interval = max(interval, 1) if interval > 0 else 1
+            wait_interval = max(sample_interval, 1) if sample_interval > 0 else 1
             self._shutdown_event.wait(timeout=wait_interval)
 
     def _handle_future_error(self, future: "concurrent.futures.Future[Any]") -> None:
@@ -892,9 +910,15 @@ class Bridge:
             """Send StartTransaction and update session with transaction ID."""
             try:
                 response = await adapter.send_start_transaction(**start_kwargs)
-                if response and response.transaction_id and self.engine.session is session:
+                if (
+                    response
+                    and response.transaction_id
+                    and self.engine.session is session
+                ):
                     session.transaction_id = response.transaction_id
-                    self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+                    self._log(
+                        message=f"Transaction ID assigned: {response.transaction_id}"
+                    )
             except Exception as e:
                 self._log(
                     message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
@@ -931,11 +955,13 @@ class Bridge:
         transaction_id = last_session.get("transaction_id", 0)
         meter_stop = last_session.get("meter_stop", 0)
         reason = last_session.get("reason", "Local")
+        meter_history = last_session.get("meter_history", [])
         stop_kwargs = {
             "meter_stop": int(meter_stop),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "transaction_id": transaction_id,
             "reason": reason,
+            "meter_history": meter_history,
         }
 
         self._log(
@@ -966,7 +992,9 @@ class Bridge:
                     level=logging.WARNING,
                 )
             if reason in {"SoftReset", "HardReset"}:
-                await self._send_boot_notification_for_reset(reason.removesuffix("Reset"))
+                await self._send_boot_notification_for_reset(
+                    reason.removesuffix("Reset")
+                )
 
         future = asyncio.run_coroutine_threadsafe(_send_stop(), loop)
         future.add_done_callback(self._handle_future_error)
@@ -996,7 +1024,5 @@ class Bridge:
         adapter = self.runner.adapter
         loop = self.runner.loop
         if adapter and loop:
-            future = asyncio.run_coroutine_threadsafe(
-                adapter.send_heartbeat(), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
             future.add_done_callback(self._handle_future_error)

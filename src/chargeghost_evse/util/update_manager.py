@@ -14,7 +14,7 @@ Constants:
 
 Example:
     >>> from chargeghost_evse.util.update_manager import UpdateManager
-    >>> 
+    >>>
     >>> manager = UpdateManager("1.0.0", config)
     >>> release = await manager.fetch_latest_release()
     >>> if UpdateManager.is_update_available("1.0.0", release.tag_name):
@@ -69,7 +69,7 @@ class UpdateManager:
 
     Example:
         >>> manager = UpdateManager("1.0.0", config)
-        >>> 
+        >>>
         >>> # Check for updates
         >>> try:
         ...     release = await manager.fetch_latest_release()
@@ -127,6 +127,7 @@ class UpdateManager:
             False
         """
         try:
+
             def parse(v: str) -> tuple[int, ...]:
                 # Strip pre-release suffix and parse numeric parts
                 base = cls.normalize_version(v).split("-")[0]

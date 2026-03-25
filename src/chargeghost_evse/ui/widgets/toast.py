@@ -1,7 +1,13 @@
 from typing import Literal, Optional
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
 
 from chargeghost_evse.ui.widgets.icons import get_icon, get_icon_svg
 
@@ -73,7 +79,9 @@ class ToastNotification(QWidget):
         layout.addWidget(close_btn)
         self._refresh_height()
 
-    def update_message(self, message: str, toast_type: Optional[ToastType] = None) -> None:
+    def update_message(
+        self, message: str, toast_type: Optional[ToastType] = None
+    ) -> None:
         if toast_type and toast_type != self._toast_type:
             self._toast_type = toast_type
             self.setProperty("toastType", self._toast_type)

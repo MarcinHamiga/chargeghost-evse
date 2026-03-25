@@ -11,15 +11,15 @@ Classes:
 Example:
     >>> from chargeghost_evse.util.event import Event
     >>> from chargeghost_evse.util.subscriber import Subscriber
-    >>> 
+    >>>
     >>> class MyComponent(Subscriber):
     ...     def __init__(self, event: Event):
     ...         super().__init__()
     ...         self.subscribe_to(event, self.handle_event)
-    ...     
+    ...
     ...     def handle_event(self, value: str):
     ...         print(f"Got: {value}")
-    ...     
+    ...
     ...     def close(self):
     ...         # Clean up subscriptions
     ...         super().close()
@@ -62,10 +62,10 @@ class Subscriber:
         ...     def __init__(self, update_event: Event):
         ...         super().__init__()
         ...         self.subscribe_to(update_event, self.on_update)
-        ...     
+        ...
         ...     def on_update(self, value: float):
         ...         print(f"Sensor update: {value}")
-        ...     
+        ...
         ...     def stop_listening(self):
         ...         # Optionally clean up early
         ...         self.unsubscribe_all()

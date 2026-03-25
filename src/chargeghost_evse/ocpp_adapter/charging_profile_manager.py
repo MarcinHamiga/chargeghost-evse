@@ -29,13 +29,13 @@ Example:
     >>> from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
     ...     ChargingProfileManager, ChargingProfileData
     ... )
-    >>> 
+    >>>
     >>> manager = ChargingProfileManager()
     >>> # Set a profile
     >>> error = manager.set_profile(connector_id=1, profile=profile_data)
     >>> if error:
     ...     print(f"Profile rejected: {error}")
-    >>> 
+    >>>
     >>> # Get current charging limit
     >>> limit = manager.get_composite_limit(
     ...     connector_id=1,
@@ -162,17 +162,17 @@ class ChargingProfileManager:
 
     Example:
         >>> manager = ChargingProfileManager(max_profiles=20)
-        >>> 
+        >>>
         >>> # Add a profile
         >>> error = manager.set_profile(connector_id=1, profile=profile)
-        >>> 
+        >>>
         >>> # Get effective limit
         >>> limit = manager.get_composite_limit(
         ...     connector_id=1, transaction_id=123,
         ...     now=datetime.now(timezone.utc),
         ...     connector_voltage=230.0
         ... )
-        >>> 
+        >>>
         >>> # Clear profiles
         >>> removed = manager.clear_profiles(connector_id=1)
     """
@@ -231,7 +231,8 @@ class ChargingProfileManager:
 
             # TxProfile requires transaction_id
             if (
-                profile.charging_profile_purpose == ChargingProfilePurposeType.tx_profile
+                profile.charging_profile_purpose
+                == ChargingProfilePurposeType.tx_profile
                 and profile.transaction_id is None
             ):
                 return "tx_profile_missing_transaction_id"
@@ -259,6 +260,11 @@ class ChargingProfileManager:
                     extra={"source": "ocpp", "connector_id": connector_id},
                 )
             return None
+
+    def get_profile_ids(self) -> list[int]:
+        """Return sorted list of all installed charging profile IDs."""
+        with self._lock:
+            return sorted(self._profiles.keys())
 
     def clear_profiles(
         self,
@@ -591,7 +597,9 @@ class ChargingProfileManager:
             if total_elapsed < 0:
                 return None
             # Daily = 86400s, Weekly = 604800s
-            cycle = 86400.0 if profile.recurrency_kind == RecurrencyKind.daily else 604800.0
+            cycle = (
+                86400.0 if profile.recurrency_kind == RecurrencyKind.daily else 604800.0
+            )
             elapsed = total_elapsed % cycle
 
         else:
@@ -774,9 +782,7 @@ class ChargingProfileManager:
             profiles = [p for p in profiles if p.transaction_id == transaction_id]
 
         return [
-            p
-            for p in profiles
-            if self._is_valid_in_window(p, start_time, end_time)
+            p for p in profiles if self._is_valid_in_window(p, start_time, end_time)
         ]
 
     def _get_active_tx_profiles_for_window(

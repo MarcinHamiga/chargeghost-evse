@@ -161,7 +161,9 @@ class Connector(Subscriber):
             level: Logging level (default INFO).
             **extra: Additional key/value pairs passed as log record extras.
         """
-        self.logger.log(level, message, extra={"source": "engine", "connector_id": self.id, **extra})
+        self.logger.log(
+            level, message, extra={"source": "engine", "connector_id": self.id, **extra}
+        )
 
     @property
     def status(self) -> ConnectorState:
@@ -439,7 +441,9 @@ class Connector(Subscriber):
         ):
             return
         self._persistent_status = ConnectorState.RESERVED
-        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.RESERVED
+        target = (
+            ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.RESERVED
+        )
         if self._status != target:
             self.status = target
 
@@ -456,7 +460,9 @@ class Connector(Subscriber):
             return
         # Always restore AVAILABLE as the persistent base state
         self._persistent_status = ConnectorState.AVAILABLE
-        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        target = (
+            ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        )
         if self._status != target:
             self._status = target
             self.on_status_change.emit(connector_id=self.id, status=target)
@@ -472,7 +478,9 @@ class Connector(Subscriber):
         if self._status in (ConnectorState.UNAVAILABLE, ConnectorState.FAULTED):
             return
         self._persistent_status = ConnectorState.AVAILABLE
-        target = ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        target = (
+            ConnectorState.PREPARING if self.is_plugged_in else ConnectorState.AVAILABLE
+        )
         if self._status != target:
             self._status = target
             self.on_status_change.emit(connector_id=self.id, status=target)

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from ocpp.v16.enums import ConfigurationStatus
 
@@ -16,12 +16,23 @@ class ConfigurationKey:
     description: str
     mandatory: bool = False
     category: str = "Core"
+    value_provider: Optional[Callable[[], str]] = field(default=None, repr=False)
+
+    def get_value(self) -> str:
+        """Return dynamic value from provider if set, otherwise static value."""
+        if self.value_provider is not None:
+            return self.value_provider()
+        return self.value
 
 
 class ConfigurationKeyManager:
     def __init__(self) -> None:
         self._keys: dict[str, ConfigurationKey] = {}
         self.on_key_changed: Event = Event()
+
+    def register_key(self, config_key: ConfigurationKey) -> None:
+        """Register an additional configuration key."""
+        self._keys[config_key.key] = config_key
 
     def get_key(self, key: str) -> Optional[ConfigurationKey]:
         return self._keys.get(key)
@@ -44,7 +55,7 @@ class ConfigurationKeyManager:
         if config_key is None:
             return default
         try:
-            return int(config_key.value)
+            return int(config_key.get_value())
         except (TypeError, ValueError):
             return default
 
@@ -52,7 +63,7 @@ class ConfigurationKeyManager:
         config_key = self._keys.get(key)
         if config_key is None:
             return default
-        return parse_bool_string(config_key.value)
+        return parse_bool_string(config_key.get_value())
 
     def initialize_defaults(self) -> None:
         self._keys = {
@@ -301,9 +312,9 @@ class ConfigurationKeyManager:
             ),
             "SupportedFeatureProfiles": ConfigurationKey(
                 key="SupportedFeatureProfiles",
-                value="Core,FirmwareManagement,LocalAuthListManagement,RemoteTrigger",
+                value="Core,FirmwareManagement,LocalAuthListManagement,Reservation,RemoteTrigger,SmartCharging",
                 readonly=True,
-                default="Core,FirmwareManagement,LocalAuthListManagement,RemoteTrigger",
+                default="Core,FirmwareManagement,LocalAuthListManagement,Reservation,RemoteTrigger,SmartCharging",
                 description="List of supported OCPP feature profiles",
                 mandatory=True,
                 category="Core",

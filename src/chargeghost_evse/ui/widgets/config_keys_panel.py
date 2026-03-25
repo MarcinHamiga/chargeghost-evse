@@ -185,7 +185,9 @@ class ConfigKeysPanel(QWidget):
             self._category_groups[category].setVisible(has_visible_rows)
             has_any_visible_rows = has_any_visible_rows or has_visible_rows
 
-        self._empty_search_state.setVisible(bool(search_term) and not has_any_visible_rows)
+        self._empty_search_state.setVisible(
+            bool(search_term) and not has_any_visible_rows
+        )
 
     def _on_text_changed(self, key_name: str, new_value: str) -> None:
         apply_btn = self._apply_buttons.get(key_name)

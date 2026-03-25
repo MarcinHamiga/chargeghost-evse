@@ -103,7 +103,9 @@ class JsonFileBackend:
                         )
                     )
             except (json.JSONDecodeError, KeyError, IOError) as e:
-                _logger.warning("Corrupted message queue file %s: %s", self._filepath, e)
+                _logger.warning(
+                    "Corrupted message queue file %s: %s", self._filepath, e
+                )
                 self._queue.clear()
 
     def _save(self) -> None:
@@ -164,9 +166,7 @@ class MessageQueue:
         max_attempts: Maximum send attempts per message before dropping.
     """
 
-    def __init__(
-        self, backend: QueueBackend, max_attempts: int = 3
-    ) -> None:
+    def __init__(self, backend: QueueBackend, max_attempts: int = 3) -> None:
         self._backend = backend
         self._max_attempts = max_attempts
 

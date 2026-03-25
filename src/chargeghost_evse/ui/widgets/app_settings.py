@@ -99,4 +99,3 @@ class AppSettings:
     @last_mode.setter
     def last_mode(self, mode: str) -> None:
         self._settings.setValue(self.SETTING_LAST_MODE, mode)
-

@@ -41,14 +41,14 @@ class HandoverManager:
     Example:
         >>> from pathlib import Path
         >>> manager = HandoverManager(Path("/tmp/chargeghost"))
-        >>> 
+        >>>
         >>> # Create handover script
         >>> script = manager.build_macos_script(
         ...     pid=12345,
         ...     new_path="/tmp/ChargeGhost-new.app",
         ...     old_path="/Applications/ChargeGhost.app"
         ... )
-        >>> 
+        >>>
         >>> # Launch handover (then exit current process)
         >>> script_path = Path("/tmp/chargeghost/handover.sh")
         >>> script_path.write_text(script)

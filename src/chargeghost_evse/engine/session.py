@@ -85,7 +85,28 @@ class Session(Subscriber):
         # Guard flag so ev_max_charge_reached fires exactly once per session
         self._max_reached: bool = False
 
-    def process_energy_delivery(self, amount: float = 0.0, connector_id: Optional[int] = None) -> None:
+        # Meter value history for StopTransaction.transactionData
+        self._meter_history: list[dict] = []
+        self._max_meter_history: int = 10
+
+    def record_meter_value(self, value: float, timestamp: str) -> None:
+        """Record a meter value for inclusion in StopTransaction."""
+        self._meter_history.append(
+            {
+                "timestamp": timestamp,
+                "value": value,
+            }
+        )
+        if len(self._meter_history) > self._max_meter_history:
+            self._meter_history = self._meter_history[-self._max_meter_history :]
+
+    def get_meter_history(self) -> list[dict]:
+        """Return meter history for StopTransaction.transactionData."""
+        return list(self._meter_history)
+
+    def process_energy_delivery(
+        self, amount: float = 0.0, connector_id: Optional[int] = None
+    ) -> None:
         """
         Process energy delivery and update session state.
 
@@ -112,6 +133,10 @@ class Session(Subscriber):
             self.state_of_charge = 0.0
 
         # Check if EV has reached maximum charge; fire exactly once per session
-        if self.max_energy > 0 and self.energy_charged >= self.max_energy and not self._max_reached:
+        if (
+            self.max_energy > 0
+            and self.energy_charged >= self.max_energy
+            and not self._max_reached
+        ):
             self._max_reached = True
             self.ev_max_charge_reached.emit(connector_id=self.connector_id)
