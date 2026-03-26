@@ -202,6 +202,9 @@ class SimulationConfig:
     # Message queue persistence
     persist_message_queue: bool = False
 
+    # Persistent RFID tag for authorization
+    rfid_tag: Optional[str] = None
+
     @staticmethod
     def _get_password(ocpp_id: str) -> str:
         """
@@ -290,6 +293,7 @@ class SimulationConfig:
                     log_mode=_migrate_log_mode(data.get("log_mode", "shallow")),
                     ignored_version=data.get("ignored_version"),
                     persist_message_queue=data.get("persist_message_queue", False),
+                    rfid_tag=data.get("rfid_tag"),
                 )
             except (json.JSONDecodeError, IOError) as e:
                 logging.warning(
@@ -322,6 +326,7 @@ class SimulationConfig:
             "log_mode": self.log_mode,
             "ignored_version": self.ignored_version,
             "persist_message_queue": self.persist_message_queue,
+            "rfid_tag": self.rfid_tag,
         }
 
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

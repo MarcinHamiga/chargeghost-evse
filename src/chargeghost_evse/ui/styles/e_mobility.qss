@@ -200,6 +200,45 @@ QPushButton#btnApplyTag:hover {
 	border: 1px solid #1EAD98;
 }
 
+/* Set RFID Button */
+QPushButton#btnSetRfid {
+	background-color: #21262d;
+	border: 1px solid #30363d;
+	color: #e6edf3;
+	padding: 8px 16px;
+}
+
+QPushButton#btnSetRfid:hover {
+	background-color: #30363d;
+	border: 1px solid #1EAD98;
+}
+
+/* Clear RFID Button */
+QPushButton#btnClearRfid {
+	background-color: #21262d;
+	border: 1px solid #30363d;
+	color: #e6edf3;
+	padding: 8px 16px;
+}
+
+QPushButton#btnClearRfid:hover {
+	background-color: #30363d;
+	border: 1px solid #da3633;
+}
+
+/* Authorize Button */
+QPushButton#btnAuthorize {
+	background-color: #238636;
+	border: 1px solid #238636;
+	color: #ffffff;
+	padding: 8px 16px;
+}
+
+QPushButton#btnAuthorize:hover {
+	background-color: #2ea043;
+	border: 1px solid #2ea043;
+}
+
 /* ============================================
    CHECKBOXES
    ============================================ */

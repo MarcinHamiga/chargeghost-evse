@@ -369,7 +369,9 @@ class SimulatorWidget(QWidget):
         self.dashboard.stop_charging_clicked.connect(self.action_stop_charging)
         self.dashboard.suspend_ev_clicked.connect(self.action_suspend_ev)
         self.dashboard.resume_charging_clicked.connect(self.action_resume_charging)
-        self.dashboard.apply_id_tag_clicked.connect(self.action_apply_id_tag)
+        self.dashboard.set_rfid_clicked.connect(self.action_set_rfid)
+        self.dashboard.clear_rfid_clicked.connect(self.action_clear_rfid)
+        self.dashboard.authorize_clicked.connect(self.action_authorize)
         dashboard_layout.addWidget(self.dashboard, 1)
         self.stack.addWidget(dashboard_tab)
 
@@ -510,15 +512,33 @@ class SimulatorWidget(QWidget):
             f"[green]UI:[/green] Resumed charging on Connector {self._selected_connector_id}"
         )
 
-    def action_apply_id_tag(self, id_tag: str) -> None:
+    def action_set_rfid(self, rfid_tag: str) -> None:
+        self.config.rfid_tag = rfid_tag
+        self.config.save()
         conn = self._get_selected_connector()
         if conn:
-            conn.id_tag = id_tag
-            self.main_window.app_settings.add_recent_tag(id_tag)
-            self.main_window.log_message(
-                f"[green]UI:[/green] ID Tag set to: {id_tag} on Connector {self._selected_connector_id}"
-            )
-            self.main_window.update_recent_tags()
+            conn.id_tag = rfid_tag
+        self.main_window.app_settings.add_recent_tag(rfid_tag)
+        self.main_window.update_recent_tags()
+        self.main_window.log_message(
+            f"[green]RFID:[/green] Persistent RFID set to: {rfid_tag}"
+        )
+        self.main_window.show_toast(f"RFID set: {rfid_tag}", "success")
+
+    def action_clear_rfid(self) -> None:
+        self.config.rfid_tag = None
+        self.config.save()
+        conn = self._get_selected_connector()
+        if conn:
+            conn.id_tag = None
+        self.main_window.log_message("[yellow]RFID:[/yellow] Persistent RFID cleared")
+        self.main_window.show_toast("RFID cleared", "info")
+
+    def action_authorize(self, rfid_tag: str) -> None:
+        self.bridge.send_authorize(rfid_tag)
+        self.main_window.log_message(
+            f"[cyan]OCPP:[/cyan] Sending Authorize with tag: {rfid_tag}"
+        )
 
     def action_save_config(self) -> None:
         url = self.settings_panel.get_url()
@@ -921,6 +941,7 @@ class MainWindow(QMainWindow):
             charge_point_model=self.config.charge_point_model,
             charge_point_vendor=self.config.charge_point_vendor,
             persist_message_queue=self.config.persist_message_queue,
+            get_rfid=lambda: self.config.rfid_tag,
         )
         self.bridge.setup()
 
@@ -1064,6 +1085,9 @@ class MainWindow(QMainWindow):
 
         if self.app_settings.log_panel_expanded:
             self.simulator.log_side_panel.toggle()
+
+        if self.config.rfid_tag:
+            self.simulator.dashboard.set_rfid(self.config.rfid_tag)
 
         saved_ui_mode = self.app_settings.last_mode
         if saved_ui_mode in ("simulator", "manual"):

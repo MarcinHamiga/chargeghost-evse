@@ -429,6 +429,7 @@ class Bridge:
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
         persist_message_queue: bool = False,
+        get_rfid: Optional[Any] = None,
     ) -> None:
         """
         Initialize the Bridge with Engine and connection parameters.
@@ -442,9 +443,11 @@ class Bridge:
             charge_point_model: Model name for BootNotification.
             charge_point_vendor: Vendor name for BootNotification.
             persist_message_queue: If True, persist message queue to disk.
+            get_rfid: Optional callback to get the persistent RFID tag.
         """
         self.engine = engine
         self.url = url
+        self._get_rfid = get_rfid
 
         # Create the async runner for WebSocket communication
         self.runner = AsyncRunner(
@@ -888,7 +891,15 @@ class Bridge:
             return
 
         self._log(message=f"Session started on connector {connector_id}")
-        id_tag = session.id_tag or "UNKNOWN_TAG"
+        # Use persistent RFID if set, otherwise fall back to session's id_tag
+        if self._get_rfid is not None:
+            persistent_rfid = self._get_rfid()
+            if persistent_rfid:
+                id_tag = persistent_rfid
+            else:
+                id_tag = session.id_tag or "UNKNOWN_TAG"
+        else:
+            id_tag = session.id_tag or "UNKNOWN_TAG"
         start_kwargs = {
             "connector_id": connector_id,
             "id_tag": id_tag,

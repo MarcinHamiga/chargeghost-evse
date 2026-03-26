@@ -224,34 +224,32 @@ class MetricCard(QFrame):
 
 class IdTagInput(QWidget):
     """
-    ID tag input widget with recent tags dropdown.
+    ID tag input widget with optional recent tags dropdown.
 
-    Provides a text input for entering RFID tags with a dropdown
+    Provides a text input for entering RFID tags with a dropdown menu
     for quickly selecting recently used tags.
 
     Signals:
-            tag_applied: Emitted when user applies a tag.
-                    Parameters: tag (str)
-            recent_tags_changed: Emitted when recent tags list changes.
+                    recent_tags_changed: Emitted when recent tags list changes.
+                    tag_applied: Emitted when action button is clicked (only if button_text provided).
 
     Example:
-            >>> input_widget = IdTagInput()
-            >>> input_widget.set_recent_tags(["RFID-001", "RFID-002"])
-            >>> input_widget.tag_applied.connect(self._on_tag_applied)
+                    >>> input_widget = IdTagInput()
+                    >>> input_widget.set_recent_tags(["RFID-001", "RFID-002"])
     """
 
-    tag_applied = Signal(str)
     recent_tags_changed = Signal()
+    tag_applied = Signal()
 
     def __init__(
-        self, parent: Optional[QWidget] = None, button_text: str = "Apply"
+        self, parent: Optional[QWidget] = None, *, button_text: Optional[str] = None
     ) -> None:
         """
         Initialize the ID tag input.
 
         Args:
-                parent: Optional parent widget.
-                button_text: Text for the action button.
+                        parent: Optional parent widget.
+                        button_text: If provided, adds an action button with this text.
         """
         super().__init__(parent)
         self._recent_tags: list[str] = []
@@ -260,7 +258,7 @@ class IdTagInput(QWidget):
 
     def _setup_ui(self) -> None:
         """
-        Build the UI with label, recent tags, and input field in a more vertical-friendly layout.
+        Build the UI with label, recent tags, and input field.
         """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -282,48 +280,37 @@ class IdTagInput(QWidget):
         header.addWidget(self._recent_combo)
         layout.addLayout(header)
 
-        input_row = QHBoxLayout()
-        input_row.setSpacing(8)
-
-        # Text input
+        # Text input with optional button
         self._input = QLineEdit()
         self._input.setPlaceholderText("Enter RFID tag")
-        self._input.returnPressed.connect(self._on_apply)
+        input_row = QHBoxLayout()
         input_row.addWidget(self._input, 1)
-
-        # Apply button
-        self._apply_btn = QPushButton(self._button_text)
-        self._apply_btn.setObjectName("btnApplyTag")
-        self._apply_btn.clicked.connect(self._on_apply)
-        self._apply_btn.setMinimumHeight(32)
-        input_row.addWidget(self._apply_btn)
-
+        if self._button_text:
+            self._apply_btn = QPushButton(self._button_text)
+            self._apply_btn.clicked.connect(self._on_button_clicked)
+            input_row.addWidget(self._apply_btn)
         layout.addLayout(input_row)
+
+    def _on_button_clicked(self) -> None:
+        """Handle action button click."""
+        self.tag_applied.emit()
 
     def _on_recent_selected(self, tag: str) -> None:
         """
         Handle selection from recent tags dropdown.
 
         Args:
-                tag: The selected tag.
+                        tag: The selected tag.
         """
         if tag:
             self._input.setText(tag)
-
-    def _on_apply(self) -> None:
-        """
-        Handle apply button click or Enter key.
-        """
-        tag = self._input.text().strip()
-        if tag:
-            self.tag_applied.emit(tag)
 
     def set_recent_tags(self, tags: list[str]) -> None:
         """
         Set the list of recent tags for the dropdown.
 
         Args:
-                tags: List of recent tag strings (max 10).
+                        tags: List of recent tag strings (max 10).
         """
         self._recent_tags = tags[:10]
         self._recent_combo.clear()
@@ -338,7 +325,7 @@ class IdTagInput(QWidget):
         Set the currently applied tag to display as ghost text (placeholder).
 
         Args:
-                tag: The tag string currently applied to the connector.
+                        tag: The tag string currently applied to the connector.
         """
         if tag:
             self._input.setPlaceholderText(f"Active: {tag}")
@@ -350,7 +337,7 @@ class IdTagInput(QWidget):
         Get the current tag text.
 
         Returns:
-                Current text in the input field.
+                        Current text in the input field.
         """
         return self._input.text().strip()
 
@@ -359,14 +346,21 @@ class IdTagInput(QWidget):
         Set the tag text in the input field.
 
         Args:
-                tag: The tag string to set.
+                        tag: The tag string to set.
         """
         self._input.setText(tag)
+
+    def clear_tag(self) -> None:
+        """
+        Clear the tag text in the input field.
+        """
+        self._input.clear()
 
     def set_enabled(self, enabled: bool) -> None:
         self._input.setEnabled(enabled)
         self._recent_combo.setEnabled(enabled)
-        self._apply_btn.setEnabled(enabled)
+        if hasattr(self, "_apply_btn") and self._apply_btn is not None:
+            self._apply_btn.setEnabled(enabled)
 
 
 def _compute_effective_power_kw(engine: "Engine", connector_id: int) -> float:
@@ -421,7 +415,7 @@ class SessionDashboard(QWidget):
     - Real-time telemetry chart
     - Charging progress bar
     - Context chips (transaction ID, voltage, current, meter, phases)
-    - ID tag input
+    - ID tag input with persistent RFID support
     - Action buttons (Plug/Unplug/Charge/Suspend)
 
     Signals:
@@ -429,7 +423,9 @@ class SessionDashboard(QWidget):
             unplug_clicked: Emitted when unplug button is clicked.
             start_charging_clicked: Emitted when start charging is clicked.
             stop_charging_clicked: Emitted when stop charging is clicked.
-            apply_id_tag_clicked: Emitted when ID tag is applied.
+            set_rfid_clicked: Emitted when Set RFID button is clicked.
+            clear_rfid_clicked: Emitted when Clear RFID button is clicked.
+            authorize_clicked: Emitted when Authorize button is clicked.
 
     Example:
             >>> dashboard = SessionDashboard()
@@ -443,7 +439,9 @@ class SessionDashboard(QWidget):
     stop_charging_clicked = Signal()
     suspend_ev_clicked = Signal()
     resume_charging_clicked = Signal()
-    apply_id_tag_clicked = Signal(str)
+    set_rfid_clicked = Signal(str)
+    clear_rfid_clicked = Signal()
+    authorize_clicked = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """
@@ -535,8 +533,29 @@ class SessionDashboard(QWidget):
         controls_layout.addWidget(id_label)
 
         self.id_tag_input = IdTagInput()
-        self.id_tag_input.tag_applied.connect(self._on_apply_id_tag)
         controls_layout.addWidget(self.id_tag_input)
+
+        rfid_btn_row = QHBoxLayout()
+        rfid_btn_row.setSpacing(6)
+        self.btn_set_rfid = QPushButton("Set")
+        self.btn_set_rfid.setObjectName("btnSetRfid")
+        self.btn_set_rfid.setMinimumHeight(32)
+        self.btn_set_rfid.clicked.connect(self._on_set_rfid)
+        rfid_btn_row.addWidget(self.btn_set_rfid)
+
+        self.btn_clear_rfid = QPushButton("Clear")
+        self.btn_clear_rfid.setObjectName("btnClearRfid")
+        self.btn_clear_rfid.setProperty("danger", True)
+        self.btn_clear_rfid.setMinimumHeight(32)
+        self.btn_clear_rfid.clicked.connect(self._on_clear_rfid)
+        rfid_btn_row.addWidget(self.btn_clear_rfid)
+
+        self.btn_authorize = QPushButton("Authorize")
+        self.btn_authorize.setObjectName("btnAuthorize")
+        self.btn_authorize.setMinimumHeight(32)
+        self.btn_authorize.clicked.connect(self._on_authorize)
+        rfid_btn_row.addWidget(self.btn_authorize)
+        controls_layout.addLayout(rfid_btn_row)
 
         # Effective limit
         limit_row = QHBoxLayout()
@@ -642,15 +661,6 @@ class SessionDashboard(QWidget):
         if hours > 0:
             return f"{hours}:{minutes:02d}:{seconds:02d}"
         return f"{minutes}:{seconds:02d}"
-
-    def _on_apply_id_tag(self, tag: str) -> None:
-        """
-        Handle ID tag application.
-
-        Args:
-                tag: The applied tag string.
-        """
-        self.apply_id_tag_clicked.emit(tag)
 
     def get_selected_connector_id(self) -> int:
         """
@@ -803,3 +813,41 @@ class SessionDashboard(QWidget):
                 tag: The tag string to set.
         """
         self.id_tag_input.set_tag(tag)
+
+    def _on_set_rfid(self) -> None:
+        """Handle Set RFID button click."""
+        tag = self.id_tag_input.get_tag()
+        if tag:
+            self.set_rfid_clicked.emit(tag)
+
+    def _on_clear_rfid(self) -> None:
+        """Handle Clear RFID button click."""
+        self.id_tag_input.set_tag("")
+        self.clear_rfid_clicked.emit()
+
+    def _on_authorize(self) -> None:
+        """Handle Authorize button click."""
+        tag = self.id_tag_input.get_tag()
+        if tag:
+            self.authorize_clicked.emit(tag)
+
+    def set_rfid(self, tag: Optional[str]) -> None:
+        """
+        Set the persistent RFID in the input field.
+
+        Args:
+            tag: The RFID tag string to set, or None to clear.
+        """
+        if tag:
+            self.id_tag_input.set_tag(tag)
+        else:
+            self.id_tag_input.set_tag("")
+
+    def get_rfid(self) -> str:
+        """
+        Get the current RFID text.
+
+        Returns:
+            Current text in the RFID input field.
+        """
+        return self.id_tag_input.get_tag()
