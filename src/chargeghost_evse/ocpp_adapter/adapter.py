@@ -1301,6 +1301,13 @@ class Adapter(cp):
             f"entries={len(local_authorization_list) if local_authorization_list else 0}",
         )
 
+        if list_version <= 0:
+            self._log(
+                f"Invalid SendLocalList version: {list_version}",
+                level=logging.WARNING,
+            )
+            return call_result.SendLocalList(status=UpdateStatus.failed)
+
         try:
             update_type_enum = UpdateType(update_type)
         except ValueError:
@@ -1310,13 +1317,12 @@ class Adapter(cp):
             )
             return call_result.SendLocalList(status=UpdateStatus.failed)
 
-        success, message = self.local_auth_list.update_list(
+        status, message = self.local_auth_list.update_list(
             list_version=list_version,
             local_authorization_list=local_authorization_list,
             update_type=update_type_enum,
         )
 
-        status = UpdateStatus.accepted if success else UpdateStatus.failed
         self._log(
             f"SendLocalList result: {status.value} - {message}",
         )

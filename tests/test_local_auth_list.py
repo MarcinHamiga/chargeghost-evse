@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from ocpp.v16.enums import AuthorizationStatus, UpdateType
+from ocpp.v16.enums import AuthorizationStatus, UpdateStatus, UpdateType
 
 from chargeghost_evse.ocpp_adapter.local_auth_list import (
     AuthorizationEntry,
@@ -106,13 +106,13 @@ class TestLocalAuthListManager:
                 {"idTag": "TAG002", "idTagInfo": {"status": "Blocked"}},
             ]
 
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=1,
                 local_authorization_list=entries,
                 update_type=UpdateType.full,
             )
 
-            assert success is True
+            assert status == UpdateStatus.accepted
             assert manager.version == 1
             assert manager.entry_count == 2
 
@@ -128,13 +128,13 @@ class TestLocalAuthListManager:
                 {"idTag": "TAG003", "idTagInfo": {"status": "Accepted"}},
             ]
 
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=1,
                 local_authorization_list=entries,
                 update_type=UpdateType.full,
             )
 
-            assert success is False
+            assert status == UpdateStatus.failed
             assert "exceeds max entries" in message
 
     def test_full_update_clears_previous(self, tmp_path):
@@ -176,13 +176,13 @@ class TestLocalAuthListManager:
                 update_type=UpdateType.full,
             )
 
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=None,
                 update_type=UpdateType.full,
             )
 
-            assert success is True
+            assert status == UpdateStatus.accepted
             assert manager.entry_count == 0
             assert manager.version == 2
 
@@ -200,13 +200,13 @@ class TestLocalAuthListManager:
             )
 
             diff_entries = [{"idTag": "TAG002", "idTagInfo": {"status": "Blocked"}}]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=diff_entries,
                 update_type=UpdateType.differential,
             )
 
-            assert success is True
+            assert status == UpdateStatus.accepted
             assert manager.entry_count == 2
             assert manager.version == 2
 
@@ -228,13 +228,13 @@ class TestLocalAuthListManager:
             )
 
             diff_entries = [{"idTag": "TAG001", "idTagInfo": None}]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=diff_entries,
                 update_type=UpdateType.differential,
             )
 
-            assert success is True
+            assert status == UpdateStatus.accepted
             assert manager.entry_count == 1
             assert manager.authorize("TAG001") is None
             assert manager.authorize("TAG002") == AuthorizationStatus.blocked
@@ -254,14 +254,75 @@ class TestLocalAuthListManager:
             )
 
             diff_entries = [{"idTag": "TAG001", "idTagInfo": {"status": "Blocked"}}]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=diff_entries,
                 update_type=UpdateType.differential,
             )
 
-            assert success is True
+            assert status == UpdateStatus.accepted
             assert manager.authorize("TAG001") == AuthorizationStatus.blocked
+
+    def test_full_update_rejects_reserved_version_zero(self, tmp_path):
+        with patch(
+            "chargeghost_evse.ocpp_adapter.local_auth_list.LOCAL_AUTH_LIST_FILE",
+            tmp_path / "local_auth_list.json",
+        ):
+            manager = LocalAuthListManager()
+
+            status, message = manager.update_list(
+                list_version=0,
+                local_authorization_list=[],
+                update_type=UpdateType.full,
+            )
+
+            assert status == UpdateStatus.failed
+            assert "Reserved or invalid list version" in message
+            assert manager.version == 0
+
+    def test_full_update_rejects_reserved_version_minus_one(self, tmp_path):
+        with patch(
+            "chargeghost_evse.ocpp_adapter.local_auth_list.LOCAL_AUTH_LIST_FILE",
+            tmp_path / "local_auth_list.json",
+        ):
+            manager = LocalAuthListManager()
+
+            status, message = manager.update_list(
+                list_version=-1,
+                local_authorization_list=[],
+                update_type=UpdateType.full,
+            )
+
+            assert status == UpdateStatus.failed
+            assert "Reserved or invalid list version" in message
+            assert manager.version == 0
+
+    def test_differential_update_requires_next_version(self, tmp_path):
+        with patch(
+            "chargeghost_evse.ocpp_adapter.local_auth_list.LOCAL_AUTH_LIST_FILE",
+            tmp_path / "local_auth_list.json",
+        ):
+            manager = LocalAuthListManager()
+            manager.update_list(
+                list_version=1,
+                local_authorization_list=[
+                    {"idTag": "TAG001", "idTagInfo": {"status": "Accepted"}}
+                ],
+                update_type=UpdateType.full,
+            )
+
+            status, message = manager.update_list(
+                list_version=3,
+                local_authorization_list=[
+                    {"idTag": "TAG002", "idTagInfo": {"status": "Blocked"}}
+                ],
+                update_type=UpdateType.differential,
+            )
+
+            assert status == UpdateStatus.version_mismatch
+            assert "Expected differential list version 2, got 3" in message
+            assert manager.version == 1
+            assert manager.entry_count == 1
 
     def test_authorize_when_disabled(self, tmp_path):
         with patch(
@@ -442,13 +503,13 @@ class TestLocalAuthListManager:
                 {"idTag": "TAG002", "idTagInfo": {"status": "Accepted"}},
                 {"idTag": "TAG003", "idTagInfo": {"status": "Accepted"}},
             ]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=diff_entries,
                 update_type=UpdateType.differential,
             )
 
-            assert success is False
+            assert status == UpdateStatus.failed
             assert "exceeds max entries" in message
 
     def test_differential_update_rollback_on_max_exceeded(self, tmp_path):
@@ -475,13 +536,13 @@ class TestLocalAuthListManager:
                 {"idTag": "TAG001", "idTagInfo": {"status": "Blocked"}},
                 {"idTag": "TAG003", "idTagInfo": {"status": "Accepted"}},
             ]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=2,
                 local_authorization_list=diff_entries,
                 update_type=UpdateType.differential,
             )
 
-            assert success is False
+            assert status == UpdateStatus.failed
             assert manager.entry_count == original_count
             assert manager.version == original_version
             assert manager.authorize("TAG001") == AuthorizationStatus.accepted
@@ -531,13 +592,13 @@ class TestLocalAuthListManager:
             file_path.parent.chmod(0o444)
 
             entries = [{"idTag": "TAG001", "idTagInfo": {"status": "Accepted"}}]
-            success, message = manager.update_list(
+            status, message = manager.update_list(
                 list_version=1,
                 local_authorization_list=entries,
                 update_type=UpdateType.full,
             )
 
-            assert success is False
+            assert status == UpdateStatus.failed
             assert "Failed to save" in message
 
             file_path.parent.chmod(0o755)

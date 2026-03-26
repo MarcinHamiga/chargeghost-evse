@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from ocpp.v16.enums import AuthorizationStatus, UpdateType
+from ocpp.v16.enums import AuthorizationStatus, UpdateStatus, UpdateType
 
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
@@ -118,7 +118,10 @@ class LocalAuthListManager(Subscriber):
         list_version: int,
         local_authorization_list: Optional[list[dict]],
         update_type: UpdateType,
-    ) -> tuple[bool, str]:
+    ) -> tuple[UpdateStatus, str]:
+        if list_version <= 0:
+            return UpdateStatus.failed, "Reserved or invalid list version"
+
         if update_type == UpdateType.full:
             return self._handle_full_update(list_version, local_authorization_list)
         else:
@@ -128,20 +131,20 @@ class LocalAuthListManager(Subscriber):
 
     def _handle_full_update(
         self, list_version: int, local_authorization_list: Optional[list[dict]]
-    ) -> tuple[bool, str]:
+    ) -> tuple[UpdateStatus, str]:
         if local_authorization_list is None:
             self._entries.clear()
             self._version = list_version
             saved, save_msg = self._save()
             if not saved:
-                return False, save_msg
+                return UpdateStatus.failed, save_msg
             self.on_list_updated.emit(version=self._version)
-            return True, "Full update completed (cleared list)"
+            return UpdateStatus.accepted, "Full update completed (cleared list)"
 
         new_entries_count = len(local_authorization_list)
         if new_entries_count > self._max_entries:
             return (
-                False,
+                UpdateStatus.failed,
                 f"List exceeds max entries ({new_entries_count} > {self._max_entries})",
             )
 
@@ -158,20 +161,27 @@ class LocalAuthListManager(Subscriber):
         self._version = list_version
         saved, save_msg = self._save()
         if not saved:
-            return False, save_msg
+            return UpdateStatus.failed, save_msg
         self.on_list_updated.emit(version=self._version)
-        return True, f"Full update completed ({len(self._entries)} entries)"
+        return UpdateStatus.accepted, f"Full update completed ({len(self._entries)} entries)"
 
     def _handle_differential_update(
         self, list_version: int, local_authorization_list: Optional[list[dict]]
-    ) -> tuple[bool, str]:
+    ) -> tuple[UpdateStatus, str]:
+        expected_version = self._version + 1
+        if list_version != expected_version:
+            return (
+                UpdateStatus.version_mismatch,
+                f"Expected differential list version {expected_version}, got {list_version}",
+            )
+
         if local_authorization_list is None:
             self._version = list_version
             saved, save_msg = self._save()
             if not saved:
-                return False, save_msg
+                return UpdateStatus.failed, save_msg
             self.on_list_updated.emit(version=self._version)
-            return True, "Differential update completed (no changes)"
+            return UpdateStatus.accepted, "Differential update completed (no changes)"
 
         original_entries = copy.deepcopy(self._entries)
         original_version = self._version
@@ -192,7 +202,7 @@ class LocalAuthListManager(Subscriber):
                 ):
                     self._entries = original_entries
                     self._version = original_version
-                    return False, f"List exceeds max entries ({self._max_entries})"
+                    return UpdateStatus.failed, f"List exceeds max entries ({self._max_entries})"
                 self._entries[id_tag] = AuthorizationEntry(
                     id_tag=id_tag,
                     id_tag_info=id_tag_info,
@@ -203,9 +213,11 @@ class LocalAuthListManager(Subscriber):
         if not saved:
             self._entries = original_entries
             self._version = original_version
-            return False, save_msg
+            return UpdateStatus.failed, save_msg
         self.on_list_updated.emit(version=self._version)
-        return True, f"Differential update completed ({len(self._entries)} entries)"
+        return UpdateStatus.accepted, (
+            f"Differential update completed ({len(self._entries)} entries)"
+        )
 
     def authorize(self, id_tag: str) -> Optional[AuthorizationStatus]:
         if not self._enabled:
