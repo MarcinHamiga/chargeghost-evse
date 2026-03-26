@@ -24,7 +24,8 @@ class _MockEngine:
 	def __init__(self, connector_statuses: Optional[list[str]] = None) -> None:
 		self.get_limit = None
 		self.session = MagicMock(connector_id=1, transaction_id=99)
-		self.energy_meter = MagicMock(get_meter_reading=MagicMock(return_value=12.34))
+		self._sessions = {1: self.session}
+		self._energy_meters = {1: MagicMock(get_meter_reading=MagicMock(return_value=12.34))}
 		statuses = connector_statuses or ["Available"]
 		self._connectors = [
 			_MockConnector(index + 1, status=status)
@@ -36,6 +37,12 @@ class _MockEngine:
 			if connector.id == connector_id:
 				return connector
 		return None
+
+	def get_session(self, connector_id: int):
+		return self._sessions.get(connector_id)
+
+	def get_energy_meter(self, connector_id: int):
+		return self._energy_meters.get(connector_id)
 
 	@property
 	def connectors(self):

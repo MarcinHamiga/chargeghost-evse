@@ -599,9 +599,9 @@ class Bridge:
                 return None
 
             # Get transaction start time for TxProfile matching
-            session = self.engine.session
+            session = self.engine.get_session(connector_id)
             transaction_start = None
-            if session and session.connector_id == connector_id:
+            if session:
                 transaction_start = datetime.fromtimestamp(
                     session.start_time, tz=timezone.utc
                 )
@@ -656,11 +656,12 @@ class Bridge:
             Returns:
                 Tuple of (meter reading, transaction ID), or None if unavailable.
             """
-            session = self.engine.session
-            if session is None or session.connector_id != connector_id:
+            session = self.engine.get_session(connector_id)
+            if session is None:
                 return None
+            meter = self.engine.get_energy_meter(connector_id)
             return (
-                self.engine.energy_meter.get_meter_reading(),
+                meter.get_meter_reading(),
                 self._get_ocpp_transaction_id(session.transaction_id),
             )
 
@@ -721,7 +722,9 @@ class Bridge:
                 "Reserved",
                 "Available",
             )
-            connector_statuses = {connector.status.value for connector in self.engine.connectors}
+            connector_statuses = {
+                connector.status.value for connector in self.engine.connectors
+            }
             for status in status_priority:
                 if status in connector_statuses:
                     return status
@@ -807,15 +810,14 @@ class Bridge:
         next_aligned_at: Optional[datetime],
     ) -> tuple[list[str], Optional[datetime], Optional[datetime]]:
         """Determine which MeterValues contexts should be sent for this tick."""
-        if not self.engine.session or not self.engine.energy_meter.is_charging:
+        if not self.engine._sessions:
             return ([], None, None)
 
         contexts: list[str] = []
 
         if sample_interval > 0:
-            sampled_due = (
-                last_sampled_at is None
-                or now >= last_sampled_at + timedelta(seconds=sample_interval)
+            sampled_due = last_sampled_at is None or now >= last_sampled_at + timedelta(
+                seconds=sample_interval
             )
             if sampled_due:
                 contexts.append("Sample.Periodic")
@@ -846,7 +848,7 @@ class Bridge:
         next_aligned_at: Optional[datetime],
     ) -> float:
         """Get the wait interval until the next MeterValues action is due."""
-        if not self.engine.session or not self.engine.energy_meter.is_charging:
+        if not self.engine._sessions:
             return 1.0
 
         waits: list[float] = []
@@ -873,40 +875,41 @@ class Bridge:
         return min(waits)
 
     def _send_meter_value(self, context: str) -> None:
-        """Send or queue a MeterValues message for the active session."""
-        session = self.engine.session
-        if session is None:
+        """Send or queue a MeterValues message for all active sessions."""
+        if not self.engine._sessions:
             return
 
-        meter_value = self.engine.energy_meter.get_meter_reading()
         timestamp = datetime.now(timezone.utc).isoformat()
-        session.record_meter_value(meter_value, timestamp)
-        transaction_id = self._get_ocpp_transaction_id(session.transaction_id)
 
-        adapter = self.runner.adapter
-        loop = self.runner.loop
-        if adapter and loop:
-            future = asyncio.run_coroutine_threadsafe(
-                adapter.send_meter_values(
-                    connector_id=session.connector_id,
-                    value=meter_value,
-                    transaction_id=transaction_id,
-                    context=context,
-                ),
-                loop,
-            )
-            future.add_done_callback(self._handle_future_error)
-            return
+        for connector_id, session in list(self.engine._sessions.items()):
+            meter = self.engine.get_energy_meter(connector_id)
+            meter_value = meter.get_meter_reading()
+            session.record_meter_value(meter_value, timestamp)
+            transaction_id = self._get_ocpp_transaction_id(session.transaction_id)
 
-        self._message_queue.enqueue(
-            "MeterValues",
-            {
-                "connector_id": session.connector_id,
-                "value": meter_value,
-                "transaction_id": transaction_id,
-                "context": context,
-            },
-        )
+            adapter = self.runner.adapter
+            loop = self.runner.loop
+            if adapter and loop:
+                future = asyncio.run_coroutine_threadsafe(
+                    adapter.send_meter_values(
+                        connector_id=connector_id,
+                        value=meter_value,
+                        transaction_id=transaction_id,
+                        context=context,
+                    ),
+                    loop,
+                )
+                future.add_done_callback(self._handle_future_error)
+            else:
+                self._message_queue.enqueue(
+                    "MeterValues",
+                    {
+                        "connector_id": connector_id,
+                        "value": meter_value,
+                        "transaction_id": transaction_id,
+                        "context": context,
+                    },
+                )
 
     def _meter_values_loop(self) -> None:
         """
@@ -930,12 +933,14 @@ class Bridge:
                 )
 
             now = datetime.now(timezone.utc)
-            contexts, last_sampled_at, next_aligned_at = self._collect_meter_value_contexts(
-                now,
-                sample_interval,
-                aligned_interval,
-                last_sampled_at,
-                next_aligned_at,
+            contexts, last_sampled_at, next_aligned_at = (
+                self._collect_meter_value_contexts(
+                    now,
+                    sample_interval,
+                    aligned_interval,
+                    last_sampled_at,
+                    next_aligned_at,
+                )
             )
             for context in contexts:
                 self._send_meter_value(context)
@@ -1110,6 +1115,7 @@ class Bridge:
             "id_tag": id_tag,
             "meter_start": int(self.engine.energy_meter.get_meter_reading()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reservation_id": session.reservation_id,
         }
 
         adapter = self.runner.adapter

@@ -40,6 +40,7 @@ class Session(Subscriber):
         state_of_charge: Current battery percentage (0-100).
         max_energy: Maximum battery capacity in Watt-hours (Wh).
         id_tag: Authorization identifier for this session.
+        reservation_id: OCPP reservation identifier if session started from a reservation.
 
     Example:
         >>> session = Session(
@@ -60,6 +61,7 @@ class Session(Subscriber):
         max_energy: float = 0.0,
         id_tag: Optional[str] = None,
         remote_start_charging_profile: Optional[Any] = None,
+        reservation_id: Optional[int] = None,
     ) -> None:
         """
         Initialize a new charging session.
@@ -72,6 +74,7 @@ class Session(Subscriber):
             id_tag: Authorization identifier from the central system.
             remote_start_charging_profile: Deferred remote-start charging profile
                 to apply once a transaction ID is assigned.
+            reservation_id: OCPP reservation identifier if session started from a reservation.
         """
         super().__init__()
         self.transaction_id: int = transaction_id
@@ -81,7 +84,10 @@ class Session(Subscriber):
         self.state_of_charge: float = 0.0
         self.max_energy: float = max_energy
         self.id_tag: Optional[str] = id_tag
-        self.remote_start_charging_profile: Optional[Any] = remote_start_charging_profile
+        self.remote_start_charging_profile: Optional[Any] = (
+            remote_start_charging_profile
+        )
+        self.reservation_id: Optional[int] = reservation_id
 
         # Event emitted when EV reaches full charge
         self.ev_max_charge_reached: Event = Event()

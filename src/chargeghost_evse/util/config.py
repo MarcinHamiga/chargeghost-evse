@@ -168,6 +168,7 @@ class SimulationConfig:
         skip_tls_verify: Whether to skip TLS certificate verification.
         log_mode: OCPP message logging format ('shallow' or 'deep').
         ignored_version: Version number to skip for update notifications.
+        multi_evse_mode: Each connector operates as independent EVSE (parallel sessions).
 
     Example:
         >>> config = SimulationConfig.load()
@@ -204,6 +205,9 @@ class SimulationConfig:
 
     # Persistent RFID tag for authorization
     rfid_tag: Optional[str] = None
+
+    # Multi-EVSE mode: each connector operates as independent EVSE
+    multi_evse_mode: bool = False
 
     @staticmethod
     def _get_password(ocpp_id: str) -> str:
@@ -294,6 +298,7 @@ class SimulationConfig:
                     ignored_version=data.get("ignored_version"),
                     persist_message_queue=data.get("persist_message_queue", False),
                     rfid_tag=data.get("rfid_tag"),
+                    multi_evse_mode=data.get("multi_evse_mode", False),
                 )
             except (json.JSONDecodeError, IOError) as e:
                 logging.warning(
@@ -327,6 +332,7 @@ class SimulationConfig:
             "ignored_version": self.ignored_version,
             "persist_message_queue": self.persist_message_queue,
             "rfid_tag": self.rfid_tag,
+            "multi_evse_mode": self.multi_evse_mode,
         }
 
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

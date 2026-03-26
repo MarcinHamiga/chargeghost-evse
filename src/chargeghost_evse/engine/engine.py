@@ -45,6 +45,7 @@ class Engine(Subscriber):
     - Real-time energy simulation with configurable limits
     - Thread-safe command queue for async operations
     - Pending remote start handling with timeout
+    - Multi-EVSE mode for parallel sessions on each connector
 
     Events:
         session_started: Emitted when a charging session begins.
@@ -57,9 +58,10 @@ class Engine(Subscriber):
             Parameters: connector_id (int), voltage (float), current (float), phase (int)
 
     Attributes:
-        session: Currently active charging session, or None.
+        session: Currently active charging session, or None (single-EVSE mode).
         last_stopped_session: Details of the most recently stopped session.
-        energy_meter: Cumulative energy meter instance.
+        energy_meter: Cumulative energy meter instance (single-EVSE mode).
+        multi_evse_mode: Whether each connector operates as independent EVSE.
         command_queue: Thread-safe queue for async commands.
         event_queue: Recent meter readings for UI updates.
         get_limit: Optional callback to get charging current limits.
@@ -72,23 +74,32 @@ class Engine(Subscriber):
         >>> engine.simulate(interval_seconds=0.1)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, multi_evse_mode: bool = False) -> None:
         """
         Initialize the EVSE simulation engine.
 
-        Sets up empty connector collection, energy meter, command queue,
+        Sets up empty connector collection, energy meter(s), command queue,
         and event emitters. The engine starts with no active session.
+
+        Args:
+            multi_evse_mode: If True, each connector operates as an independent
+                EVSE allowing parallel charging sessions. If False (default),
+                only one session can be active at a time (single-EVSE mode).
         """
         super().__init__()
         self.logger = logging.getLogger("chargeghost.engine")
         self._session_logger = logging.getLogger("chargeghost.engine.session")
 
-        # Current and previous session tracking
-        self.session: Optional[Session] = None
+        # Multi-EVSE mode flag
+        self._multi_evse_mode: bool = multi_evse_mode
+
+        # Session tracking: keyed by connector_id for both modes
+        self._sessions: dict[int, Session] = {}
         self.last_stopped_session: Optional[dict] = None
 
-        # Energy metering (cumulative across all sessions)
-        self.energy_meter: EnergyMeter = EnergyMeter()
+        # Energy metering: per-connector in multi-EVSE mode, single global otherwise
+        self._energy_meters: dict[int, EnergyMeter] = {}
+        self._global_energy_meter: EnergyMeter = EnergyMeter()
 
         # Thread-safe command queue for OCPP operations
         self.command_queue: queue.Queue = queue.Queue()
@@ -122,6 +133,11 @@ class Engine(Subscriber):
         self.get_limit: Optional[Callable[[int, Optional[int]], Optional[float]]] = None
 
     @property
+    def multi_evse_mode(self) -> bool:
+        """Check if multi-EVSE mode is enabled."""
+        return self._multi_evse_mode
+
+    @property
     def connectors(self) -> list[Connector]:
         """
         Get all connectors sorted by ID.
@@ -130,6 +146,75 @@ class Engine(Subscriber):
             List of Connector instances in ascending ID order.
         """
         return [self._connectors[cid] for cid in sorted(self._connectors.keys())]
+
+    @property
+    def session(self) -> Optional[Session]:
+        """
+        Get the currently active charging session (backward compatible).
+
+        In single-EVSE mode, returns the active session.
+        In multi-EVSE mode, returns the first session if any (for compatibility).
+
+        Returns:
+            Session instance, or None if no session.
+        """
+        sessions = list(self._sessions.values())
+        return sessions[0] if sessions else None
+
+    @property
+    def energy_meter(self) -> EnergyMeter:
+        """
+        Get the global energy meter (backward compatible, single-EVSE mode).
+
+        In multi-EVSE mode, use get_energy_meter(connector_id) instead.
+
+        Returns:
+            Global EnergyMeter instance.
+        """
+        return self._global_energy_meter
+
+    def get_session(self, connector_id: int) -> Optional[Session]:
+        """
+        Get the session for a specific connector.
+
+        Args:
+            connector_id: ID of the connector to look up.
+
+        Returns:
+            Session instance, or None if not found.
+        """
+        return self._sessions.get(connector_id)
+
+    def get_energy_meter(self, connector_id: int) -> EnergyMeter:
+        """
+        Get energy meter for a specific connector.
+
+        In multi-EVSE mode, returns the per-connector meter.
+        In single-EVSE mode, returns the global meter.
+
+        Args:
+            connector_id: ID of the connector.
+
+        Returns:
+            EnergyMeter instance for the connector.
+        """
+        if self._multi_evse_mode:
+            if connector_id not in self._energy_meters:
+                self._energy_meters[connector_id] = EnergyMeter()
+            return self._energy_meters[connector_id]
+        return self._global_energy_meter
+
+    def _has_active_session(self, connector_id: int) -> bool:
+        """
+        Check if a connector has an active session.
+
+        Args:
+            connector_id: ID of the connector to check.
+
+        Returns:
+            True if the connector has an active session.
+        """
+        return connector_id in self._sessions
 
     def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
         """
@@ -189,7 +274,7 @@ class Engine(Subscriber):
             raise ValueError("Cannot remove the last connector")
         if connector_id not in self._connectors:
             raise ValueError(f"Connector {connector_id} not found")
-        if self.session and self.session.connector_id == connector_id:
+        if self._has_active_session(connector_id):
             raise ValueError("Cannot remove connector with active session")
         self._connectors[connector_id].unsubscribe_all()
         del self._connectors[connector_id]
@@ -277,7 +362,7 @@ class Engine(Subscriber):
             return "faulted"
         if connector.status == ConnectorState.UNAVAILABLE:
             return "unavailable"
-        if self.session is not None and self.session.connector_id == connector_id:
+        if self._has_active_session(connector_id):
             return "occupied"
         if connector.is_plugged_in:
             return "occupied"
@@ -384,9 +469,11 @@ class Engine(Subscriber):
         """
         Simulate an EV being plugged into a connector.
 
-        Enforces the single-plug-in policy: any other currently plugged-in
-        connector is automatically unplugged before the target connector is
-        plugged in.
+        In single-EVSE mode, enforces the single-plug-in policy: any other
+        currently plugged-in connector is automatically unplugged before the
+        target connector is plugged in.
+
+        In multi-EVSE mode, multiple EVs can be plugged in simultaneously.
 
         Args:
             connector_id: ID of the connector to plug into.
@@ -394,9 +481,11 @@ class Engine(Subscriber):
         self._expire_reservations()
 
         # Auto-unplug any other plugged-in connector (single plug-in policy)
-        for conn in self._connectors.values():
-            if conn.is_plugged_in and conn.id != connector_id:
-                self.unplug(conn.id)
+        # Skip this in multi-EVSE mode to allow parallel sessions
+        if not self._multi_evse_mode:
+            for conn in self._connectors.values():
+                if conn.is_plugged_in and conn.id != connector_id:
+                    self.unplug(conn.id)
 
         connector = self._connectors.get(connector_id)
         if connector:
@@ -422,8 +511,8 @@ class Engine(Subscriber):
         if connector:
             connector.unplug()
             # Stop active session if unplugged
-            if self.session is not None and self.session.connector_id == connector_id:
-                self.stop_session()
+            if self._has_active_session(connector_id):
+                self.stop_session(connector_id=connector_id)
 
     def start_session(
         self,
@@ -453,7 +542,8 @@ class Engine(Subscriber):
                 from RemoteStartTransaction.
 
         Note:
-            Only one session can be active at a time (single-session EVSE).
+            In single-EVSE mode, only one session can be active at a time.
+            In multi-EVSE mode, each connector can have its own session.
         """
         self._expire_reservations()
 
@@ -508,46 +598,62 @@ class Engine(Subscriber):
             )
             return
 
-        # Enforce single-session constraint
-        if self.session:
-            self._log(
-                f"Error: Session already active on connector {self.session.connector_id}.",
-                level=logging.ERROR,
-            )
-            return
+        # Enforce session constraints based on mode
+        if self._multi_evse_mode:
+            # In multi-EVSE mode, only block if this connector already has a session
+            if connector_id in self._sessions:
+                self._log(
+                    f"Error: Session already active on connector {connector_id}.",
+                    level=logging.ERROR,
+                )
+                return
+        else:
+            # In single-EVSE mode, block if any session is active
+            if self._sessions:
+                active_connector = list(self._sessions.keys())[0]
+                self._log(
+                    f"Error: Session already active on connector {active_connector}.",
+                    level=logging.ERROR,
+                )
+                return
 
         if reservation is not None:
             self._reservations.pop(connector_id, None)
             connector.clear_reservation()
 
         # Create and wire up the session
-        self.session = Session(
+        session = Session(
             transaction_id=transaction_id,
             connector_id=connector_id,
             max_energy=max_energy,
-            id_tag=id_tag or connector.id_tag,
+            id_tag=effective_id_tag,
             remote_start_charging_profile=remote_start_charging_profile,
+            reservation_id=reservation.reservation_id if reservation else None,
         )
+
+        # Get the appropriate energy meter
+        meter = self.get_energy_meter(connector_id)
 
         # Connect session to energy meter for energy delivery tracking
-        self.session.subscribe_to(
-            self.energy_meter.energy_consumed, self.session.process_energy_delivery
-        )
+        session.subscribe_to(meter.energy_consumed, session.process_energy_delivery)
 
         # Connect energy meter to session for max charge detection
-        self.energy_meter.subscribe_to(
-            self.session.ev_max_charge_reached,
-            self.energy_meter.handle_max_charge_reached,
+        meter.subscribe_to(
+            session.ev_max_charge_reached,
+            meter.handle_max_charge_reached,
         )
 
         # Connect connector to session for status updates
         connector.subscribe_to(
-            self.session.ev_max_charge_reached,
+            session.ev_max_charge_reached,
             connector.handle_max_charge_reached,
         )
 
+        # Store the session
+        self._sessions[connector_id] = session
+
         # Start charging
-        self.energy_meter.is_charging = True
+        meter.is_charging = True
         self.session_started.emit(connector_id=connector_id)
 
     def suspend_ev(self, connector_id: int) -> None:
@@ -561,18 +667,21 @@ class Engine(Subscriber):
             connector_id: ID of the connector to suspend.
         """
         connector = self._connectors.get(connector_id)
-        if connector and self.session and self.session.connector_id == connector_id:
-            error = connector.suspend_ev()
-            if error:
-                self._log(
-                    f"[yellow]Engine:[/yellow] Cannot suspend connector {connector_id}: {error}",
-                    level=logging.ERROR,
-                )
-            if connector.status == ConnectorState.SUSPENDED_EV:
-                self.energy_meter.is_charging = False
-                self._log(
-                    f"[yellow]Engine:[/yellow] Connector {connector_id} suspended (EV)"
-                )
+        if connector is None:
+            return
+        session = self.get_session(connector_id)
+        if session is None:
+            return
+        error = connector.suspend_ev()
+        if error:
+            self._log(
+                f"[yellow]Engine:[/yellow] Cannot suspend connector {connector_id}: {error}",
+                level=logging.ERROR,
+            )
+            return
+        meter = self.get_energy_meter(connector_id)
+        meter.is_charging = False
+        self._log(f"[yellow]Engine:[/yellow] Connector {connector_id} suspended (EV)")
 
     def resume_charging(self, connector_id: int) -> None:
         """
@@ -585,18 +694,21 @@ class Engine(Subscriber):
             connector_id: ID of the connector to resume.
         """
         connector = self._connectors.get(connector_id)
-        if connector and self.session and self.session.connector_id == connector_id:
-            error = connector.resume_charging()
-            if error:
-                self._log(
-                    f"[yellow]Engine:[/yellow] Cannot resume connector {connector_id}: {error}",
-                    level=logging.ERROR,
-                )
-            if connector.status == ConnectorState.CHARGING:
-                self.energy_meter.is_charging = True
-                self._log(
-                    f"[green]Engine:[/green] Connector {connector_id} resumed charging"
-                )
+        if connector is None:
+            return
+        session = self.get_session(connector_id)
+        if session is None:
+            return
+        error = connector.resume_charging()
+        if error:
+            self._log(
+                f"[yellow]Engine:[/yellow] Cannot resume connector {connector_id}: {error}",
+                level=logging.ERROR,
+            )
+            return
+        meter = self.get_energy_meter(connector_id)
+        meter.is_charging = True
+        self._log(f"[green]Engine:[/green] Connector {connector_id} resumed charging")
 
     def set_connector_availability(
         self, connector_id: int, availability_type: str
@@ -626,10 +738,7 @@ class Engine(Subscriber):
 
         scheduled = False
         for cid in target_ids:
-            has_active_session = (
-                self.session is not None and self.session.connector_id == cid
-            )
-            if has_active_session:
+            if self._has_active_session(cid):
                 self._pending_availability_changes[cid] = availability_type
                 scheduled = True
             else:
@@ -655,62 +764,82 @@ class Engine(Subscriber):
         else:
             connector.set_operative()
 
-    def stop_session(self, reason: str = "Local") -> None:
+    def stop_session(
+        self,
+        connector_id: Optional[int] = None,
+        reason: str = "Local",
+    ) -> None:
         """
-        Stop the active charging session.
+        Stop the active charging session on a connector.
 
         Records session details in last_stopped_session for OCPP
         StopTransaction messages and cleans up all subscriptions.
 
         Args:
+            connector_id: ID of the connector to stop the session on.
+                If None, stops any active session (single-EVSE behavior).
             reason: Reason for stopping. Defaults to "Local".
                 Common values: "Local", "Remote", "EVDisconnected", "HardReset", "SoftReset"
         """
-        if self.session:
-            connector_id = self.session.connector_id
-            connector = self._connectors.get(connector_id)
+        # Find session to stop
+        if connector_id is None:
+            if self._sessions:
+                connector_id = list(self._sessions.keys())[0]
+            else:
+                return
 
-            # Store session details for StopTransaction
-            self.last_stopped_session = {
-                "transaction_id": self.session.transaction_id,
-                "connector_id": connector_id,
-                "energy_charged": self.session.energy_charged,
-                "id_tag": self.session.id_tag,
-                "meter_stop": self.energy_meter.get_meter_reading(),
-                "reason": reason,
-                "meter_history": self.session.get_meter_history(),
-            }
+        session = self._sessions.pop(connector_id, None)
+        if session is None:
+            return
 
-            # Clean up subscriptions
-            self.energy_meter.unsubscribe_from(self.session.ev_max_charge_reached)
-            if connector:
-                connector.unsubscribe_from(self.session.ev_max_charge_reached)
-            self.session.unsubscribe_all()
+        connector = self._connectors.get(connector_id)
+        meter = self.get_energy_meter(connector_id)
 
-            self._session_logger.debug(
-                f"Session time [s]: {time.time() - self.session.start_time}",
-                extra={"source": "engine"},
+        # Store session details for StopTransaction
+        self.last_stopped_session = {
+            "transaction_id": session.transaction_id,
+            "connector_id": connector_id,
+            "energy_charged": session.energy_charged,
+            "id_tag": session.id_tag,
+            "meter_stop": meter.get_meter_reading(),
+            "reason": reason,
+            "meter_history": session.get_meter_history(),
+            "reservation_id": session.reservation_id,
+        }
+
+        # Clean up subscriptions
+        meter.unsubscribe_from(session.ev_max_charge_reached)
+        if connector:
+            connector.unsubscribe_from(session.ev_max_charge_reached)
+        session.unsubscribe_all()
+
+        self._session_logger.debug(
+            f"Session time [s]: {time.time() - session.start_time}",
+            extra={"source": "engine"},
+        )
+        self.session_stopped.emit(connector_id=connector_id)
+        meter.is_charging = False
+
+        # Clean up per-connector meter in multi-EVSE mode
+        if self._multi_evse_mode and connector_id in self._energy_meters:
+            del self._energy_meters[connector_id]
+
+        # Apply any deferred ChangeAvailability for this connector
+        if connector_id in self._pending_availability_changes:
+            availability_type = self._pending_availability_changes.pop(connector_id)
+            self._apply_connector_availability(connector_id, availability_type)
+            self._log(
+                f"[yellow]Engine:[/yellow] Applied deferred availability change to "
+                f"{availability_type} for connector {connector_id}"
             )
-            self.session_stopped.emit(connector_id=connector_id)
-            self.session = None
-            self.energy_meter.is_charging = False
-
-            # Apply any deferred ChangeAvailability for this connector
-            if connector_id in self._pending_availability_changes:
-                availability_type = self._pending_availability_changes.pop(connector_id)
-                self._apply_connector_availability(connector_id, availability_type)
-                self._log(
-                    f"[yellow]Engine:[/yellow] Applied deferred availability change to"
-                    f" {availability_type} for connector {connector_id}"
-                )
 
     def simulate(self, interval_seconds: float) -> None:
         """
         Run one simulation step.
 
-        Processes pending commands and updates energy metering if
-        a charging session is active. Respects charging limits from
-        the get_limit callback if configured.
+        Processes pending commands and updates energy metering for all active
+        charging sessions. Respects charging limits from the get_limit callback
+        if configured.
 
         Args:
             interval_seconds: Time elapsed since last simulation step.
@@ -718,17 +847,22 @@ class Engine(Subscriber):
         self._expire_reservations()
         self._process_commands()
 
-        if self.session and self.energy_meter.is_charging:
-            connector = self._connectors.get(self.session.connector_id)
-            if connector is None:
-                return
+        # Process all active sessions (single or multi-EVSE)
+        for cid in list(self._sessions.keys()):
+            session = self._sessions[cid]
+            connector = self._connectors.get(cid)
+            meter = self.get_energy_meter(cid)
+
+            if connector is None or meter is None:
+                continue
+
+            if not meter.is_charging:
+                continue
 
             # Apply charging limit if configured (e.g., from ChargingProfileManager)
             effective_current = connector.current
             if self.get_limit is not None:
-                limit = self.get_limit(
-                    self.session.connector_id, self.session.transaction_id
-                )
+                limit = self.get_limit(cid, session.transaction_id)
                 if limit is not None and limit >= 0:
                     effective_current = min(connector.current, limit)
 
@@ -742,7 +876,7 @@ class Engine(Subscriber):
                 connector.resume_charging()
 
             # Update energy meter with current parameters
-            self.energy_meter.update(
+            meter.update(
                 connector.voltage,
                 effective_current,
                 connector.phase,
@@ -750,7 +884,7 @@ class Engine(Subscriber):
             )
 
             # Record meter reading for UI charts
-            self.event_queue.append(self.energy_meter.get_meter_reading())
+            self.event_queue.append(meter.get_meter_reading())
 
     def _process_commands(self) -> None:
         """
@@ -779,7 +913,7 @@ class Engine(Subscriber):
         Args:
             command: Dictionary with 'action' key and action-specific parameters.
                 START: connector_id, transaction_id, max_energy, id_tag, timeout
-                STOP: reason
+                STOP: connector_id, reason
                 PLUG_IN/UNPLUG: connector_id
         """
         action = command.get("action")
@@ -810,13 +944,18 @@ class Engine(Subscriber):
                 remote_start_charging_profile=command.get("charging_profile"),
             )
         elif action == "STOP":
-            self.stop_session(reason=command.get("reason", "Remote"))
+            self.stop_session(
+                connector_id=connector_id,
+                reason=command.get("reason", "Remote"),
+            )
         elif action == "RESET":
             self._handle_reset(command.get("type", "Soft"))
         elif action == "PLUG_IN":
-            self.plug_in(connector_id)
+            if connector_id is not None:
+                self.plug_in(connector_id)
         elif action == "UNPLUG":
-            self.unplug(connector_id)
+            if connector_id is not None:
+                self.unplug(connector_id)
         elif action:
             self._log(f"Warning: Unknown command action: {action}")
 
@@ -835,9 +974,11 @@ class Engine(Subscriber):
             )
             self._pending_remote_starts.clear()
 
-        if self.session is not None:
-            self._log(f"Stopping active session for {reason}.")
-            self.stop_session(reason=reason)
+        # Stop all active sessions
+        if self._sessions:
+            for cid in list(self._sessions.keys()):
+                self._log(f"Stopping active session on connector {cid} for {reason}.")
+                self.stop_session(connector_id=cid, reason=reason)
         else:
             self._log(f"Processing {reason} with no active session.")
 
@@ -845,18 +986,26 @@ class Engine(Subscriber):
         """
         Get a formatted string with current session information.
 
+        In single-EVSE mode, returns info for the active session.
+        In multi-EVSE mode, returns info for all active sessions.
+
         Returns:
             Multi-line string with session details, or empty string
             if no session is active.
         """
-        if not self.session:
+        if not self._sessions:
             return ""
 
-        return f"""Session Info:
-	- transaction_id: {self.session.transaction_id},
-	- connector_id: {self.session.connector_id},
-	- energy_charged: {self.session.energy_charged:.3f},
-	- state_of_charge: {self.session.state_of_charge:.2f},
-	- max_energy: {self.session.max_energy:.3f},
-	- is_charging: {self.energy_meter.is_charging}
-		"""
+        lines = []
+        for cid, sess in self._sessions.items():
+            meter = self.get_energy_meter(cid)
+            lines.append(
+                f"Connector {cid}:\n"
+                f"  - transaction_id: {sess.transaction_id}\n"
+                f"  - energy_charged: {sess.energy_charged:.3f}\n"
+                f"  - state_of_charge: {sess.state_of_charge:.2f}\n"
+                f"  - max_energy: {sess.max_energy:.3f}\n"
+                f"  - is_charging: {meter.is_charging}"
+            )
+
+        return "\n".join(lines)

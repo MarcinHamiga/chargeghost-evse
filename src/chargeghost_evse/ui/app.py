@@ -444,11 +444,7 @@ class SimulatorWidget(QWidget):
         # Update connector status bar pills
         engine = self.engine
         for conn in engine.connectors:
-            session = (
-                engine.session
-                if engine.session and engine.session.connector_id == conn.id
-                else None
-            )
+            session = engine.get_session(conn.id)
             soc = session.state_of_charge if session else None
             self.connector_bar.update_connector(conn.id, conn.status.value, soc)
         self.connector_bar.set_selected_connector(self._selected_connector_id)
@@ -459,8 +455,8 @@ class SimulatorWidget(QWidget):
         )
 
         power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
-        session = engine.session
-        if session and session.connector_id == self._selected_connector_id:
+        session = engine.get_session(self._selected_connector_id)
+        if session:
             duration_str = self.dashboard._format_duration(session.start_time)
             self.connector_bar.update_session_stats(
                 power_kw, session.state_of_charge, duration_str
@@ -924,7 +920,7 @@ class MainWindow(QMainWindow):
         self.resize(1600, 900)
 
         self.config = SimulationConfig.load()
-        self.engine = Engine()
+        self.engine = Engine(multi_evse_mode=self.config.multi_evse_mode)
         for connector_config in self.config.connectors:
             self.engine.add_connector(
                 voltage=connector_config.voltage,

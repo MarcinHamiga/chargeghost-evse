@@ -366,10 +366,13 @@ class IdTagInput(QWidget):
 def _compute_effective_power_kw(engine: "Engine", connector_id: int) -> float:
     """Return delivered power in kW, honouring smart charging limits. 0 when not charging."""
     conn = engine.get_connector(connector_id)
-    if conn is None or not engine.energy_meter.is_charging:
+    if conn is None:
         return 0.0
-    session = engine.session
-    if session is None or session.connector_id != connector_id:
+    meter = engine.get_energy_meter(connector_id)
+    if not meter.is_charging:
+        return 0.0
+    session = engine.get_session(connector_id)
+    if session is None:
         return 0.0
     effective_current = conn.current
     if engine.get_limit is not None:
@@ -718,8 +721,8 @@ class SessionDashboard(QWidget):
         power_kw = _compute_effective_power_kw(engine, self._selected_connector_id)
         self.metric_power.set_value(f"{power_kw:.2f}")
 
-        session = engine.session
-        if session and session.connector_id == self._selected_connector_id:
+        session = engine.get_session(self._selected_connector_id)
+        if session:
             self.metric_energy.set_value(f"{session.energy_charged:.1f}")
             self.metric_soc.set_value(f"{session.state_of_charge:.1f}")
             duration_str = self._format_duration(session.start_time)

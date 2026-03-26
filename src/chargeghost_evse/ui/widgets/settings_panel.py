@@ -175,6 +175,21 @@ class SettingsPanel(QWidget):
 
         content_layout.addWidget(identity_group)
 
+        simulation_group = QGroupBox("Simulation Mode")
+        sim_form = QFormLayout(simulation_group)
+        sim_form.setSpacing(12)
+
+        self.checkbox_multi_evse = QCheckBox(
+            "Each connector operates as an independent EVSE"
+        )
+        self.checkbox_multi_evse.setToolTip(
+            "When enabled, each connector can run a separate charging session "
+            "simultaneously. When disabled, only one session can be active at a time."
+        )
+        sim_form.addRow(self.checkbox_multi_evse)
+
+        content_layout.addWidget(simulation_group)
+
         connectors_group = QGroupBox("Connector Management")
         conn_group_layout = QVBoxLayout(connectors_group)
         conn_group_layout.setContentsMargins(8, 16, 8, 8)
@@ -215,6 +230,7 @@ class SettingsPanel(QWidget):
         self.input_vendor.setText(self._config.charge_point_vendor)
         self.input_model.setText(self._config.charge_point_model)
         self.checkbox_skip_tls.setChecked(self._config.skip_tls_verify)
+        self.checkbox_multi_evse.setChecked(self._config.multi_evse_mode)
 
     def set_connector_callbacks(
         self,
@@ -248,6 +264,7 @@ class SettingsPanel(QWidget):
             self.input_model.text().strip() or "ChargeGhostV1"
         )
         self._config.skip_tls_verify = self.checkbox_skip_tls.isChecked()
+        self._config.multi_evse_mode = self.checkbox_multi_evse.isChecked()
 
         self.save_config_clicked.emit()
 
