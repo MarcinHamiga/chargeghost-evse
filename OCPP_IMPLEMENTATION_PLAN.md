@@ -13,8 +13,10 @@ It replaces the previous status and compliance markdown files and is based on a 
 ## Current Position
 
 - Broad feature coverage already exists for `Core`, `FirmwareManagement`, `LocalAuthListManagement`, `Reservation`, `RemoteTrigger`, and `SmartCharging`.
-- Most missing work is no longer "message coverage" work; it is compliance, persistence, validation, and edge-case handling.
-- We should not claim full OCPP 1.6J compliance until the items in Priority 1 and Priority 2 are complete and externally verified.
+- Priority 1 items 1–6 are complete.
+- Priority 2 items 7–9 are complete; item 10 remains.
+- Priority 3 items 11–13 are not yet started.
+- Most remaining work is compliance, edge-case handling, and interoperability verification.
 
 ## Priority 1: Required Protocol Fixes
 
@@ -106,7 +108,7 @@ It replaces the previous status and compliance markdown files and is based on a 
 
 ### 9. Charging profile persistence across restart ✅
 
-**Status: Done** (in current working tree, not yet committed)
+**Status: Done** (committed `7f07a9f`)
 
 - `ChargingProfileData.to_ocpp_dict()` serializes profiles to OCPP dict format.
 - `ChargingProfileManager.__init__` accepts `persist_path`; defaults to `~/.chargeghost/charging_profiles.json`.
