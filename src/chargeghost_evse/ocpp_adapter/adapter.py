@@ -35,6 +35,7 @@ import json
 import logging
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ocpp.exceptions import PropertyConstraintViolationError
@@ -262,6 +263,7 @@ class Adapter(cp):
             max_profiles=max_profiles,
             max_stack_level=max_stack_level,
             max_schedule_periods=max_periods,
+            persist_path=Path.home() / ".chargeghost" / "charging_profiles.json",
         )
 
         # Register dynamic config key for installed profile IDs

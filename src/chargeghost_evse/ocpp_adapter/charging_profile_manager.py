@@ -46,10 +46,12 @@ Example:
     ... )
 """
 
+import json
 import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 from ocpp.v16.enums import (
@@ -140,6 +142,43 @@ class ChargingProfileData:
     valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
 
+    def to_ocpp_dict(self) -> dict:
+        """Serialize this profile to an OCPP CsChargingProfile dict."""
+        schedule_dict: dict[str, object] = {
+            "charging_rate_unit": self.charging_schedule.charging_rate_unit.value,
+            "charging_schedule_period": [
+                {
+                    "start_period": p.start_period,
+                    "limit": p.limit,
+                    **({"number_phases": p.number_phases} if p.number_phases is not None else {}),
+                }
+                for p in self.charging_schedule.charging_schedule_period
+            ],
+        }
+        if self.charging_schedule.duration is not None:
+            schedule_dict["duration"] = self.charging_schedule.duration
+        if self.charging_schedule.start_schedule is not None:
+            schedule_dict["start_schedule"] = self.charging_schedule.start_schedule.isoformat()
+        if self.charging_schedule.min_charging_rate is not None:
+            schedule_dict["min_charging_rate"] = self.charging_schedule.min_charging_rate
+
+        result: dict[str, object] = {
+            "charging_profile_id": self.charging_profile_id,
+            "stack_level": self.stack_level,
+            "charging_profile_purpose": self.charging_profile_purpose.value,
+            "charging_profile_kind": self.charging_profile_kind.value,
+            "charging_schedule": schedule_dict,
+        }
+        if self.transaction_id is not None:
+            result["transaction_id"] = self.transaction_id
+        if self.recurrency_kind is not None:
+            result["recurrency_kind"] = self.recurrency_kind.value
+        if self.valid_from is not None:
+            result["valid_from"] = self.valid_from.isoformat()
+        if self.valid_to is not None:
+            result["valid_to"] = self.valid_to.isoformat()
+        return result
+
 
 class ChargingProfileManager:
     """
@@ -182,6 +221,7 @@ class ChargingProfileManager:
         max_profiles: int = 20,
         max_stack_level: int = 5,
         max_schedule_periods: int = 10,
+        persist_path: Optional[Path] = None,
     ) -> None:
         """
         Initialize the charging profile manager.
@@ -190,6 +230,10 @@ class ChargingProfileManager:
             max_profiles: Maximum number of profiles to store.
             max_stack_level: Maximum allowed stack level value.
             max_schedule_periods: Maximum periods per schedule.
+            persist_path: Path for charging profile persistence. Defaults to
+                None (in-memory only). Pass a Path to enable persistence
+                at that location; the manager will restore existing profiles
+                on initialization.
         """
         self._lock = threading.RLock()
         self.max_profiles = max_profiles
@@ -199,6 +243,64 @@ class ChargingProfileManager:
         # Profile storage: profile_id -> (connector_id, ChargingProfileData)
         self._profiles: dict[int, tuple[int, ChargingProfileData]] = {}
         self.logger = logging.getLogger("chargeghost.ocpp.profiles")
+
+        self._persist_path = persist_path
+        if persist_path is not None and not self._profiles:
+            self._restore()
+
+    def _persist(self) -> None:
+        """Persist installed profiles to disk for restart survival."""
+        if self._persist_path is None:
+            return
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            data = []
+            with self._lock:
+                for profile_id, (connector_id, profile) in self._profiles.items():
+                    data.append({
+                        "connector_id": connector_id,
+                        "profile": profile.to_ocpp_dict(),
+                    })
+            with open(self._persist_path, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to persist charging profiles: {e}",
+                extra={"source": "ocpp"},
+            )
+
+    def _restore(self) -> None:
+        """Restore installed profiles from disk on startup."""
+        if self._profiles:
+            return
+        if not self._persist_path.exists():
+            return
+
+        try:
+            with open(self._persist_path, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to restore charging profiles (corrupted file): {e}",
+                extra={"source": "ocpp"},
+            )
+            return
+
+        restored = 0
+        for entry in data:
+            try:
+                profile = ChargingProfileManager.from_ocpp_dict(entry["profile"])
+                connector_id = entry["connector_id"]
+                self._profiles[profile.charging_profile_id] = (connector_id, profile)
+                restored += 1
+            except Exception:
+                continue
+
+        if restored:
+            self.logger.info(
+                f"Restored {restored} charging profile(s) from disk",
+                extra={"source": "ocpp"},
+            )
 
     def set_profile(
         self, connector_id: int, profile: ChargingProfileData
@@ -286,6 +388,7 @@ class ChargingProfileManager:
                     f"#{profile.charging_profile_id}",
                     extra={"source": "ocpp", "connector_id": connector_id},
                 )
+            self._persist()
             return None
 
     def get_profile_ids(self) -> list[int]:
@@ -337,6 +440,7 @@ class ChargingProfileManager:
                     f"Profile(s) cleared: {to_remove}",
                     extra={"source": "ocpp"},
                 )
+                self._persist()
             return len(to_remove)
 
     def get_profiles_for_purpose(

@@ -854,3 +854,149 @@ class TestFindPeriodLimitUnsorted:
 			connector_id=1, transaction_id=None,
 			now=start + timedelta(seconds=2000), connector_voltage=230.0,
 		) == pytest.approx(4.0)
+
+
+class TestChargingProfilePersistence:
+    def test_to_ocpp_dict_roundtrip(self):
+        profile = _make_profile(
+            profile_id=5,
+            stack_level=2,
+            purpose=ChargingProfilePurposeType.tx_profile,
+            kind=ChargingProfileKindType.absolute,
+            limit=8.0,
+            transaction_id=77,
+            num_periods=2,
+        )
+        ocpp_dict = profile.to_ocpp_dict()
+        assert ocpp_dict["charging_profile_id"] == 5
+        assert ocpp_dict["stack_level"] == 2
+        assert ocpp_dict["charging_profile_purpose"] == "TxProfile"
+        assert ocpp_dict["charging_profile_kind"] == "Absolute"
+        assert len(ocpp_dict["charging_schedule"]["charging_schedule_period"]) == 2
+        assert ocpp_dict["transaction_id"] == 77
+
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+        restored = ChargingProfileManager.from_ocpp_dict(ocpp_dict)
+        assert restored.charging_profile_id == 5
+        assert restored.stack_level == 2
+        assert restored.charging_profile_purpose == ChargingProfilePurposeType.tx_profile
+        assert restored.charging_profile_kind == ChargingProfileKindType.absolute
+        assert restored.transaction_id == 77
+        assert len(restored.charging_schedule.charging_schedule_period) == 2
+
+    def test_profiles_persist_across_manager_instances(self, tmp_path):
+        import threading
+        import logging
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+        path = tmp_path / "profiles.json"
+        profile = _make_profile(
+            profile_id=1,
+            stack_level=1,
+            purpose=ChargingProfilePurposeType.tx_default_profile,
+            kind=ChargingProfileKindType.relative,
+            limit=16.0,
+        )
+
+        mgr1 = ChargingProfileManager.__new__(ChargingProfileManager)
+        mgr1._lock = threading.RLock()
+        mgr1._persist_path = path
+        mgr1._profiles = {}
+        mgr1.max_profiles = 20
+        mgr1.max_stack_level = 5
+        mgr1.max_schedule_periods = 10
+        mgr1.logger = logging.getLogger("test")
+        mgr1._restore = lambda: None  # skip auto-restore in test
+        mgr1.set_profile(connector_id=1, profile=profile)
+        assert path.exists()
+
+        mgr2 = ChargingProfileManager.__new__(ChargingProfileManager)
+        mgr2._lock = threading.RLock()
+        mgr2._persist_path = path
+        mgr2._profiles = {}
+        mgr2.max_profiles = 20
+        mgr2.max_stack_level = 5
+        mgr2.max_schedule_periods = 10
+        mgr2.logger = logging.getLogger("test")
+        mgr2._restore()
+
+        assert 1 in mgr2.get_profile_ids()
+
+    def test_corrupted_persistence_file_is_skipped_gracefully(self, tmp_path):
+        import threading
+        import logging
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+        path = tmp_path / "corrupt_profiles.json"
+        path.write_text("not valid json at all")
+
+        mgr = ChargingProfileManager.__new__(ChargingProfileManager)
+        mgr._lock = threading.RLock()
+        mgr._persist_path = path
+        mgr._profiles = {}
+        mgr.max_profiles = 20
+        mgr.max_stack_level = 5
+        mgr.max_schedule_periods = 10
+        mgr.logger = logging.getLogger("test")
+        mgr._restore()
+
+        assert mgr.get_profile_ids() == []
+
+    def test_partial_corruption_skips_bad_entries(self, tmp_path):
+        import json
+        import threading
+        import logging
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+        path = tmp_path / "partial_profiles.json"
+        good_profile = _make_profile(
+            profile_id=2,
+            stack_level=1,
+            purpose=ChargingProfilePurposeType.charge_point_max_profile,
+            kind=ChargingProfileKindType.relative,
+            limit=32.0,
+        )
+        path.write_text(json.dumps([
+            {"connector_id": 1, "profile": {"bad": "data"}},
+            {"connector_id": 1, "profile": good_profile.to_ocpp_dict()},
+        ]))
+
+        mgr = ChargingProfileManager.__new__(ChargingProfileManager)
+        mgr._lock = threading.RLock()
+        mgr._persist_path = path
+        mgr._profiles = {}
+        mgr.max_profiles = 20
+        mgr.max_stack_level = 5
+        mgr.max_schedule_periods = 10
+        mgr.logger = logging.getLogger("test")
+        mgr._restore()
+
+        assert mgr.get_profile_ids() == [2]
+
+    def test_clear_persists_removal(self, tmp_path):
+        import json
+        import threading
+        import logging
+        from chargeghost_evse.ocpp_adapter.charging_profile_manager import ChargingProfileManager
+
+        path = tmp_path / "clear_profiles.json"
+
+        mgr = ChargingProfileManager.__new__(ChargingProfileManager)
+        mgr._lock = threading.RLock()
+        mgr._persist_path = path
+        mgr._profiles = {}
+        mgr.max_profiles = 20
+        mgr.max_stack_level = 5
+        mgr.max_schedule_periods = 10
+        mgr.logger = logging.getLogger("test")
+        mgr._restore = lambda: None
+
+        profile = _make_profile(profile_id=10, stack_level=1)
+        mgr.set_profile(connector_id=1, profile=profile)
+        assert mgr.get_profile_ids() == [10]
+
+        mgr.clear_profiles(profile_id=10)
+        assert mgr.get_profile_ids() == []
+
+        with open(path) as f:
+            assert json.load(f) == []
