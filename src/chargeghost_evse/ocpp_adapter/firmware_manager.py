@@ -293,6 +293,26 @@ class FirmwareManager(Subscriber):
             return self.firmware_task.status
         return FirmwareStatus.idle
 
+    def get_retrieve_delay_seconds(self, now: Optional[datetime] = None) -> float:
+        """Return the remaining delay before firmware retrieval may begin."""
+        if not self.firmware_task:
+            return 0.0
+
+        current_time = now or datetime.now(timezone.utc)
+        delay = (self.firmware_task.retrieve_date - current_time).total_seconds()
+        return max(delay, 0.0)
+
+    async def wait_until_retrieve_date(self) -> None:
+        """Pause until the scheduled firmware retrieveDate, if needed."""
+        delay = self.get_retrieve_delay_seconds()
+        if delay <= 0:
+            return
+
+        self._log(
+            "[cyan]Firmware:[/cyan] Waiting until scheduled retrieve_date before download"
+        )
+        await asyncio.sleep(delay)
+
     async def simulate_firmware_update(self) -> bool:
         if not self.firmware_task:
             return False

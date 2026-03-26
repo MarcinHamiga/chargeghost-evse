@@ -37,6 +37,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from ocpp.exceptions import PropertyConstraintViolationError
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
@@ -401,6 +402,96 @@ class Adapter(cp):
             return None
 
         return replace(profile, transaction_id=None)
+
+    def _raise_property_constraint(self, description: str, **details: Any) -> None:
+        """Raise an OCPP PropertyConstraintViolation with optional details."""
+        raise PropertyConstraintViolationError(
+            description=description,
+            details=details or None,
+        )
+
+    def _validate_smart_charging_connector_id(
+        self, connector_id: int, *, allow_zero: bool
+    ) -> int:
+        """Validate Smart Charging connector IDs against known connectors."""
+        try:
+            normalized_connector_id = int(connector_id)
+        except (TypeError, ValueError):
+            self._raise_property_constraint(
+                "Invalid Smart Charging connectorId",
+                field="connectorId",
+                value=connector_id,
+            )
+
+        if normalized_connector_id < 0:
+            self._raise_property_constraint(
+                "Invalid Smart Charging connectorId",
+                field="connectorId",
+                value=normalized_connector_id,
+            )
+
+        if normalized_connector_id == 0:
+            if allow_zero:
+                return normalized_connector_id
+            self._raise_property_constraint(
+                "connectorId must reference a physical connector",
+                field="connectorId",
+                value=normalized_connector_id,
+            )
+
+        if (
+            self.known_connector_ids
+            and normalized_connector_id not in self.known_connector_ids
+        ):
+            self._raise_property_constraint(
+                "Unknown Smart Charging connectorId",
+                field="connectorId",
+                value=normalized_connector_id,
+            )
+
+        return normalized_connector_id
+
+    def _validate_charging_rate_unit(
+        self, charging_rate_unit: Optional[str]
+    ) -> ChargingRateUnitType:
+        """Validate GetCompositeSchedule chargingRateUnit values."""
+        if charging_rate_unit is None:
+            return ChargingRateUnitType.amps
+
+        if isinstance(charging_rate_unit, ChargingRateUnitType):
+            return charging_rate_unit
+
+        try:
+            return ChargingRateUnitType(charging_rate_unit)
+        except ValueError:
+            self._raise_property_constraint(
+                "Invalid Smart Charging chargingRateUnit",
+                field="chargingRateUnit",
+                value=charging_rate_unit,
+            )
+
+    def _parse_set_charging_profile(
+        self, cs_charging_profiles: dict
+    ) -> ChargingProfileData:
+        """Parse and validate a SetChargingProfile payload."""
+        try:
+            profile = ChargingProfileManager.from_ocpp_dict(cs_charging_profiles)
+        except (KeyError, ValueError, TypeError) as e:
+            self._raise_property_constraint(
+                "Malformed Smart Charging profile payload",
+                field="csChargingProfiles",
+                cause=str(e),
+            )
+
+        validation_error = validate_charging_profile(profile)
+        if validation_error:
+            self._raise_property_constraint(
+                "Invalid Smart Charging profile value",
+                field="csChargingProfiles",
+                cause=validation_error,
+            )
+
+        return profile
 
     def _log_ocpp_raw(
         self,
@@ -1346,6 +1437,7 @@ class Adapter(cp):
         async def run_firmware_update() -> None:
             """Execute firmware update asynchronously."""
             try:
+                await self.firmware_manager.wait_until_retrieve_date()
                 await self.send_firmware_status_notification(FirmwareStatus.downloading)
                 success = await self.firmware_manager.simulate_firmware_update()
                 if success:
@@ -1396,25 +1488,21 @@ class Adapter(cp):
             f"profile_id={cs_charging_profiles.get('charging_profile_id')}",
         )
 
-        try:
-            profile = ChargingProfileManager.from_ocpp_dict(cs_charging_profiles)
-        except (KeyError, ValueError, TypeError) as e:
-            self._log(
-                f"Failed to parse charging profile: {e}",
-                level=logging.WARNING,
-            )
-            return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
-
-        validation_error = validate_charging_profile(profile)
-        if validation_error:
-            self._log(
-                f"Charging profile validation failed: {validation_error}",
-                level=logging.WARNING,
-            )
-            return call_result.SetChargingProfile(status=ChargingProfileStatus.rejected)
+        connector_id = self._validate_smart_charging_connector_id(connector_id, allow_zero=True)
+        profile = self._parse_set_charging_profile(cs_charging_profiles)
 
         error = self.charging_profile_manager.set_profile(connector_id, profile)
         if error:
+            if error in {
+                "too_many_periods",
+                "stack_level_exceeded",
+                "tx_profile_missing_transaction_id",
+            }:
+                self._raise_property_constraint(
+                    "Invalid Smart Charging profile value",
+                    field="csChargingProfiles",
+                    cause=error,
+                )
             self._log(
                 f"Charging profile rejected: {error}",
                 level=logging.WARNING,
@@ -1455,14 +1543,34 @@ class Adapter(cp):
             f"purpose={charging_profile_purpose}",
         )
 
+        if id is not None and id < 0:
+            self._raise_property_constraint(
+                "Invalid Smart Charging profile id",
+                field="id",
+                value=id,
+            )
+        if stack_level is not None and stack_level < 0:
+            self._raise_property_constraint(
+                "Invalid Smart Charging stackLevel",
+                field="stackLevel",
+                value=stack_level,
+            )
+        if connector_id is not None:
+            connector_id = self._validate_smart_charging_connector_id(
+                connector_id,
+                allow_zero=True,
+            )
+
         # Parse purpose enum if provided
         purpose_enum = None
         if charging_profile_purpose:
             try:
                 purpose_enum = ChargingProfilePurposeType(charging_profile_purpose)
             except ValueError:
-                return call_result.ClearChargingProfile(
-                    status=ClearChargingProfileStatus.unknown
+                self._raise_property_constraint(
+                    "Invalid Smart Charging chargingProfilePurpose",
+                    field="chargingProfilePurpose",
+                    value=charging_profile_purpose,
                 )
 
         cleared = self.charging_profile_manager.clear_profiles(
@@ -1511,6 +1619,9 @@ class Adapter(cp):
             f"GetCompositeSchedule: connector_id={connector_id}, duration={duration}s",
         )
 
+        connector_id = self._validate_smart_charging_connector_id(connector_id, allow_zero=False)
+        rate_unit = self._validate_charging_rate_unit(charging_rate_unit)
+
         transaction_id = self.active_transactions.get(connector_id)
         now = datetime.now(timezone.utc)
 
@@ -1544,8 +1655,6 @@ class Adapter(cp):
             if period.number_phases is not None:
                 period_dict["numberPhases"] = period.number_phases
             ocpp_periods.append(period_dict)
-
-        rate_unit = charging_rate_unit or ChargingRateUnitType.amps
 
         return call_result.GetCompositeSchedule(
             status="Accepted",

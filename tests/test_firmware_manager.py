@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from ocpp.v16.enums import DiagnosticsStatus, FirmwareStatus
@@ -179,6 +180,27 @@ class TestFirmwareUpdate:
 		manager.logger.removeHandler(handler)
 		assert manager.firmware_task is not None
 		assert manager.firmware_task.retrieve_date is not None
+
+	def test_get_retrieve_delay_seconds_is_zero_for_past_dates(self, manager: FirmwareManager):
+		manager.start_firmware_update(
+			location="http://server/firmware.bin",
+			retrieve_date=(datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(),
+		)
+		assert manager.get_retrieve_delay_seconds() == pytest.approx(0.0)
+
+	def test_wait_until_retrieve_date_sleeps_for_future_dates(self, manager: FirmwareManager):
+		manager.start_firmware_update(
+			location="http://server/firmware.bin",
+			retrieve_date=(datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat(),
+		)
+		with patch("chargeghost_evse.ocpp_adapter.firmware_manager.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+			loop = asyncio.new_event_loop()
+			try:
+				loop.run_until_complete(manager.wait_until_retrieve_date())
+			finally:
+				loop.close()
+		sleep_mock.assert_awaited_once()
+		assert sleep_mock.await_args.args[0] == pytest.approx(30.0, abs=1.0)
 
 	def test_set_firmware_status(self, manager: FirmwareManager):
 		manager.start_firmware_update(
