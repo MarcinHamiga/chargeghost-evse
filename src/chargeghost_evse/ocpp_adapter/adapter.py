@@ -33,6 +33,7 @@ Example:
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -364,6 +365,42 @@ class Adapter(cp):
                 )
             except (TypeError, ValueError):
                 pass
+
+    def _parse_remote_start_charging_profile(
+        self, charging_profile: dict
+    ) -> Optional[ChargingProfileData]:
+        """
+        Parse and validate a RemoteStartTransaction charging profile.
+
+        RemoteStartTransaction may only carry a TxProfile template. The
+        transaction ID is assigned later when StartTransaction succeeds, so any
+        incoming transactionId is replaced when the session is registered.
+        """
+        try:
+            profile = ChargingProfileManager.from_ocpp_dict(charging_profile)
+        except (KeyError, ValueError, TypeError) as e:
+            self._log(
+                f"Failed to parse remote start charging profile: {e}",
+                level=logging.WARNING,
+            )
+            return None
+
+        if profile.charging_profile_purpose != ChargingProfilePurposeType.tx_profile:
+            self._log(
+                "RemoteStartTransaction chargingProfile must use TxProfile purpose",
+                level=logging.WARNING,
+            )
+            return None
+
+        validation_error = validate_charging_profile(profile)
+        if validation_error:
+            self._log(
+                f"RemoteStartTransaction charging profile rejected: {validation_error}",
+                level=logging.WARNING,
+            )
+            return None
+
+        return replace(profile, transaction_id=None)
 
     def _log_ocpp_raw(
         self,
@@ -723,7 +760,11 @@ class Adapter(cp):
 
     @on("RemoteStartTransaction")
     async def on_remote_start_transaction(
-        self, connector_id: Optional[int], id_tag: str, **kwargs
+        self,
+        connector_id: Optional[int],
+        id_tag: str,
+        charging_profile: Optional[dict] = None,
+        **kwargs,
     ) -> call_result.RemoteStartTransaction:
         """
         Handle RemoteStartTransaction request from CSMS.
@@ -742,6 +783,22 @@ class Adapter(cp):
         self._log(
             f"RemoteStartTransaction: connector_id={connector_id}, id_tag={id_tag}",
         )
+
+        remote_start_profile = charging_profile
+        if remote_start_profile is None:
+            remote_start_profile = kwargs.get("charging_profile")
+        if remote_start_profile is None:
+            remote_start_profile = kwargs.get("chargingProfile")
+
+        parsed_profile: Optional[ChargingProfileData] = None
+        if remote_start_profile is not None:
+            parsed_profile = self._parse_remote_start_charging_profile(
+                remote_start_profile
+            )
+            if parsed_profile is None:
+                return call_result.RemoteStartTransaction(
+                    status=RemoteStartStopStatus.rejected
+                )
 
         # Validate connector_id if provided
         target_connector_id: Optional[int] = None
@@ -784,6 +841,7 @@ class Adapter(cp):
                     "action": "START",
                     "connector_id": target_connector_id,
                     "id_tag": id_tag,
+                    "charging_profile": parsed_profile,
                     "timeout": self.response_timeout,
                 }
             )

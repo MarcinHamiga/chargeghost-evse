@@ -10,7 +10,7 @@ Classes:
 """
 
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
@@ -59,6 +59,7 @@ class Session(Subscriber):
         connector_id: int = 0,
         max_energy: float = 0.0,
         id_tag: Optional[str] = None,
+        remote_start_charging_profile: Optional[Any] = None,
     ) -> None:
         """
         Initialize a new charging session.
@@ -69,6 +70,8 @@ class Session(Subscriber):
             max_energy: Maximum battery capacity in Watt-hours (Wh).
                 Use 0.0 for unlimited/unknown capacity (disables SoC calculation).
             id_tag: Authorization identifier from the central system.
+            remote_start_charging_profile: Deferred remote-start charging profile
+                to apply once a transaction ID is assigned.
         """
         super().__init__()
         self.transaction_id: int = transaction_id
@@ -78,6 +81,7 @@ class Session(Subscriber):
         self.state_of_charge: float = 0.0
         self.max_energy: float = max_energy
         self.id_tag: Optional[str] = id_tag
+        self.remote_start_charging_profile: Optional[Any] = remote_start_charging_profile
 
         # Event emitted when EV reaches full charge
         self.ev_max_charge_reached: Event = Event()

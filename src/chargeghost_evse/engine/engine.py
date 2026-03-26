@@ -20,7 +20,7 @@ import queue
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
@@ -368,6 +368,7 @@ class Engine(Subscriber):
                         transaction_id=pending["transaction_id"],
                         max_energy=pending["max_energy"],
                         id_tag=pending["id_tag"],
+                        remote_start_charging_profile=pending.get("charging_profile"),
                     )
                 else:
                     self._log(
@@ -431,6 +432,7 @@ class Engine(Subscriber):
         max_energy: float = 55000.0,
         id_tag: Optional[str] = None,
         timeout: Optional[float] = None,
+        remote_start_charging_profile: Optional[Any] = None,
     ) -> None:
         """
         Start a charging session on a connector.
@@ -447,6 +449,8 @@ class Engine(Subscriber):
             id_tag: Authorization identifier for the session.
             timeout: Optional timeout in seconds to wait for plug-in.
                 If None or 0, fails immediately if not plugged in.
+            remote_start_charging_profile: Optional deferred charging profile
+                from RemoteStartTransaction.
 
         Note:
             Only one session can be active at a time (single-session EVSE).
@@ -481,6 +485,7 @@ class Engine(Subscriber):
                     "transaction_id": transaction_id,
                     "max_energy": max_energy,
                     "id_tag": id_tag,
+                    "charging_profile": remote_start_charging_profile,
                     "expiry": time.monotonic() + timeout,
                 }
             else:
@@ -521,6 +526,7 @@ class Engine(Subscriber):
             connector_id=connector_id,
             max_energy=max_energy,
             id_tag=id_tag or connector.id_tag,
+            remote_start_charging_profile=remote_start_charging_profile,
         )
 
         # Connect session to energy meter for energy delivery tracking
@@ -801,6 +807,7 @@ class Engine(Subscriber):
                 max_energy=command.get("max_energy", 55000.0),
                 id_tag=command.get("id_tag"),
                 timeout=command.get("timeout"),
+                remote_start_charging_profile=command.get("charging_profile"),
             )
         elif action == "STOP":
             self.stop_session(reason=command.get("reason", "Remote"))

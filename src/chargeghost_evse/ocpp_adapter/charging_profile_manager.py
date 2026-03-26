@@ -237,10 +237,37 @@ class ChargingProfileManager:
             ):
                 return "tx_profile_missing_transaction_id"
 
+            replaced_profile_ids = []
+            if profile.charging_profile_purpose == ChargingProfilePurposeType.tx_profile:
+                for existing_id, (
+                    existing_connector_id,
+                    existing_profile,
+                ) in self._profiles.items():
+                    if existing_id == profile.charging_profile_id:
+                        continue
+                    if existing_connector_id != connector_id:
+                        continue
+                    if (
+                        existing_profile.charging_profile_purpose
+                        != profile.charging_profile_purpose
+                    ):
+                        continue
+                    if existing_profile.stack_level != profile.stack_level:
+                        continue
+                    if existing_profile.transaction_id != profile.transaction_id:
+                        continue
+                    replaced_profile_ids.append(existing_id)
+
             # Check profile count limit (replacements don't count)
-            is_replace = profile.charging_profile_id in self._profiles
+            is_replace = (
+                profile.charging_profile_id in self._profiles
+                or bool(replaced_profile_ids)
+            )
             if not is_replace and len(self._profiles) >= self.max_profiles:
                 return "max_profiles_exceeded"
+
+            for existing_id in replaced_profile_ids:
+                del self._profiles[existing_id]
 
             self._profiles[profile.charging_profile_id] = (connector_id, profile)
             periods = profile.charging_schedule.charging_schedule_period

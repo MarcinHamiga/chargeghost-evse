@@ -42,6 +42,7 @@ import ssl
 import threading
 import traceback
 import websockets
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -548,6 +549,7 @@ class Bridge:
                     set_active = getattr(adapter, "set_active_transaction", None)
                     if callable(set_active):
                         set_active(kwargs["connector_id"], tx_id)
+                    self._apply_remote_start_charging_profile(session, tx_id)
                     self._log(
                         message=f"Transaction ID assigned from queue drain: {tx_id}"
                     )
@@ -640,10 +642,7 @@ class Bridge:
             Returns:
                 OCPP status string, or None if the connector is unknown.
             """
-            connector = self.engine.get_connector(connector_id)
-            if not connector:
-                return None
-            return connector.status.value
+            return self._get_status_notification_status(connector_id)
 
         def get_meter_snapshot(
             connector_id: int,
@@ -702,6 +701,37 @@ class Bridge:
             self.runner.adapter.cancel_reservation = None
             self.runner.adapter.set_connector_availability = None
 
+    def _get_status_notification_status(self, connector_id: int) -> Optional[str]:
+        """
+        Get the OCPP status string to report for a connector notification.
+
+        Connector 0 reports a charge-point-wide status derived from the current
+        connector states. Other connector IDs map directly to the engine's stored
+        connector status values.
+        """
+        if connector_id == 0:
+            status_priority = (
+                "Faulted",
+                "Unavailable",
+                "SuspendedEVSE",
+                "SuspendedEV",
+                "Charging",
+                "Preparing",
+                "Finishing",
+                "Reserved",
+                "Available",
+            )
+            connector_statuses = {connector.status.value for connector in self.engine.connectors}
+            for status in status_priority:
+                if status in connector_statuses:
+                    return status
+            return "Available"
+
+        connector = self.engine.get_connector(connector_id)
+        if not connector:
+            return None
+        return connector.status.value
+
     def _send_initial_status_notifications(self) -> None:
         """
         Send StatusNotification for all connectors after registration.
@@ -716,8 +746,22 @@ class Bridge:
 
         self._log(message="Sending initial StatusNotification for all connectors...")
 
+        charge_point_status = self._get_status_notification_status(0)
+        if charge_point_status is not None:
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.send_status_notification(
+                    connector_id=0,
+                    error_code="NoError",
+                    status=charge_point_status,
+                ),
+                loop,
+            )
+            future.add_done_callback(self._handle_future_error)
+
         for connector in self.engine.connectors:
-            conn_status = connector.status.value
+            conn_status = self._get_status_notification_status(connector.id)
+            if conn_status is None:
+                continue
 
             future = asyncio.run_coroutine_threadsafe(
                 adapter.send_status_notification(
@@ -790,6 +834,44 @@ class Bridge:
                 message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}",
                 level=logging.ERROR,
             )
+
+    def _apply_remote_start_charging_profile(
+        self, session: Any, transaction_id: int
+    ) -> None:
+        """
+        Install a deferred RemoteStartTransaction charging profile.
+
+        The remote start profile is carried on the session until the CSMS
+        returns a transaction ID. Once known, the profile is installed as a
+        TxProfile bound to that transaction.
+        """
+        adapter = self.runner.adapter
+        if adapter is None or adapter.charging_profile_manager is None:
+            return
+
+        profile = getattr(session, "remote_start_charging_profile", None)
+        if profile is None:
+            return
+
+        profile_with_transaction = replace(profile, transaction_id=transaction_id)
+        error = adapter.charging_profile_manager.set_profile(
+            session.connector_id,
+            profile_with_transaction,
+        )
+        if error:
+            self._log(
+                message=f"RemoteStartTransaction charging profile rejected: {error}",
+                level=logging.WARNING,
+            )
+            return
+
+        session.remote_start_charging_profile = None
+        self._log(
+            message=(
+                "RemoteStartTransaction charging profile applied to "
+                f"connector {session.connector_id}"
+            )
+        )
 
     async def _send_boot_notification_for_reset(self, reset_type: str) -> None:
         """
@@ -927,6 +1009,10 @@ class Bridge:
                     and self.engine.session is session
                 ):
                     session.transaction_id = response.transaction_id
+                    self._apply_remote_start_charging_profile(
+                        session,
+                        response.transaction_id,
+                    )
                     self._log(
                         message=f"Transaction ID assigned: {response.transaction_id}"
                     )
