@@ -1,4 +1,7 @@
-from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
+from chargeghost_evse.ocpp_adapter.config_keys import (
+    ConfigurationKeyManager,
+    _validate_measurand_list,
+)
 from ocpp.v16.enums import ConfigurationStatus
 
 def test_initialize_defaults():
@@ -66,3 +69,73 @@ def test_get_bool_value():
     
     manager.set_key("LocalAuthListEnabled", "1")
     assert manager.get_bool_value("LocalAuthListEnabled") is True
+
+
+def test_validate_measurand_list_accepts_valid_measurands():
+    assert _validate_measurand_list("Energy.Active.Import.Register") is None
+    assert _validate_measurand_list("Energy.Active.Import.Register,Voltage") is None
+    assert _validate_measurand_list("") is None
+    assert _validate_measurand_list("Energy.Active.Import.Register,Current.Import") is None
+
+
+def test_validate_measurand_list_rejects_invalid_measurands():
+    assert "Unsupported measurand" in _validate_measurand_list("BadMeasurand")
+    assert "Unsupported measurand" in _validate_measurand_list("Energy.Active.Import.Register,Voltage,InvalidOne")
+
+
+def test_set_key_rejects_unsupported_measurand_in_meter_values_sampled_data():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    status = manager.set_key("MeterValuesSampledData", "Voltage,FakeMeasurand")
+    assert status == ConfigurationStatus.rejected
+    assert manager.get_measurand_list("MeterValuesSampledData") == [
+        "Energy.Active.Import.Register"
+    ]
+
+
+def test_set_key_accepts_valid_measurand_for_meter_values_aligned_data():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    status = manager.set_key("MeterValuesAlignedData", "Energy.Active.Import.Register,Voltage")
+    assert status == ConfigurationStatus.accepted
+    assert manager.get_measurand_list("MeterValuesAlignedData") == [
+        "Energy.Active.Import.Register",
+        "Voltage",
+    ]
+
+
+def test_set_key_rejects_unsupported_measurand_in_stop_txn_sampled_data():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    status = manager.set_key("StopTxnSampledData", "FakeMeasurand")
+    assert status == ConfigurationStatus.rejected
+
+
+def test_set_key_accepts_valid_measurand_for_stop_txn_aligned_data():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    status = manager.set_key("StopTxnAlignedData", "Energy.Active.Import.Register")
+    assert status == ConfigurationStatus.accepted
+
+
+def test_get_measurand_list_parses_comma_separated():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    manager.set_key("MeterValuesSampledData", "Energy.Active.Import.Register,Voltage,Current.Import")
+    assert manager.get_measurand_list("MeterValuesSampledData") == [
+        "Energy.Active.Import.Register",
+        "Voltage",
+        "Current.Import",
+    ]
+
+
+def test_get_measurand_list_returns_empty_for_unset_key():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+
+    assert manager.get_measurand_list("NonExistentKey") == []

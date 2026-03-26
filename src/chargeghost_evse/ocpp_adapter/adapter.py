@@ -1896,27 +1896,33 @@ class Adapter(cp):
         max_values = self.config_manager.get_int_value("StopTransactionMaxLength", 0)
 
         if max_values > 0 and meter_history:
-            recent = (
-                meter_history[-max_values:]
-                if len(meter_history) > max_values
-                else meter_history
-            )
-            transaction_data = [
-                {
-                    "timestamp": entry["timestamp"],
-                    "sampledValue": [
-                        {
-                            "value": str(entry["value"]),
-                            "context": "Sample.Periodic",
-                            "measurand": "Energy.Active.Import.Register",
-                            "unit": "Wh",
-                            "format": "Raw",
-                            "location": "Outlet",
-                        }
-                    ],
-                }
-                for entry in recent
-            ]
+            recent = meter_history
+            if len(recent) > max_values:
+                recent = [recent[0]] + recent[-(max_values - 1):]
+
+            measurands = self.config_manager.get_measurand_list("StopTxnSampledData")
+            aligned_measurands = self.config_manager.get_measurand_list("StopTxnAlignedData")
+            all_measurands = measurands + aligned_measurands
+
+            if "Energy.Active.Import.Register" not in all_measurands:
+                transaction_data = None
+            else:
+                transaction_data = [
+                    {
+                        "timestamp": entry["timestamp"],
+                        "sampledValue": [
+                            {
+                                "value": str(entry["value"]),
+                                "context": "Sample.Periodic",
+                                "measurand": "Energy.Active.Import.Register",
+                                "unit": "Wh",
+                                "format": "Raw",
+                                "location": "Outlet",
+                            }
+                        ],
+                    }
+                    for entry in recent
+                ]
 
         request = call.StopTransaction(
             meter_stop=meter_stop,

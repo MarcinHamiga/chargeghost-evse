@@ -1,10 +1,26 @@
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ocpp.v16.enums import ConfigurationStatus
+from ocpp.v16.enums import ConfigurationStatus, Measurand
 
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.helpers import parse_bool_string
+
+
+_VALID_MEASURANDS: set[str] = {
+    m.value for m in Measurand
+}
+
+
+def _validate_measurand_list(value: str) -> Optional[str]:
+    """Validate a comma-separated measurand list. Returns error message or None."""
+    if not value:
+        return None
+    for item in value.split(","):
+        item = item.strip()
+        if item and item not in _VALID_MEASURANDS:
+            return f"Unsupported measurand: '{item}'"
+    return None
 
 
 @dataclass
@@ -40,12 +56,23 @@ class ConfigurationKeyManager:
     def get_all_keys(self) -> list[ConfigurationKey]:
         return list(self._keys.values())
 
+    _MEASURAND_KEYS: frozenset[str] = frozenset({
+        "MeterValuesSampledData",
+        "MeterValuesAlignedData",
+        "StopTxnSampledData",
+        "StopTxnAlignedData",
+    })
+
     def set_key(self, key: str, value: str) -> ConfigurationStatus:
         config_key = self._keys.get(key)
         if config_key is None:
             return ConfigurationStatus.not_supported
         if config_key.readonly:
             return ConfigurationStatus.rejected
+        if key in self._MEASURAND_KEYS:
+            error = _validate_measurand_list(value)
+            if error:
+                return ConfigurationStatus.rejected
         config_key.value = value
         self.on_key_changed.emit(key_name=key, new_value=value)
         return ConfigurationStatus.accepted
@@ -58,6 +85,16 @@ class ConfigurationKeyManager:
             return int(config_key.get_value())
         except (TypeError, ValueError):
             return default
+
+    def get_measurand_list(self, key: str) -> list[str]:
+        """Return parsed measurand list for a metering config key, or default."""
+        config_key = self._keys.get(key)
+        if config_key is None:
+            return []
+        raw = config_key.get_value().strip()
+        if not raw:
+            return []
+        return [m.strip() for m in raw.split(",") if m.strip()]
 
     def get_bool_value(self, key: str, default: bool = False) -> bool:
         config_key = self._keys.get(key)
@@ -272,6 +309,24 @@ class ConfigurationKeyManager:
                 default="10",
                 description="Maximum number of meter values in a StopTransaction.req",
                 mandatory=True,
+                category="Core",
+            ),
+            "StopTxnSampledData": ConfigurationKey(
+                key="StopTxnSampledData",
+                value="Energy.Active.Import.Register",
+                readonly=False,
+                default="Energy.Active.Import.Register",
+                description="Measurands to be included in StopTransaction transactionData (sampled)",
+                mandatory=False,
+                category="Core",
+            ),
+            "StopTxnAlignedData": ConfigurationKey(
+                key="StopTxnAlignedData",
+                value="Energy.Active.Import.Register",
+                readonly=False,
+                default="Energy.Active.Import.Register",
+                description="Measurands to be included in StopTransaction transactionData (clock-aligned)",
+                mandatory=False,
                 category="Core",
             ),
             "StopTransactionOnEVSideDisconnect": ConfigurationKey(
