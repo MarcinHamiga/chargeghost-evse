@@ -19,6 +19,22 @@ def test_initialize_defaults():
     assert manager.get_int_value("MeterValueSampleInterval") == 60
     assert manager.get_int_value("ConnectionTimeout") == 30
 
+
+def test_message_timeout_configuration():
+    manager = ConfigurationKeyManager()
+    manager.initialize_defaults()
+    
+    # Check MessageTimeout is registered
+    assert manager.get_key("MessageTimeout") is not None
+    
+    # Check default value
+    assert manager.get_int_value("MessageTimeout") == 30
+    
+    # Check it can be updated
+    status = manager.set_key("MessageTimeout", "60")
+    assert status == ConfigurationStatus.accepted
+    assert manager.get_int_value("MessageTimeout") == 60
+
 def test_set_key_updates_value():
     manager = ConfigurationKeyManager()
     manager.initialize_defaults()

@@ -7,9 +7,7 @@ from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.helpers import parse_bool_string
 
 
-_VALID_MEASURANDS: set[str] = {
-    m.value for m in Measurand
-}
+_VALID_MEASURANDS: set[str] = {m.value for m in Measurand}
 
 
 def _validate_measurand_list(value: str) -> Optional[str]:
@@ -56,12 +54,14 @@ class ConfigurationKeyManager:
     def get_all_keys(self) -> list[ConfigurationKey]:
         return list(self._keys.values())
 
-    _MEASURAND_KEYS: frozenset[str] = frozenset({
-        "MeterValuesSampledData",
-        "MeterValuesAlignedData",
-        "StopTxnSampledData",
-        "StopTxnAlignedData",
-    })
+    _MEASURAND_KEYS: frozenset[str] = frozenset(
+        {
+            "MeterValuesSampledData",
+            "MeterValuesAlignedData",
+            "StopTxnSampledData",
+            "StopTxnAlignedData",
+        }
+    )
 
     def set_key(self, key: str, value: str) -> ConfigurationStatus:
         config_key = self._keys.get(key)
@@ -247,6 +247,15 @@ class ConfigurationKeyManager:
                 description="Whether to use local authorization list before CSMS authorization",
                 mandatory=True,
                 category="LocalAuthList",
+            ),
+            "MessageTimeout": ConfigurationKey(
+                key="MessageTimeout",
+                value="30",
+                readonly=False,
+                default="30",
+                description="Time in seconds after which an OCPP message request is considered failed",
+                mandatory=False,
+                category="Core",
             ),
             "MaxChargingProfilesInstalled": ConfigurationKey(
                 key="MaxChargingProfilesInstalled",

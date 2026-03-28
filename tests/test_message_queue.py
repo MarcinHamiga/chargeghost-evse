@@ -1,7 +1,6 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from chargeghost_evse.bridge.message_queue import (
 	InMemoryBackend,
 	MessageQueue,
@@ -214,6 +213,68 @@ class TestMessageQueueDrain:
 			assert len(received) == 1
 			assert received[0][0].transaction_id == 99
 			assert received[0][1]["connector_id"] == 1
+		finally:
+			loop.close()
+
+	def test_drain_replays_v201_started_transaction_event(self):
+		q = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
+		q.enqueue(
+			"TransactionEventStarted",
+			{
+				"connector_id": 1,
+				"id_tag": "ABC",
+				"meter_start": 0,
+				"timestamp": "t",
+			},
+		)
+
+		response = (MagicMock(), "tx-1")
+		adapter = MagicMock()
+		adapter.send_transaction_event_started = AsyncMock(return_value=response)
+
+		received: list = []
+
+		def on_start(resp, kwargs):
+			received.append((resp, kwargs))
+
+		loop = asyncio.new_event_loop()
+		try:
+			sent = loop.run_until_complete(
+				q.drain(
+					adapter,
+					response_callbacks={"TransactionEventStarted": on_start},
+				)
+			)
+			assert sent == 1
+			assert len(received) == 1
+			assert received[0][0][1] == "tx-1"
+			assert received[0][1]["connector_id"] == 1
+		finally:
+			loop.close()
+
+	def test_drain_replays_v201_ended_transaction_event(self):
+		q = MessageQueue(backend=InMemoryBackend(), max_attempts=3)
+		q.enqueue(
+			"TransactionEventEnded",
+			{
+				"connector_id": 1,
+				"transaction_id": "tx-1",
+				"meter_stop": 10,
+				"timestamp": "t",
+				"reason": "Local",
+				"meter_history": [],
+			},
+		)
+
+		adapter = MagicMock()
+		adapter.send_transaction_event_ended = AsyncMock()
+
+		loop = asyncio.new_event_loop()
+		try:
+			sent = loop.run_until_complete(q.drain(adapter))
+			assert sent == 1
+			assert q.size == 0
+			adapter.send_transaction_event_ended.assert_called_once()
 		finally:
 			loop.close()
 

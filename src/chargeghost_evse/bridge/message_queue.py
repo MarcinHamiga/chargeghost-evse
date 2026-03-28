@@ -2,7 +2,8 @@
 Offline message queue for buffering OCPP messages during disconnection.
 
 When the WebSocket connection drops, transaction-critical messages
-(StartTransaction, StopTransaction, MeterValues) are buffered here
+(StartTransaction, StopTransaction, MeterValues, and OCPP 2.0.1
+TransactionEvent lifecycle messages) are buffered here
 and replayed on reconnection per OCPP 1.6 section 4.9.
 """
 
@@ -257,4 +258,6 @@ _ACTION_TO_METHOD: dict[str, str] = {
     "StartTransaction": "send_start_transaction",
     "StopTransaction": "send_stop_transaction",
     "MeterValues": "send_meter_values",
+    "TransactionEventStarted": "send_transaction_event_started",
+    "TransactionEventEnded": "send_transaction_event_ended",
 }

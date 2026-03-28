@@ -36,9 +36,8 @@ import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
-from ocpp.exceptions import PropertyConstraintViolationError
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
@@ -68,6 +67,7 @@ from ocpp.v16.enums import (
     UpdateType,
 )
 
+from chargeghost_evse.ocpp_adapter.base_adapter import BaseAdapter
 from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
     ChargingProfileData,
     ChargingProfileManager,
@@ -80,7 +80,6 @@ from chargeghost_evse.ocpp_adapter.config_keys import (
 from chargeghost_evse.ocpp_adapter.data_transfer import DataTransferRegistry
 from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
 from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
-from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.helpers import parse_bool_string
 
 
@@ -120,7 +119,7 @@ def validate_charging_profile(profile: ChargingProfileData) -> Optional[str]:
     return None
 
 
-class Adapter(cp):
+class Adapter(BaseAdapter, cp):
     """
     OCPP 1.6 Charge Point adapter implementation.
 
@@ -167,6 +166,26 @@ class Adapter(cp):
         >>> await adapter.start()  # Start handling incoming messages
     """
 
+    _log_important_actions = {
+        "BootNotification",
+        "StartTransaction",
+        "StopTransaction",
+        "Authorize",
+        "RemoteStartTransaction",
+        "RemoteStopTransaction",
+        "Reset",
+        "StatusNotification",
+        "GetDiagnostics",
+        "DiagnosticsStatusNotification",
+        "UpdateFirmware",
+        "FirmwareStatusNotification",
+        "GetConfiguration",
+        "ChangeConfiguration",
+        "SendLocalList",
+        "GetLocalListVersion",
+        "DataTransfer",
+    }
+
     def __init__(
         self,
         id: str,
@@ -187,37 +206,14 @@ class Adapter(cp):
             charge_point_model: Model name reported in BootNotification.
             charge_point_vendor: Vendor name reported in BootNotification.
         """
-        super().__init__(id, connection, response_timeout)
+        cp.__init__(self, id, connection, response_timeout)
 
-        # Mirror response_timeout as a public attribute so handlers can read it.
-        # The base class stores it as _response_timeout; _on_config_key_changed
-        # keeps this in sync when the CSMS sends a ConnectionTimeout update.
-        self.response_timeout = response_timeout
-
-        # Command queue for Engine communication
-        self.command_queue = command_queue
-
-        # Loggers
-        self.logger = logging.getLogger("chargeghost.ocpp")
-        self._tx_logger = logging.getLogger("chargeghost.ocpp.tx")
-
-        # Event emitters
-        self.on_ocpp_message = Event()
-        self.on_reset_requested = Event()
-
-        # Charge point identification
-        self.charge_point_model = charge_point_model
-        self.charge_point_vendor = charge_point_vendor
-
-        # Registration state
-        self.heartbeat_interval: int = 0
-        self.registration_status: Optional[RegistrationStatus] = None
-        self.on_registration_accepted = Event()
-        self.on_heartbeat_response = Event()
-
-        # Transaction tracking: connector_id -> transaction_id
-        self.active_transactions: Dict[int, int] = {}
-        self._next_transaction_id: int = 0
+        self._init_base(
+            command_queue=command_queue,
+            charge_point_model=charge_point_model,
+            charge_point_vendor=charge_point_vendor,
+            response_timeout=response_timeout,
+        )
 
         # Firmware and diagnostics management
         self.firmware_manager = FirmwareManager()
@@ -285,45 +281,6 @@ class Adapter(cp):
         # Subscribe to configuration changes
         self.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
 
-        # Injectable callback for connector info (set by Bridge)
-        # Signature: (connector_id: int) -> Optional[tuple[voltage, phases]]
-        self.get_connector_info: Optional[
-            Callable[[int], Optional[tuple[float, int]]]
-        ] = None
-        self.get_connector_status: Optional[Callable[[int], Optional[str]]] = None
-        self.get_meter_snapshot: Optional[
-            Callable[[int], Optional[tuple[float, Optional[int]]]]
-        ] = None
-
-        # Known connector IDs populated by Bridge after each BootNotification
-        self.known_connector_ids: list[int] = []
-
-        # Injectable callback to change connector availability (set by Bridge)
-        # Signature: (connector_id: int, availability_type: str) -> str
-        # Returns "accepted", "scheduled", or "rejected"
-        self.set_connector_availability: Optional[Callable[[int, str], str]] = None
-
-        # Injectable callbacks for reservation handling (set by Bridge)
-        self.reserve_connector: Optional[Callable[..., str]] = None
-        self.cancel_reservation: Optional[Callable[[int], str]] = None
-
-    def _log(
-        self,
-        message: str,
-        *,
-        level: int = logging.INFO,
-        **extra,
-    ) -> None:
-        """
-        Emit a log message via Python logging.
-
-        Args:
-            message: Log message text.
-            level: Logging level (default INFO).
-            **extra: Additional structured fields for the log record.
-        """
-        self.logger.log(level, message, extra={"source": "ocpp", **extra})
-
     def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
         """
         Handle configuration key change notifications.
@@ -360,11 +317,11 @@ class Adapter(cp):
             self._log(
                 f"MeterValueSampleInterval updated to {new_value}s",
             )
-        elif key_name == "ConnectionTimeout":
+        elif key_name in ("ConnectionTimeout", "MessageTimeout"):
             try:
                 self.response_timeout = int(new_value)
                 self._log(
-                    f"Response timeout updated to {new_value}s",
+                    f"Response timeout updated to {new_value}s (via {key_name})",
                 )
             except (TypeError, ValueError):
                 pass
@@ -404,13 +361,6 @@ class Adapter(cp):
             return None
 
         return replace(profile, transaction_id=None)
-
-    def _raise_property_constraint(self, description: str, **details: Any) -> None:
-        """Raise an OCPP PropertyConstraintViolation with optional details."""
-        raise PropertyConstraintViolationError(
-            description=description,
-            details=details or None,
-        )
 
     def _validate_smart_charging_connector_id(
         self, connector_id: int, *, allow_zero: bool
@@ -494,174 +444,6 @@ class Adapter(cp):
             )
 
         return profile
-
-    def _log_ocpp_raw(
-        self,
-        direction: str,
-        action: str,
-        payload: Any,
-        message_id: str = "",
-    ) -> None:
-        """
-        Log raw OCPP message for debugging.
-
-        Args:
-            direction: "TX" for transmitted, "RX" for received.
-            action: OCPP action name.
-            payload: Message payload.
-            message_id: Optional unique message ID.
-        """
-        try:
-            if isinstance(payload, dict):
-                payload_str = json.dumps(payload, indent=2)
-            else:
-                payload_str = str(payload)
-        except (TypeError, ValueError):
-            payload_str = str(payload)
-
-        raw_msg = f"[{direction}] {action}"
-        if message_id:
-            raw_msg += f" (id={message_id})"
-        raw_msg += f"\n{payload_str}"
-
-        # Important actions shown in shallow mode (INFO), others are DEBUG
-        important_actions = {
-            "BootNotification",
-            "StartTransaction",
-            "StopTransaction",
-            "Authorize",
-            "RemoteStartTransaction",
-            "RemoteStopTransaction",
-            "Reset",
-            "StatusNotification",
-            "GetDiagnostics",
-            "DiagnosticsStatusNotification",
-            "UpdateFirmware",
-            "FirmwareStatusNotification",
-            "GetConfiguration",
-            "ChangeConfiguration",
-            "SendLocalList",
-            "GetLocalListVersion",
-            "DataTransfer",
-        }
-        level = logging.INFO if action in important_actions else logging.DEBUG
-
-        self.on_ocpp_message.emit(
-            direction=direction, action=action, payload=payload_str
-        )
-        self._tx_logger.log(
-            level,
-            raw_msg,
-            extra={
-                "source": "ocpp",
-                "ocpp_direction": direction,
-                "ocpp_action": action,
-                "ocpp_message_id": message_id,
-                "ocpp_payload": payload if isinstance(payload, dict) else payload_str,
-                # For RX (responses), set correlated_id to match the TX message_id.
-                # In OCPP 1.6, the response uses the same unique_id as the request,
-                # so this equals ocpp_message_id on RX records. The UI can group
-                # TX+RX records by matching TX.ocpp_message_id == RX.ocpp_correlated_id.
-                "ocpp_correlated_id": message_id if direction == "RX" else None,
-            },
-        )
-
-    async def _send_call(self, message) -> Any:
-        """
-        Override to log outgoing CALL messages.
-
-        Args:
-            message: The OCPP CALL message to send.
-
-        Returns:
-            Response from the Central System.
-        """
-        self._log_ocpp_raw("TX", message.__class__.__name__, message.__dict__)
-        return await super()._send_call(message)
-
-    async def _handle_call(self, msg) -> Any:
-        """
-        Override to log incoming CALL messages.
-
-        Args:
-            msg: The incoming OCPP CALL message.
-
-        Returns:
-            Response to send back.
-        """
-        if hasattr(msg, "unique_id") and hasattr(msg, "action"):
-            payload = getattr(msg, "payload", msg.__dict__)
-            self._log_ocpp_raw("RX", msg.action, payload, getattr(msg, "unique_id", ""))
-        return await super()._handle_call(msg)
-
-    def _schedule_background_send(self, awaitable: Awaitable[Any], action: str) -> None:
-        """
-        Schedule an outbound OCPP send without blocking the caller.
-
-        Args:
-            awaitable: Outbound send coroutine.
-            action: OCPP action name for logging context.
-        """
-        task = asyncio.create_task(awaitable)
-        task.add_done_callback(
-            lambda completed: self._handle_background_send_result(completed, action)
-        )
-
-    def _handle_background_send_result(
-        self, task: asyncio.Task[Any], action: str
-    ) -> None:
-        """
-        Log exceptions raised by background send tasks.
-
-        Args:
-            task: The finished asyncio task.
-            action: OCPP action name for logging context.
-        """
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            self._log(
-                f"TriggerMessage {action} failed: {exc}",
-                level=logging.ERROR,
-            )
-
-    # -------------------------------------------------------------------------
-    # Transaction Management
-    # -------------------------------------------------------------------------
-
-    def get_active_transaction_id(self, connector_id: int) -> Optional[int]:
-        """
-        Get the active transaction ID for a connector.
-
-        Args:
-            connector_id: The connector ID.
-
-        Returns:
-            Transaction ID if active, None otherwise.
-        """
-        return self.active_transactions.get(connector_id)
-
-    def set_active_transaction(self, connector_id: int, transaction_id: int) -> None:
-        """
-        Set the active transaction for a connector.
-
-        Args:
-            connector_id: The connector ID.
-            transaction_id: The transaction ID to associate.
-        """
-        self.active_transactions[connector_id] = transaction_id
-
-    def clear_active_transaction(self, connector_id: int) -> None:
-        """
-        Clear the active transaction for a connector.
-
-        Args:
-            connector_id: The connector ID to clear.
-        """
-        if connector_id in self.active_transactions:
-            del self.active_transactions[connector_id]
 
     # -------------------------------------------------------------------------
     # Incoming OCPP Message Handlers
@@ -1496,7 +1278,9 @@ class Adapter(cp):
             f"profile_id={cs_charging_profiles.get('charging_profile_id')}",
         )
 
-        connector_id = self._validate_smart_charging_connector_id(connector_id, allow_zero=True)
+        connector_id = self._validate_smart_charging_connector_id(
+            connector_id, allow_zero=True
+        )
         profile = self._parse_set_charging_profile(cs_charging_profiles)
 
         error = self.charging_profile_manager.set_profile(connector_id, profile)
@@ -1627,7 +1411,9 @@ class Adapter(cp):
             f"GetCompositeSchedule: connector_id={connector_id}, duration={duration}s",
         )
 
-        connector_id = self._validate_smart_charging_connector_id(connector_id, allow_zero=False)
+        connector_id = self._validate_smart_charging_connector_id(
+            connector_id, allow_zero=False
+        )
         rate_unit = self._validate_charging_rate_unit(charging_rate_unit)
 
         transaction_id = self.active_transactions.get(connector_id)
@@ -1811,7 +1597,12 @@ class Adapter(cp):
         return response
 
     async def send_start_transaction(
-        self, connector_id: int, id_tag: str, meter_start: int, timestamp: str
+        self,
+        connector_id: int,
+        id_tag: str,
+        meter_start: int,
+        timestamp: str,
+        reservation_id: Optional[int] = None,
     ) -> call_result.StartTransaction:
         """
         Send StartTransaction to the Central System.
@@ -1824,6 +1615,7 @@ class Adapter(cp):
             id_tag: The authorization identifier.
             meter_start: Meter reading at transaction start (Wh).
             timestamp: ISO 8601 timestamp of transaction start.
+            reservation_id: OCPP reservation identifier if started from a reservation.
 
         Returns:
             StartTransaction response with transaction ID.
@@ -1853,6 +1645,7 @@ class Adapter(cp):
             id_tag=id_tag,
             meter_start=meter_start,
             timestamp=timestamp,
+            reservation_id=reservation_id,
         )
 
         response: call_result.StartTransaction = await self.call(request)
@@ -1900,10 +1693,12 @@ class Adapter(cp):
         if max_values > 0 and meter_history:
             recent = meter_history
             if len(recent) > max_values:
-                recent = [recent[0]] + recent[-(max_values - 1):]
+                recent = [recent[0]] + recent[-(max_values - 1) :]
 
             measurands = self.config_manager.get_measurand_list("StopTxnSampledData")
-            aligned_measurands = self.config_manager.get_measurand_list("StopTxnAlignedData")
+            aligned_measurands = self.config_manager.get_measurand_list(
+                "StopTxnAlignedData"
+            )
             all_measurands = measurands + aligned_measurands
 
             if "Energy.Active.Import.Register" not in all_measurands:

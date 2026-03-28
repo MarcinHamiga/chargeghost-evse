@@ -150,7 +150,11 @@ class ChargingProfileData:
                 {
                     "start_period": p.start_period,
                     "limit": p.limit,
-                    **({"number_phases": p.number_phases} if p.number_phases is not None else {}),
+                    **(
+                        {"number_phases": p.number_phases}
+                        if p.number_phases is not None
+                        else {}
+                    ),
                 }
                 for p in self.charging_schedule.charging_schedule_period
             ],
@@ -158,9 +162,13 @@ class ChargingProfileData:
         if self.charging_schedule.duration is not None:
             schedule_dict["duration"] = self.charging_schedule.duration
         if self.charging_schedule.start_schedule is not None:
-            schedule_dict["start_schedule"] = self.charging_schedule.start_schedule.isoformat()
+            schedule_dict["start_schedule"] = (
+                self.charging_schedule.start_schedule.isoformat()
+            )
         if self.charging_schedule.min_charging_rate is not None:
-            schedule_dict["min_charging_rate"] = self.charging_schedule.min_charging_rate
+            schedule_dict["min_charging_rate"] = (
+                self.charging_schedule.min_charging_rate
+            )
 
         result: dict[str, object] = {
             "charging_profile_id": self.charging_profile_id,
@@ -257,10 +265,12 @@ class ChargingProfileManager:
             data = []
             with self._lock:
                 for profile_id, (connector_id, profile) in self._profiles.items():
-                    data.append({
-                        "connector_id": connector_id,
-                        "profile": profile.to_ocpp_dict(),
-                    })
+                    data.append(
+                        {
+                            "connector_id": connector_id,
+                            "profile": profile.to_ocpp_dict(),
+                        }
+                    )
             with open(self._persist_path, "w") as f:
                 json.dump(data, f)
         except Exception as e:
@@ -340,7 +350,10 @@ class ChargingProfileManager:
                 return "tx_profile_missing_transaction_id"
 
             replaced_profile_ids = []
-            if profile.charging_profile_purpose == ChargingProfilePurposeType.tx_profile:
+            if (
+                profile.charging_profile_purpose
+                == ChargingProfilePurposeType.tx_profile
+            ):
                 for existing_id, (
                     existing_connector_id,
                     existing_profile,
@@ -361,9 +374,8 @@ class ChargingProfileManager:
                     replaced_profile_ids.append(existing_id)
 
             # Check profile count limit (replacements don't count)
-            is_replace = (
-                profile.charging_profile_id in self._profiles
-                or bool(replaced_profile_ids)
+            is_replace = profile.charging_profile_id in self._profiles or bool(
+                replaced_profile_ids
             )
             if not is_replace and len(self._profiles) >= self.max_profiles:
                 return "max_profiles_exceeded"

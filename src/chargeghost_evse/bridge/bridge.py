@@ -45,7 +45,10 @@ import websockets
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from chargeghost_evse.ocpp_adapter.adapter import Adapter
 
 from chargeghost_evse.bridge.message_queue import (
     InMemoryBackend,
@@ -53,7 +56,6 @@ from chargeghost_evse.bridge.message_queue import (
     MessageQueue,
 )
 from chargeghost_evse.engine.engine import Engine
-from chargeghost_evse.ocpp_adapter.adapter import Adapter
 from chargeghost_evse.util.event import Event
 
 
@@ -103,6 +105,7 @@ class AsyncRunner:
         skip_tls_verify: bool = False,
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
+        ocpp_version: str = "1.6",
     ) -> None:
         """
         Initialize the async runner.
@@ -115,6 +118,7 @@ class AsyncRunner:
             skip_tls_verify: If True, skip TLS certificate verification.
             charge_point_model: Model name reported in BootNotification.
             charge_point_vendor: Vendor name reported in BootNotification.
+            ocpp_version: OCPP protocol version ("1.6" or "2.0.1").
         """
         self.charge_point_id = charge_point_id
 
@@ -130,6 +134,7 @@ class AsyncRunner:
         self.charge_point_model = charge_point_model
         self.charge_point_vendor = charge_point_vendor
         self.command_queue = command_queue
+        self.ocpp_version = ocpp_version
 
         # Async resources (created in worker thread)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -226,6 +231,31 @@ class AsyncRunner:
             return ssl_context
         return None
 
+    def _get_subprotocol(self) -> list[str]:
+        """Get the WebSocket subprotocol based on OCPP version."""
+        if self.ocpp_version == "2.0.1":
+            return ["ocpp2.0.1"]
+        return ["ocpp1.6"]
+
+    def _get_adapter_class(self):
+        """Get the adapter class based on OCPP version."""
+        if self.ocpp_version == "2.0.1":
+            from chargeghost_evse.ocpp_adapter.v201_adapter import V201Adapter
+            return V201Adapter
+        from chargeghost_evse.ocpp_adapter.v16_adapter import V16Adapter
+        return V16Adapter
+
+    def _create_adapter(self, ws):
+        """Create the appropriate OCPP adapter based on version."""
+        adapter_class = self._get_adapter_class()
+        return adapter_class(
+            self.charge_point_id,
+            ws,
+            command_queue=self.command_queue,
+            charge_point_model=self.charge_point_model,
+            charge_point_vendor=self.charge_point_vendor,
+        )
+
     @property
     def is_connected(self) -> bool:
         """
@@ -260,18 +290,12 @@ class AsyncRunner:
 
                 async with websockets.connect(
                     self.url,
-                    subprotocols=["ocpp1.6"],  # type: ignore[list-item]
+                    subprotocols=self._get_subprotocol(),
                     additional_headers=extra_headers,
                     ssl=ssl_context,
                 ) as ws:
                     # Create and configure the OCPP adapter
-                    self.adapter = Adapter(
-                        self.charge_point_id,
-                        ws,
-                        command_queue=self.command_queue,
-                        charge_point_model=self.charge_point_model,
-                        charge_point_vendor=self.charge_point_vendor,
-                    )
+                    self.adapter = self._create_adapter(ws)
                     self.adapter.on_registration_accepted.subscribe(
                         self.on_adapter_registered.emit
                     )
@@ -324,6 +348,12 @@ class AsyncRunner:
                     message=f"Connection error: {type(e).__name__}: {e}",
                     level=logging.ERROR,
                 )
+                if isinstance(e, NotImplementedError):
+                    self._log(
+                        message="Protocol adapter not implemented. Stopping reconnect.",
+                        level=logging.ERROR,
+                    )
+                    break
                 traceback.print_exc()
             finally:
                 self._connected = False
@@ -431,6 +461,7 @@ class Bridge:
         charge_point_vendor: str = "ChargeGhost",
         persist_message_queue: bool = False,
         get_rfid: Optional[Any] = None,
+        ocpp_version: str = "1.6",
     ) -> None:
         """
         Initialize the Bridge with Engine and connection parameters.
@@ -445,6 +476,7 @@ class Bridge:
             charge_point_vendor: Vendor name for BootNotification.
             persist_message_queue: If True, persist message queue to disk.
             get_rfid: Optional callback to get the persistent RFID tag.
+            ocpp_version: OCPP protocol version ("1.6" or "2.0.1").
         """
         self.engine = engine
         self.url = url
@@ -459,6 +491,7 @@ class Bridge:
             skip_tls_verify=skip_tls_verify,
             charge_point_model=charge_point_model,
             charge_point_vendor=charge_point_vendor,
+            ocpp_version=ocpp_version,
         )
 
         # Offline message queue
@@ -554,9 +587,26 @@ class Bridge:
                         message=f"Transaction ID assigned from queue drain: {tx_id}"
                     )
 
+            def on_v201_start_response(response: Any, kwargs: dict) -> None:
+                """Assign locally generated OCPP 2.0.1 transaction ID."""
+                if not isinstance(response, tuple) or len(response) != 2:
+                    return
+                _tx_response, tx_id = response
+                if not tx_id:
+                    return
+                session = self.engine.session
+                if session and session.connector_id == kwargs.get("connector_id"):
+                    session.transaction_id = tx_id
+                    self._log(
+                        message=f"Transaction ID assigned from queue drain: {tx_id}"
+                    )
+
             sent = await self._message_queue.drain(
                 adapter,
-                response_callbacks={"StartTransaction": on_start_tx_response},
+                response_callbacks={
+                    "StartTransaction": on_start_tx_response,
+                    "TransactionEventStarted": on_v201_start_response,
+                },
             )
             remaining = self._message_queue.size
             self._log(
@@ -575,6 +625,10 @@ class Bridge:
         - Adapter.get_connector_info: Returns connector voltage and phases
         """
 
+        charging_profile_mgr = getattr(
+            self.runner.adapter, "charging_profile_manager", None
+        ) if self.runner.adapter else None
+
         def get_limit(
             connector_id: int, transaction_id: Optional[int]
         ) -> Optional[float]:
@@ -588,17 +642,13 @@ class Bridge:
             Returns:
                 Maximum current in amperes, or None for no limit.
             """
-            if (
-                not self.runner.adapter
-                or not self.runner.adapter.charging_profile_manager
-            ):
+            if charging_profile_mgr is None:
                 return None
 
             connector = self.engine.get_connector(connector_id)
             if not connector:
                 return None
 
-            # Get transaction start time for TxProfile matching
             session = self.engine.get_session(connector_id)
             transaction_start = None
             if session:
@@ -606,7 +656,7 @@ class Bridge:
                     session.start_time, tz=timezone.utc
                 )
 
-            return self.runner.adapter.charging_profile_manager.get_composite_limit(
+            return charging_profile_mgr.get_composite_limit(
                 connector_id=connector_id,
                 transaction_id=transaction_id,
                 now=datetime.now(timezone.utc),
@@ -646,7 +696,7 @@ class Bridge:
 
         def get_meter_snapshot(
             connector_id: int,
-        ) -> Optional[tuple[float, Optional[int]]]:
+        ) -> Optional[tuple[float, Optional[Any]]]:
             """
             Get the current meter reading for a connector session.
 
@@ -735,13 +785,15 @@ class Bridge:
             return None
         return connector.status.value
 
-    def _get_ocpp_transaction_id(self, transaction_id: Optional[int]) -> int:
+    def _get_ocpp_transaction_id(self, transaction_id: Optional[Any]) -> Any:
         """
         Get the transaction ID to use in OCPP follow-up messages.
 
         Until the CSMS assigns a positive transaction ID in StartTransaction.conf,
         transaction-bound follow-up messages use -1 explicitly.
         """
+        if isinstance(transaction_id, str):
+            return transaction_id or None
         if transaction_id is None or transaction_id <= 0:
             return -1
         return transaction_id
@@ -922,15 +974,19 @@ class Bridge:
         next_aligned_at: Optional[datetime] = None
 
         while not self._shutdown_event.is_set():
-            sample_interval = 60  # Default to 60 seconds
+            sample_interval = 60
             aligned_interval = 0
             if self.runner.adapter:
-                sample_interval = self.runner.adapter.config_manager.get_int_value(
-                    "MeterValueSampleInterval", 60
+                config_mgr = getattr(
+                    self.runner.adapter, "config_manager", None
                 )
-                aligned_interval = self.runner.adapter.config_manager.get_int_value(
-                    "ClockAlignedDataInterval", 0
-                )
+                if config_mgr is not None:
+                    sample_interval = config_mgr.get_int_value(
+                        "MeterValueSampleInterval", 60
+                    )
+                    aligned_interval = config_mgr.get_int_value(
+                        "ClockAlignedDataInterval", 0
+                    )
 
             now = datetime.now(timezone.utc)
             contexts, last_sampled_at, next_aligned_at = (
@@ -1085,13 +1141,18 @@ class Bridge:
             )
             future.add_done_callback(self._handle_future_error)
 
+    def _is_v201(self) -> bool:
+        """Check if the bridge is using OCPP 2.0.1."""
+        return self.runner.ocpp_version == "2.0.1"
+
     def on_engine_session_started(self, connector_id: int) -> None:
         """
         Handle session started events from the Engine.
 
-        Sends StartTransaction to the Central System and updates the
-        session with the assigned transaction ID. If disconnected, queues
-        the message for replay on reconnection.
+        For OCPP 1.6: sends StartTransaction to the CSMS.
+        For OCPP 2.0.1: sends TransactionEvent(Started) to the CSMS.
+
+        If disconnected, queues the message for replay on reconnection.
 
         Args:
             connector_id: ID of the connector where session started.
@@ -1121,51 +1182,90 @@ class Bridge:
         adapter = self.runner.adapter
         loop = self.runner.loop
         if not adapter or not loop:
-            self._message_queue.enqueue("StartTransaction", start_kwargs)
+            msg_type = (
+                "TransactionEventStarted" if self._is_v201() else "StartTransaction"
+            )
+            self._message_queue.enqueue(msg_type, start_kwargs)
             self._log(
-                message="[yellow]Queued[/yellow] StartTransaction (offline)",
+                message=f"[yellow]Queued[/yellow] {msg_type} (offline)",
                 level=logging.WARNING,
             )
             return
 
-        async def send_start_tx() -> None:
-            """Send StartTransaction and update session with transaction ID."""
-            try:
-                response = await adapter.send_start_transaction(**start_kwargs)
-                if (
-                    response
-                    and response.transaction_id
-                    and self.engine.session is session
-                ):
-                    session.transaction_id = response.transaction_id
-                    self._apply_remote_start_charging_profile(
-                        session,
-                        response.transaction_id,
-                    )
-                    self._log(
-                        message=f"Transaction ID assigned: {response.transaction_id}"
-                    )
-            except Exception as e:
-                self._log(
-                    message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
-                    level=logging.ERROR,
-                )
-                self._message_queue.enqueue("StartTransaction", start_kwargs)
-                self._log(
-                    message="[yellow]Queued[/yellow] StartTransaction for retry",
-                    level=logging.WARNING,
-                )
-
-        future = asyncio.run_coroutine_threadsafe(send_start_tx(), loop)
+        if self._is_v201():
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_v201_session_started(adapter, session, start_kwargs),
+                loop,
+            )
+        else:
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_v16_session_started(adapter, session, start_kwargs),
+                loop,
+            )
         future.add_done_callback(self._handle_future_error)
+
+    async def _send_v16_session_started(
+        self, adapter: Any, session: Any, start_kwargs: dict
+    ) -> None:
+        """Send StartTransaction (OCPP 1.6) and update session."""
+        try:
+            response = await adapter.send_start_transaction(**start_kwargs)
+            if (
+                response
+                and response.transaction_id
+                and self.engine.session is session
+            ):
+                session.transaction_id = response.transaction_id
+                self._apply_remote_start_charging_profile(
+                    session,
+                    response.transaction_id,
+                )
+                self._log(
+                    message=f"Transaction ID assigned: {response.transaction_id}"
+                )
+        except Exception as e:
+            self._log(
+                message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
+                level=logging.ERROR,
+            )
+            self._message_queue.enqueue("StartTransaction", start_kwargs)
+            self._log(
+                message="[yellow]Queued[/yellow] StartTransaction for retry",
+                level=logging.WARNING,
+            )
+
+    async def _send_v201_session_started(
+        self, adapter: Any, session: Any, start_kwargs: dict
+    ) -> None:
+        """Send TransactionEvent(Started) (OCPP 2.0.1) and update session."""
+        try:
+            response, tx_id = await adapter.send_transaction_event_started(
+                **start_kwargs
+            )
+            if tx_id and self.engine.session is session:
+                session.transaction_id = tx_id
+                self._log(
+                    message=f"Transaction ID generated: {tx_id}"
+                )
+        except Exception as e:
+            self._log(
+                message=f"[red]TransactionEvent(Started) failed:[/red] {type(e).__name__}: {e}",
+                level=logging.ERROR,
+            )
+            self._message_queue.enqueue("TransactionEventStarted", start_kwargs)
+            self._log(
+                message="[yellow]Queued[/yellow] TransactionEvent(Started) for retry",
+                level=logging.WARNING,
+            )
 
     def on_engine_session_stopped(self, connector_id: int) -> None:
         """
         Handle session stopped events from the Engine.
 
-        Sends StopTransaction to the Central System with the final
-        meter reading and stop reason. If disconnected, queues the
-        message for replay on reconnection.
+        For OCPP 1.6: sends StopTransaction to the CSMS.
+        For OCPP 2.0.1: sends TransactionEvent(Ended) to the CSMS.
+
+        If disconnected, queues the message for replay on reconnection.
 
         Args:
             connector_id: ID of the connector where session stopped.
@@ -1178,19 +1278,15 @@ class Bridge:
             )
             return
 
-        transaction_id = self._get_ocpp_transaction_id(
-            last_session.get("transaction_id")
+        raw_transaction_id = last_session.get("transaction_id")
+        transaction_id = (
+            str(raw_transaction_id)
+            if self._is_v201() and raw_transaction_id is not None
+            else self._get_ocpp_transaction_id(raw_transaction_id)
         )
         meter_stop = last_session.get("meter_stop", 0)
         reason = last_session.get("reason", "Local")
         meter_history = last_session.get("meter_history", [])
-        stop_kwargs = {
-            "meter_stop": int(meter_stop),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "transaction_id": transaction_id,
-            "reason": reason,
-            "meter_history": meter_history,
-        }
 
         self._log(
             message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
@@ -1199,33 +1295,119 @@ class Bridge:
         adapter = self.runner.adapter
         loop = self.runner.loop
         if not adapter or not loop:
-            self._message_queue.enqueue("StopTransaction", stop_kwargs)
-            self._log(
-                message="[yellow]Queued[/yellow] StopTransaction (offline)",
-                level=logging.WARNING,
-            )
-            return
-
-        async def _send_stop() -> None:
-            try:
-                await adapter.send_stop_transaction(**stop_kwargs)
-            except Exception as e:
+            if self._is_v201():
+                stop_kwargs = {
+                    "connector_id": connector_id,
+                    "meter_stop": int(meter_stop),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "transaction_id": str(transaction_id),
+                    "reason": reason,
+                    "meter_history": meter_history,
+                }
+                self._message_queue.enqueue("TransactionEventEnded", stop_kwargs)
                 self._log(
-                    message=f"[red]StopTransaction failed:[/red] {type(e).__name__}: {e}",
-                    level=logging.ERROR,
-                )
-                self._message_queue.enqueue("StopTransaction", stop_kwargs)
-                self._log(
-                    message="[yellow]Queued[/yellow] StopTransaction for retry",
+                    message="[yellow]Queued[/yellow] TransactionEvent(Ended) (offline)",
                     level=logging.WARNING,
                 )
-            if reason in {"SoftReset", "HardReset"}:
-                await self._send_boot_notification_for_reset(
-                    reason.removesuffix("Reset")
+            else:
+                stop_kwargs = {
+                    "meter_stop": int(meter_stop),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "transaction_id": transaction_id,
+                    "reason": reason,
+                    "meter_history": meter_history,
+                }
+                self._message_queue.enqueue("StopTransaction", stop_kwargs)
+                self._log(
+                    message="[yellow]Queued[/yellow] StopTransaction (offline)",
+                    level=logging.WARNING,
                 )
+            return
 
-        future = asyncio.run_coroutine_threadsafe(_send_stop(), loop)
+        if self._is_v201():
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_v201_session_stopped(
+                    adapter, connector_id, transaction_id,
+                    meter_stop, reason, meter_history,
+                ),
+                loop,
+            )
+        else:
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_v16_session_stopped(
+                    adapter, transaction_id, meter_stop, reason, meter_history,
+                ),
+                loop,
+            )
         future.add_done_callback(self._handle_future_error)
+
+    async def _send_v16_session_stopped(
+        self,
+        adapter: Any,
+        transaction_id: int,
+        meter_stop: float,
+        reason: str,
+        meter_history: list[dict],
+    ) -> None:
+        """Send StopTransaction (OCPP 1.6) with final meter reading."""
+        stop_kwargs = {
+            "meter_stop": int(meter_stop),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "transaction_id": transaction_id,
+            "reason": reason,
+            "meter_history": meter_history,
+        }
+        try:
+            await adapter.send_stop_transaction(**stop_kwargs)
+        except Exception as e:
+            self._log(
+                message=f"[red]StopTransaction failed:[/red] {type(e).__name__}: {e}",
+                level=logging.ERROR,
+            )
+            self._message_queue.enqueue("StopTransaction", stop_kwargs)
+            self._log(
+                message="[yellow]Queued[/yellow] StopTransaction for retry",
+                level=logging.WARNING,
+            )
+        if reason in {"SoftReset", "HardReset"}:
+            await self._send_boot_notification_for_reset(
+                reason.removesuffix("Reset")
+            )
+
+    async def _send_v201_session_stopped(
+        self,
+        adapter: Any,
+        connector_id: int,
+        transaction_id: int,
+        meter_stop: float,
+        reason: str,
+        meter_history: list[dict],
+    ) -> None:
+        """Send TransactionEvent(Ended) (OCPP 2.0.1) with final meter reading."""
+        stop_kwargs = {
+            "connector_id": connector_id,
+            "meter_stop": int(meter_stop),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "transaction_id": str(transaction_id),
+            "reason": reason,
+            "meter_history": meter_history,
+        }
+        try:
+            await adapter.send_transaction_event_ended(**stop_kwargs)
+        except Exception as e:
+            self._log(
+                message=f"[red]TransactionEvent(Ended) failed:[/red] {type(e).__name__}: {e}",
+                level=logging.ERROR,
+            )
+            self._message_queue.enqueue("TransactionEventEnded", stop_kwargs)
+            self._log(
+                message="[yellow]Queued[/yellow] TransactionEvent(Ended) for retry",
+                level=logging.WARNING,
+            )
+        if reason in {"SoftReset", "HardReset"}:
+            await self._send_boot_notification_for_reset(
+                reason.removesuffix("Reset")
+            )
 
     def send_authorize(self, id_tag: str) -> None:
         """

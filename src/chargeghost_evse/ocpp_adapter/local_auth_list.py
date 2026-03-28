@@ -163,7 +163,10 @@ class LocalAuthListManager(Subscriber):
         if not saved:
             return UpdateStatus.failed, save_msg
         self.on_list_updated.emit(version=self._version)
-        return UpdateStatus.accepted, f"Full update completed ({len(self._entries)} entries)"
+        return (
+            UpdateStatus.accepted,
+            f"Full update completed ({len(self._entries)} entries)",
+        )
 
     def _handle_differential_update(
         self, list_version: int, local_authorization_list: Optional[list[dict]]
@@ -202,7 +205,10 @@ class LocalAuthListManager(Subscriber):
                 ):
                     self._entries = original_entries
                     self._version = original_version
-                    return UpdateStatus.failed, f"List exceeds max entries ({self._max_entries})"
+                    return (
+                        UpdateStatus.failed,
+                        f"List exceeds max entries ({self._max_entries})",
+                    )
                 self._entries[id_tag] = AuthorizationEntry(
                     id_tag=id_tag,
                     id_tag_info=id_tag_info,

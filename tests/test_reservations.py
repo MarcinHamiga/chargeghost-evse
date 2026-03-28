@@ -247,3 +247,31 @@ def test_bridge_injects_reservation_callbacks() -> None:
 	assert bridge.runner.adapter is not None
 	assert bridge.runner.adapter.reserve_connector == engine.reserve_connector
 	assert bridge.runner.adapter.cancel_reservation == engine.cancel_reservation
+
+
+def test_session_reservation_id_is_set_when_starting_from_reservation() -> None:
+	engine = Engine()
+	engine.add_connector()
+	engine.reserve_connector(
+		connector_id=1,
+		reservation_id=42,
+		id_tag="TAG-1",
+		expiry_date=datetime.now(timezone.utc) + timedelta(minutes=10),
+	)
+	engine.plug_in(1)
+
+	engine.start_session(connector_id=1, transaction_id=123, id_tag="TAG-1")
+
+	assert engine.session is not None
+	assert engine.session.reservation_id == 42
+
+
+def test_session_reservation_id_is_none_when_not_from_reservation() -> None:
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+
+	engine.start_session(connector_id=1, transaction_id=123, id_tag="TAG-1")
+
+	assert engine.session is not None
+	assert engine.session.reservation_id is None

@@ -33,3 +33,22 @@ def test_on_get_configuration_unknown_keys():
     result = asyncio.run(adapter.on_get_configuration(key=["NonExistentKey"]))
     assert len(result.configuration_key) == 0
     assert result.unknown_key == ["NonExistentKey"]
+
+def test_message_timeout_is_in_configuration_keys():
+    connection = MagicMock()
+    adapter = Adapter("test_id", connection)
+    
+    result = asyncio.run(adapter.on_get_configuration(key=["MessageTimeout"]))
+    assert len(result.configuration_key) == 1
+    assert result.configuration_key[0].key == "MessageTimeout"
+    assert result.configuration_key[0].value == "30"
+
+def test_change_configuration_message_timeout_updates_response_timeout():
+    connection = MagicMock()
+    adapter = Adapter("test_id", connection, response_timeout=30)
+    
+    assert adapter.response_timeout == 30
+    
+    result = asyncio.run(adapter.on_change_configuration(key="MessageTimeout", value="60"))
+    assert result.status.value == "Accepted"
+    assert adapter.response_timeout == 60
