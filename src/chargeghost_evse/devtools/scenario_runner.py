@@ -117,8 +117,9 @@ class ScenarioRunner:
             return
 
         if isinstance(step, ActionStep):
+            connector_id = step.connector_id if step.connector_id is not None else 1
             result = self.controller.execute_action(
-                step.action, connector_id=step.connector_id
+                step.action, connector_id=connector_id
             )
             duration = time.monotonic() - step_start
             if result.success:
@@ -170,7 +171,7 @@ class ScenarioRunner:
             self.state = RunnerState.FAILED
 
     def _evaluate_assertion(self, step: AssertStep) -> tuple[bool, str]:
-        connector_id = step.connector_id
+        connector_id = step.connector_id if step.connector_id is not None else 1
 
         if step.condition == "session_exists":
             session = self.controller.get_session(connector_id)

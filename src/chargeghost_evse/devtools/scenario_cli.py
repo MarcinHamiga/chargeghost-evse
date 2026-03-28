@@ -1,13 +1,42 @@
 import argparse
+import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from chargeghost_evse.devtools.scenario_loader import ScenarioLoader, ScenarioLoadError
 from chargeghost_evse.devtools.scenario_runner import ScenarioRunner, RunnerState
 from chargeghost_evse.devtools.simulator_controller import SimulatorController
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.util.config import SimulationConfig
+
+
+class _HeadlessBridge:
+    """Minimal bridge interface for headless scenario execution."""
+
+    def __init__(self) -> None:
+        self.logger = logging.getLogger("chargeghost.headless.bridge")
+
+    def setup(self) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def send_authorize(self, id_tag: str) -> None:
+        self.logger.info(f"Headless: Authorize {id_tag}")
+
+    def send_heartbeat(self) -> None:
+        self.logger.info("Headless: Heartbeat")
+
+    @property
+    def is_connected(self) -> bool:
+        return True
+
+    @property
+    def runner(self) -> Any:
+        return self
 
 
 def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
@@ -21,7 +50,8 @@ def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
             phase=connector_config.phase,
         )
 
-    controller = SimulatorController(engine=engine, bridge=None)
+    bridge = _HeadlessBridge()
+    controller = SimulatorController(engine=engine, bridge=bridge)
     runner = ScenarioRunner(controller=controller)
 
     path = Path(scenario_path)
