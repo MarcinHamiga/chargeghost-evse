@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "name": "Happy Path Scenario",
+  "description": "Complete charging session from connect to disconnect",
+  "version": "1.0",
+  "defaults": {
+    "connector_id": 1
+  },
+  "steps": [
+    {
+      "kind": "action",
+      "action": "connect",
+      "label": "Connect to CS"
+    },
+    {
+      "kind": "action",
+      "action": "authorize",
+      "label": "Authorize with RFID"
+    },
+    {
+      "kind": "action",
+      "action": "plug_in",
+      "label": "Plug in vehicle",
+      "connector_id": 2
+    },
+    {
+      "kind": "action",
+      "action": "start_charging",
+      "label": "Start charging session"
+    },
+    {
+      "kind": "wait",
+      "duration": 5.0,
+      "label": "Charge for 5 seconds"
+    },
+    {
+      "kind": "assert",
+      "condition": "meter_threshold",
+      "expected": 1000,
+      "label": "Verify energy > 1kWh"
+    },
+    {
+      "kind": "action",
+      "action": "stop_charging",
+      "label": "Stop charging"
+    },
+    {
+      "kind": "note",
+      "message": "EV suspends charging - user requested"
+    },
+    {
+      "kind": "action",
+      "action": "unplug",
+      "label": "Unplug vehicle"
+    },
+    {
+      "kind": "action",
+      "action": "disconnect",
+      "label": "Disconnect from CS"
+    }
+  ]
+}

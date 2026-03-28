@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "name": "Wait and Assert Scenario",
+  "description": "Test wait and assertion primitives",
+  "version": "1.0",
+  "defaults": {
+    "connector_id": 1
+  },
+  "steps": [
+    {
+      "kind": "action",
+      "action": "connect",
+      "label": "Connect to CS"
+    },
+    {
+      "kind": "wait",
+      "duration": 2.0,
+      "label": "Wait 2 seconds"
+    },
+    {
+      "kind": "assert",
+      "condition": "session_exists",
+      "expected": false,
+      "label": "No session yet"
+    },
+    {
+      "kind": "action",
+      "action": "plug_in",
+      "label": "Plug in"
+    },
+    {
+      "kind": "action",
+      "action": "start_charging",
+      "label": "Start charging"
+    },
+    {
+      "kind": "wait",
+      "duration": 3.6,
+      "label": "Wait for energy accumulation"
+    },
+    {
+      "kind": "assert",
+      "condition": "meter_threshold",
+      "expected": 500,
+      "label": "Verify meter reading"
+    },
+    {
+      "kind": "action",
+      "action": "stop_charging",
+      "label": "Stop charging"
+    },
+    {
+      "kind": "action",
+      "action": "unplug",
+      "label": "Unplug"
+    },
+    {
+      "kind": "action",
+      "action": "disconnect",
+      "label": "Disconnect"
+    }
+  ]
+}
