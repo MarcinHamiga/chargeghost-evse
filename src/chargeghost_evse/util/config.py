@@ -52,6 +52,9 @@ KEYRING_SERVICE = "ChargeGhost-EVSE"
 # Type alias for log mode setting
 LogMode = Literal["shallow", "deep"]
 
+# Type alias for OCPP version
+OcppVersion = Literal["1.6", "2.0.1"]
+
 # Electrical parameter limits and defaults
 # Voltage: Range for AC EVSE (100V-480V covers global standards)
 VOLTAGE_MIN = 120.0
@@ -209,6 +212,9 @@ class SimulationConfig:
     # Multi-EVSE mode: each connector operates as independent EVSE
     multi_evse_mode: bool = False
 
+    # OCPP protocol version
+    ocpp_version: OcppVersion = "1.6"
+
     @staticmethod
     def _get_password(ocpp_id: str) -> str:
         """
@@ -299,6 +305,7 @@ class SimulationConfig:
                     persist_message_queue=data.get("persist_message_queue", False),
                     rfid_tag=data.get("rfid_tag"),
                     multi_evse_mode=data.get("multi_evse_mode", False),
+                    ocpp_version=data.get("ocpp_version", "1.6"),
                 )
             except (json.JSONDecodeError, IOError) as e:
                 logging.warning(
@@ -333,6 +340,7 @@ class SimulationConfig:
             "persist_message_queue": self.persist_message_queue,
             "rfid_tag": self.rfid_tag,
             "multi_evse_mode": self.multi_evse_mode,
+            "ocpp_version": self.ocpp_version,
         }
 
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

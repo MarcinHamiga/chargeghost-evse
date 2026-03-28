@@ -24,7 +24,7 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 
 ## Features
 
-- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication with 12 inbound and 9 outbound messages implemented across Core (Partial), Firmware Management, Local Auth List, and Smart Charging profiles.
+- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication across Core, FirmwareManagement, LocalAuthListManagement, Reservation, RemoteTrigger, and SmartCharging profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
@@ -177,36 +177,20 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 
 ## OCPP 1.6 Support
 
-### Coverage Summary
-
-| Metric | Coverage |
-| :--- | :--- |
-| **Inbound Messages** | 12 of 19 (63%) |
-| **Outbound Messages** | 9 of 10 (90%) |
-| **Feature Profiles** | 4 of 6 (67%) |
-| **Configuration Keys** | 16 of 19 (84%) |
+For detailed implementation status and compliance information, see [OCPP_IMPLEMENTATION_PLAN.md](OCPP_IMPLEMENTATION_PLAN.md).
 
 ### Implemented Profiles
 
-| Profile | Status | Inbound Messages | Outbound Messages |
-| :--- | :--- | :--- | :--- |
-| **Core** | Partial | RemoteStart/StopTransaction, Reset, ChangeConfiguration, GetConfiguration | BootNotification, Heartbeat, Authorize, StartTransaction, StopTransaction, StatusNotification, MeterValues |
-| **Firmware** | Full | GetDiagnostics, UpdateFirmware | DiagnosticsStatusNotification, FirmwareStatusNotification |
-| **Local Auth** | Full | SendLocalList, GetLocalListVersion | — |
-| **Smart Charging** | Full | SetChargingProfile, ClearChargingProfile, GetCompositeSchedule | — |
-| **Reservation** | Missing | ReserveNow, CancelReservation | — |
-| **Remote Trigger** | Missing | TriggerMessage | — |
+| Profile | Status | Notes |
+| :--- | :--- | :--- |
+| **Core** | Full | All required messages implemented |
+| **Firmware** | Full | Diagnostics and firmware update support |
+| **Local Auth** | Full | Local authorization list with differential updates |
+| **Smart Charging** | Full | All profile purposes and schedule kinds supported |
+| **Reservation** | Full | ReserveNow and CancelReservation supported |
+| **Remote Trigger** | Full | TriggerMessage for all supported message types |
 
-### Missing Features
-
-Key features not yet implemented:
-- **Administrative**: ChangeAvailability, UnlockConnector, ClearCache, DataTransfer
-- **Reservations**: ReserveNow, CancelReservation
-- **Remote Triggers**: TriggerMessage
-- **Security**: SecurityEventNotification
-- **Offline Queuing**: Message buffering and replay for disconnected operation
-
-For a comprehensive breakdown of implemented and missing messages, configuration keys, and architectural gaps, see [OCPP_MISSING_FEATURES.md](OCPP_MISSING_FEATURES.md).
+For the current OCPP 1.6J implementation roadmap and compliance status, see [OCPP_IMPLEMENTATION_PLAN.md](OCPP_IMPLEMENTATION_PLAN.md).
 
 ## Development
 

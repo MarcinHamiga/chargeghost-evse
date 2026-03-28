@@ -34,6 +34,10 @@ class QtSignalBridge(QObject):
             return connected
         return False
 
+    def set_bridge(self, bridge) -> None:
+        self._bridge_ref = weakref.ref(bridge)
+        self._last_connected = False
+
     def _safe_emit(self, signal, *args):
         try:
             signal.emit(*args)

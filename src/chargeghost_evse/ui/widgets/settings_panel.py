@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, cast, Literal
 from urllib.parse import urlparse
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -156,6 +157,10 @@ class SettingsPanel(QWidget):
         self.checkbox_skip_tls = QCheckBox("Skip TLS Verification")
         conn_form.addRow(self.checkbox_skip_tls)
 
+        self.combo_ocpp_version = QComboBox()
+        self.combo_ocpp_version.addItems(["OCPP 1.6J", "OCPP 2.0.1"])
+        conn_form.addRow("OCPP Version:", self.combo_ocpp_version)
+
         content_layout.addWidget(connection_group)
 
         identity_group = QGroupBox("Station Identity")
@@ -231,6 +236,10 @@ class SettingsPanel(QWidget):
         self.input_model.setText(self._config.charge_point_model)
         self.checkbox_skip_tls.setChecked(self._config.skip_tls_verify)
         self.checkbox_multi_evse.setChecked(self._config.multi_evse_mode)
+        ocpp_version_map = {"1.6": "OCPP 1.6J", "2.0.1": "OCPP 2.0.1"}
+        self.combo_ocpp_version.setCurrentText(
+            ocpp_version_map.get(self._config.ocpp_version, "OCPP 1.6J")
+        )
 
     def set_connector_callbacks(
         self,
@@ -265,6 +274,11 @@ class SettingsPanel(QWidget):
         )
         self._config.skip_tls_verify = self.checkbox_skip_tls.isChecked()
         self._config.multi_evse_mode = self.checkbox_multi_evse.isChecked()
+        ocpp_version_map = {"OCPP 1.6J": "1.6", "OCPP 2.0.1": "2.0.1"}
+        self._config.ocpp_version = cast(
+            "Literal['1.6', '2.0.1']",
+            ocpp_version_map.get(self.combo_ocpp_version.currentText(), "1.6"),
+        )
 
         self.save_config_clicked.emit()
 

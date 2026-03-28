@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from chargeghost_evse.bridge.bridge import Bridge
 from chargeghost_evse.engine.engine import Engine
 
 

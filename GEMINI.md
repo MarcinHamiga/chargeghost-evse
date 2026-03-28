@@ -83,5 +83,5 @@ poetry run build               # Uses PyInstaller (config in src/chargeghost_evs
 ## Documentation
 - `README.md`: General overview and user manual.
 - `AGENTS.md`: Detailed coding guidelines for AI agents.
-- `OCPP_MISSING_FEATURES.md`: Roadmap of implemented vs. missing OCPP features.
+- `OCPP_IMPLEMENTATION_PLAN.md`: Canonical roadmap for remaining OCPP 1.6J implementation and compliance work.
 - `docs/plans/`: Architectural and feature design documents.

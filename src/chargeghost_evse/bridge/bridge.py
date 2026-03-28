@@ -45,6 +45,7 @@ import websockets
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -154,6 +155,7 @@ class AsyncRunner:
         # Shutdown signaling
         self._shutdown_event: Optional[asyncio.Event] = None
         self._thread_shutdown = threading.Event()
+        self._thread: Optional[threading.Thread] = None
 
     def _log(self, message: str, *, level: int = logging.INFO, **extra) -> None:
         """
@@ -176,9 +178,9 @@ class AsyncRunner:
         Returns:
             The created Thread instance.
         """
-        thread = threading.Thread(target=self._start_loop, daemon=True)
-        thread.start()
-        return thread
+        self._thread = threading.Thread(target=self._start_loop, daemon=True)
+        self._thread.start()
+        return self._thread
 
     def shutdown(self) -> None:
         """
@@ -190,6 +192,8 @@ class AsyncRunner:
         self._thread_shutdown.set()
         if self._shutdown_event and self.loop:
             self.loop.call_soon_threadsafe(self._shutdown_event.set)
+        if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:
+            self._thread.join(timeout=5)
 
     def _start_loop(self) -> None:
         """
@@ -500,6 +504,9 @@ class Bridge:
         # Background threads
         self._meter_values_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
+        self._engine_unsubscribers: list[Callable[[], None]] = []
+        self._runner_unsubscribers: list[Callable[[], None]] = []
+        self._is_setup = False
 
     def setup(self) -> None:
         """
@@ -509,10 +516,15 @@ class Bridge:
         launches the meter values background thread, and registers an
         event handler that fires after each successful BootNotification.
         """
+        if self._is_setup:
+            return
+
         # Subscribe to Engine events
-        self.engine.session_started.subscribe(self.on_engine_session_started)
-        self.engine.session_stopped.subscribe(self.on_engine_session_stopped)
-        self.engine.connector_status_changed.subscribe(self.on_connector_status_change)
+        self._engine_unsubscribers = [
+            self.engine.session_started.subscribe(self.on_engine_session_started),
+            self.engine.session_stopped.subscribe(self.on_engine_session_stopped),
+            self.engine.connector_status_changed.subscribe(self.on_connector_status_change),
+        ]
 
         # Start WebSocket connection in background thread
         self.runner.run_in_thread()
@@ -524,8 +536,11 @@ class Bridge:
         self._meter_values_thread.start()
 
         # Subscribe to registration event to send status and inject limit getter
-        self.runner.on_adapter_registered.subscribe(self._on_adapter_registered)
-        self.runner.on_reset_requested.subscribe(self.on_reset_requested)
+        self._runner_unsubscribers = [
+            self.runner.on_adapter_registered.subscribe(self._on_adapter_registered),
+            self.runner.on_reset_requested.subscribe(self.on_reset_requested),
+        ]
+        self._is_setup = True
 
     def shutdown(self) -> None:
         """
@@ -535,8 +550,22 @@ class Bridge:
         for them to terminate gracefully.
         """
         self._remove_limit_getter()
+        for unsubscribe in self._engine_unsubscribers:
+            unsubscribe()
+        self._engine_unsubscribers = []
+        for unsubscribe in self._runner_unsubscribers:
+            unsubscribe()
+        self._runner_unsubscribers = []
         self._shutdown_event.set()
         self.runner.shutdown()
+        if (
+            self._meter_values_thread is not None
+            and self._meter_values_thread.is_alive()
+            and threading.current_thread() != self._meter_values_thread
+        ):
+            self._meter_values_thread.join(timeout=5)
+        self._meter_values_thread = None
+        self._is_setup = False
 
     def _create_message_queue(self, persist: bool) -> MessageQueue:
         """Create message queue with appropriate backend."""

@@ -579,8 +579,11 @@ class SimulatorWidget(QWidget):
             for c in self.engine.connectors
         ]
         self.config.save()
-        self.main_window.log_message("[green]Config:[/green] Configuration saved.")
-        self.main_window.show_toast("Configuration saved", "success")
+        self.main_window.restart_bridge_connection()
+        self.main_window.log_message(
+            "[green]Config:[/green] Configuration saved and connection restarted."
+        )
+        self.main_window.show_toast("Configuration saved; reconnecting to CSMS", "success")
 
     def _show_error(self, message: str) -> None:
         self.main_window.log_message(f"[red]Config:[/red] {message}")
@@ -988,6 +991,7 @@ class MainWindow(QMainWindow):
         self._accumulator: float = 0.0
         self._last_tick_time: float = 0.0
         self._status_check_counter: int = 0
+        self._config_restart_pending = False
 
         self.app_settings = AppSettings()
 
@@ -1004,18 +1008,7 @@ class MainWindow(QMainWindow):
                 phase=connector_config.phase,
             )
 
-        self.bridge = Bridge(
-            self.engine,
-            url=self.config.connection_url,
-            charge_point_id=self.config.ocpp_id,
-            password=self.config.ocpp_password,
-            skip_tls_verify=self.config.skip_tls_verify,
-            charge_point_model=self.config.charge_point_model,
-            charge_point_vendor=self.config.charge_point_vendor,
-            persist_message_queue=self.config.persist_message_queue,
-            get_rfid=lambda: self.config.rfid_tag,
-            ocpp_version=self.config.ocpp_version,
-        )
+        self.bridge = self._create_bridge()
         self.bridge.setup()
 
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
@@ -1069,6 +1062,37 @@ class MainWindow(QMainWindow):
             lambda msg: self.show_toast(msg, "error")
         )
         QTimer.singleShot(1500, self.update_controller.start_check)
+
+    def _create_bridge(self) -> Bridge:
+        return Bridge(
+            self.engine,
+            url=self.config.connection_url,
+            charge_point_id=self.config.ocpp_id,
+            password=self.config.ocpp_password,
+            skip_tls_verify=self.config.skip_tls_verify,
+            charge_point_model=self.config.charge_point_model,
+            charge_point_vendor=self.config.charge_point_vendor,
+            persist_message_queue=self.config.persist_message_queue,
+            get_rfid=lambda: self.config.rfid_tag,
+            ocpp_version=self.config.ocpp_version,
+        )
+
+    def restart_bridge_connection(self) -> None:
+        old_bridge = self.bridge
+        old_bridge.shutdown()
+
+        self._config_restart_pending = True
+        self.bridge = self._create_bridge()
+        self.bridge.setup()
+        self.signal_bridge.set_bridge(self.bridge)
+        self.simulator.bridge = self.bridge
+        self.manual.bridge = self.bridge
+        self.simulator_controller.bridge = self.bridge
+        self.manual.refresh_connection_state()
+        self._connection_indicator.setText("Reconnecting with new settings")
+        self._connection_indicator.setProperty("connected", False)
+        self._connection_indicator.style().unpolish(self._connection_indicator)
+        self._connection_indicator.style().polish(self._connection_indicator)
 
     def update_recent_tags(self) -> None:
         """Centralized update of recent tags across all relevant UI widgets."""
@@ -1308,7 +1332,16 @@ class MainWindow(QMainWindow):
             if adapter:
                 self.signal_bridge.subscribe_to_adapter(adapter)
                 self.simulator.load_ocpp_config_keys()
-            self.show_toast("Connected to Central System", "success")
+            if self._config_restart_pending:
+                self._config_restart_pending = False
+                self.log_message(
+                    "[green]Config:[/green] Reconnected to Central System with new settings."
+                )
+                self.show_toast(
+                    "Reconnected to Central System with new settings", "success"
+                )
+            else:
+                self.show_toast("Connected to Central System", "success")
         else:
             self._connection_indicator.setText("Disconnected")
             self._connection_indicator.setProperty("connected", False)
