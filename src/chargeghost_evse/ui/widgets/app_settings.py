@@ -99,3 +99,14 @@ class AppSettings:
     @last_mode.setter
     def last_mode(self, mode: str) -> None:
         self._settings.setValue(self.SETTING_LAST_MODE, mode)
+
+    @property
+    def last_scenario_path(self) -> Optional[str]:
+        return self._settings.value("ui/lastScenarioPath")
+
+    @last_scenario_path.setter
+    def last_scenario_path(self, path: Optional[str]) -> None:
+        if path:
+            self._settings.setValue("ui/lastScenarioPath", path)
+        else:
+            self._settings.remove("ui/lastScenarioPath")

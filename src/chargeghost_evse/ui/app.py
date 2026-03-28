@@ -20,6 +20,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -37,6 +38,9 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
+from chargeghost_evse.devtools.scenario_loader import ScenarioLoader, ScenarioLoadError
+from chargeghost_evse.devtools.scenario_runner import ScenarioRunner
+from chargeghost_evse.devtools.simulator_controller import SimulatorController
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ui.bridge import QtSignalBridge
@@ -47,6 +51,7 @@ from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_status_bar import ConnectorStatusBar
 from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 from chargeghost_evse.ui.widgets.icons import get_icon
+from chargeghost_evse.ui.widgets.scenario_runner_panel import ScenarioRunnerPanel
 from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard, IdTagInput
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
@@ -294,12 +299,17 @@ class SimulatorWidget(QWidget):
         self._btn_profiles.clicked.connect(lambda: self._on_nav_clicked(3))
         sidebar_layout.addWidget(self._btn_profiles)
 
+        self._btn_scenarios = self._create_nav_btn("Scenarios", "play")
+        self._btn_scenarios.clicked.connect(lambda: self._on_nav_clicked(4))
+        sidebar_layout.addWidget(self._btn_scenarios)
+
         # Map index → (button, icon_name) for icon colour updates on nav click
         self._nav_btns: list[tuple[QToolButton, str]] = [
             (self._btn_dashboard, "dashboard"),
             (self._btn_settings, "settings"),
             (self._btn_ocpp_keys, "key"),
             (self._btn_profiles, "sliders"),
+            (self._btn_scenarios, "play"),
         ]
 
         sidebar_layout.addStretch()
@@ -332,6 +342,7 @@ class SimulatorWidget(QWidget):
         self._build_settings_tab()
         self._build_ocpp_keys_tab()
         self._build_profiles_tab()
+        self._build_scenarios_tab()
 
         main_layout.addWidget(content_col, 1)
 
@@ -415,6 +426,18 @@ class SimulatorWidget(QWidget):
         self.profiles_panel = ChargingProfilesPanel()
         profiles_layout.addWidget(self.profiles_panel)
         self.stack.addWidget(profiles_tab)
+
+    def _build_scenarios_tab(self) -> None:
+        scenarios_tab = QWidget()
+        scenarios_layout = QVBoxLayout(scenarios_tab)
+        scenarios_layout.setSpacing(0)
+        scenarios_layout.setContentsMargins(0, 0, 0, 0)
+        self.scenario_runner_panel = ScenarioRunnerPanel()
+        self.scenario_runner_panel.load_scenario_clicked.connect(self._on_load_scenario)
+        self.scenario_runner_panel.start_run_clicked.connect(self._on_start_scenario)
+        self.scenario_runner_panel.cancel_run_clicked.connect(self._on_cancel_scenario)
+        scenarios_layout.addWidget(self.scenario_runner_panel)
+        self.stack.addWidget(scenarios_tab)
 
     def _on_nav_clicked(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -632,6 +655,59 @@ class SimulatorWidget(QWidget):
                 self.main_window.show_toast(
                     f"Failed to update OCPP key: {key_name}", "error"
                 )
+
+    def _on_load_scenario(self) -> None:
+        last_path = self.main_window.app_settings.last_scenario_path
+        if last_path:
+            default_dir = str(Path(last_path).parent)
+        else:
+            default_dir = str(Path.home())
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Scenario",
+            default_dir,
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            scenario = ScenarioLoader.load(Path(file_path))
+            self.main_window.app_settings.last_scenario_path = file_path
+            self.scenario_runner_panel.set_scenario(scenario)
+            self.scenario_runner_panel.set_scenario_path(file_path)
+            self.main_window.log_message(
+                f"[green]Scenario:[/green] Loaded '{scenario.name}'"
+            )
+        except ScenarioLoadError as e:
+            self.main_window.show_toast(f"Failed to load scenario: {e}", "error")
+            self.main_window.log_message(
+                f"[red]Scenario:[/red] Load error: {e}"
+            )
+
+    def _on_start_scenario(self) -> None:
+        scenario = self.scenario_runner_panel._scenario
+        if scenario is None:
+            self.main_window.show_toast("No scenario loaded", "error")
+            return
+
+        runner = self.main_window.scenario_runner
+        success = runner.start(scenario)
+        if not success:
+            self.main_window.show_toast("Failed to start scenario", "error")
+            return
+
+        self.main_window.log_message(
+            f"[green]Scenario:[/green] Started '{scenario.name}'"
+        )
+
+    def _on_cancel_scenario(self) -> None:
+        runner = self.main_window.scenario_runner
+        runner.cancel()
+        self.main_window.log_message(
+            "[yellow]Scenario:[/yellow] Cancelled"
+        )
 
 
 class ManualWidget(QWidget):
@@ -938,10 +1014,14 @@ class MainWindow(QMainWindow):
             charge_point_vendor=self.config.charge_point_vendor,
             persist_message_queue=self.config.persist_message_queue,
             get_rfid=lambda: self.config.rfid_tag,
+            ocpp_version=self.config.ocpp_version,
         )
         self.bridge.setup()
 
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
+
+        self.simulator_controller = SimulatorController(self.engine, self.bridge)
+        self.scenario_runner = ScenarioRunner(self.simulator_controller)
 
         # Set up Python logging for chargeghost namespace
         cg_logger = logging.getLogger("chargeghost")
@@ -1165,6 +1245,7 @@ class MainWindow(QMainWindow):
 
         while self._accumulator >= 0.1:
             self.engine.simulate(0.1)
+            self.scenario_runner.tick(0.1)
             self._accumulator -= 0.1
 
         self._status_check_counter += 1
@@ -1175,10 +1256,36 @@ class MainWindow(QMainWindow):
         # Always record chart data so no samples are lost while on another panel.
         self.simulator.dashboard.record_telemetry(self.engine)
 
+        # Update scenario runner panel if visible
         if self.stack.currentWidget() == self.simulator:
             self.simulator.update_ui()
         elif self.stack.currentWidget() == self.manual:
             self.manual.update_ui()
+
+        # Update scenario runner panel state
+        self._update_scenario_runner_panel()
+
+    def _update_scenario_runner_panel(self) -> None:
+        runner = self.scenario_runner
+        panel = self.simulator.scenario_runner_panel
+
+        panel.set_runner_state(runner.state, runner._current_step_index)
+
+        if runner.state == runner.state.COMPLETED:
+            panel.set_failure_message("")
+            self.simulator.log_side_panel.log_message(
+                "[green]Scenario:[/green] Completed successfully"
+            )
+        elif runner.state == runner.state.FAILED:
+            msg = runner.report.failure_reason if runner.report else "Unknown error"
+            panel.set_failure_message(msg)
+            self.simulator.log_side_panel.log_message(
+                f"[red]Scenario:[/red] Failed: {msg}"
+            )
+        elif runner.state == runner.state.CANCELLED:
+            self.simulator.log_side_panel.log_message(
+                "[yellow]Scenario:[/yellow] Cancelled"
+            )
 
     @Slot(object)
     def on_log_received(self, record: object) -> None:
