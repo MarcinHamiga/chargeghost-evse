@@ -1,0 +1,238 @@
+from datetime import datetime, timezone
+from unittest.mock import MagicMock
+
+import pytest
+
+from chargeghost_evse.devtools.scenario_models import (
+    ActionStep,
+    AssertStep,
+    NoteStep,
+    ScenarioDefinition,
+    ScenarioDefaults,
+    WaitStep,
+)
+from chargeghost_evse.devtools.scenario_report import ScenarioReport, StepResult
+from chargeghost_evse.devtools.scenario_runner import ScenarioRunner, RunnerState
+
+
+class TestScenarioRunner:
+    def test_initial_state_is_idle(self) -> None:
+        engine = MagicMock()
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        assert runner.state == RunnerState.IDLE
+
+    def test_start_transitions_to_running(self) -> None:
+        engine = MagicMock()
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        scenario = self._make_scenario([ActionStep(action="plug_in", label="Plug")])
+
+        runner.start(scenario)
+
+        assert runner.state == RunnerState.RUNNING
+        assert runner.report is not None
+        assert runner.report.started_at is not None
+
+    def test_rejects_second_run_while_active(self) -> None:
+        engine = MagicMock()
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        scenario = self._make_scenario([ActionStep(action="plug_in", label="Plug")])
+
+        runner.start(scenario)
+        result = runner.start(scenario)
+
+        assert result is False
+        assert runner.state == RunnerState.RUNNING
+
+    def test_runner_executes_action_steps_in_order(self) -> None:
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            ActionStep(action="plug_in", label="Plug", step_index=0),
+            ActionStep(action="start_charging", label="Start", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert controller.execute_action.call_count == 1
+        assert controller.execute_action.call_args[0][0] == "plug_in"
+
+    def test_runner_advances_to_next_action_after_tick(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(success=True)
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            ActionStep(action="plug_in", label="Plug", step_index=0),
+            ActionStep(action="start_charging", label="Start", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+        runner.tick(0.1)
+
+        assert controller.execute_action.call_count == 2
+        assert controller.execute_action.call_args_list[1][0][0] == "start_charging"
+
+    def test_runner_completes_after_all_steps(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(success=True)
+        runner = ScenarioRunner(controller=controller)
+        steps = [ActionStep(action="plug_in", label="Plug", step_index=0)]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_runner_marks_step_failed_on_false_result(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(success=False, message="Error")
+        runner = ScenarioRunner(controller=controller)
+        steps = [ActionStep(action="plug_in", label="Plug", step_index=0)]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.FAILED
+        assert runner.report is not None
+        assert runner.report.failure_reason is not None
+
+    def test_cancel_stops_after_current_step(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(success=True)
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            ActionStep(action="plug_in", label="Plug", step_index=0),
+            ActionStep(action="start_charging", label="Start", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+        runner.cancel()
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.CANCELLED
+        assert controller.execute_action.call_count == 1
+
+    def test_runner_failure_includes_step_context(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(
+            success=False, message="Engine error"
+        )
+        runner = ScenarioRunner(controller=controller)
+        steps = [ActionStep(action="plug_in", label="Plug", step_index=0)]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.report is not None
+        assert runner.report.failed_step_index == 0
+        assert "Plug" in runner.report.failure_reason
+
+    def test_note_step_does_not_call_controller(self) -> None:
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            NoteStep(message="This is a note", label="Note", step_index=0),
+            ActionStep(action="plug_in", label="Plug", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        controller.execute_action.assert_not_called()
+        assert runner.state == RunnerState.RUNNING
+
+    def test_wait_step_accumulates_time(self) -> None:
+        controller = MagicMock()
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            WaitStep(duration=1.0, label="Wait 1s", step_index=0),
+            ActionStep(action="plug_in", label="Plug", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        for _ in range(5):
+            runner.tick(0.2)
+
+        controller.execute_action.assert_not_called()
+        assert runner.state == RunnerState.RUNNING
+
+        runner.tick(0.2)
+        controller.execute_action.assert_called_once()
+
+    def test_wait_step_transitions_to_next_step(self) -> None:
+        controller = MagicMock()
+        controller.execute_action.return_value = MagicMock(success=True)
+        runner = ScenarioRunner(controller=controller)
+        steps = [
+            WaitStep(duration=0.5, label="Wait 0.5s", step_index=0),
+            ActionStep(action="plug_in", label="Plug", step_index=1),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.5)
+
+        controller.execute_action.assert_not_called()
+        runner.tick(0.1)
+        controller.execute_action.assert_called_once()
+        assert runner.report is not None
+        assert len(runner.report.step_results) == 2
+
+    def _make_scenario(self, steps: list) -> ScenarioDefinition:
+        return ScenarioDefinition(
+            schema_version="1.0",
+            name="Test",
+            description="Test scenario",
+            defaults=ScenarioDefaults(),
+            steps=steps,
+        )
+
+
+class TestScenarioReport:
+    def test_step_result_records_outcome(self) -> None:
+        result = StepResult(
+            step_index=0,
+            kind="action",
+            label="Plug",
+            success=True,
+            duration=0.1,
+        )
+        assert result.success is True
+
+    def test_report_accumulates_results(self) -> None:
+        report = ScenarioReport(scenario_name="Test")
+        report.add_step_result(
+            StepResult(step_index=0, kind="action", label="Step 1", success=True, duration=0.1)
+        )
+        report.add_step_result(
+            StepResult(step_index=1, kind="action", label="Step 2", success=True, duration=0.1)
+        )
+        assert len(report.step_results) == 2
+        assert report.total_steps == 2
+
+    def test_report_marks_failed(self) -> None:
+        report = ScenarioReport(scenario_name="Test")
+        report.mark_failed("Error", 0)
+        assert report.success is False
+        assert report.failure_reason == "Error"
+        assert report.failed_step_index == 0
+
+    def test_report_completed_at_set_on_success(self) -> None:
+        report = ScenarioReport(scenario_name="Test")
+        report.mark_completed()
+        assert report.finished_at is not None
+        assert report.success is True
