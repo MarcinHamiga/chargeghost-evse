@@ -1,7 +1,5 @@
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-import pytest
 
 from chargeghost_evse.devtools.scenario_models import (
     ActionStep,
@@ -17,13 +15,11 @@ from chargeghost_evse.devtools.scenario_runner import ScenarioRunner, RunnerStat
 
 class TestScenarioRunner:
     def test_initial_state_is_idle(self) -> None:
-        engine = MagicMock()
         controller = MagicMock()
         runner = ScenarioRunner(controller=controller)
         assert runner.state == RunnerState.IDLE
 
     def test_start_transitions_to_running(self) -> None:
-        engine = MagicMock()
         controller = MagicMock()
         runner = ScenarioRunner(controller=controller)
         scenario = self._make_scenario([ActionStep(action="plug_in", label="Plug")])
@@ -35,7 +31,6 @@ class TestScenarioRunner:
         assert runner.report.started_at is not None
 
     def test_rejects_second_run_while_active(self) -> None:
-        engine = MagicMock()
         controller = MagicMock()
         runner = ScenarioRunner(controller=controller)
         scenario = self._make_scenario([ActionStep(action="plug_in", label="Plug")])
@@ -236,3 +231,125 @@ class TestScenarioReport:
         report.mark_completed()
         assert report.finished_at is not None
         assert report.success is True
+
+
+class TestWaitAndAssert:
+    def test_wait_for_connector_status_succeeds_before_timeout(self) -> None:
+        controller = MagicMock()
+        connector = MagicMock()
+        connector.status.value = "Available"
+        controller.get_connector.return_value = connector
+        runner = ScenarioRunner(controller=controller)
+
+        steps = [
+            ActionStep(action="plug_in", label="Plug", step_index=0),
+            AssertStep(
+                condition="connector_status",
+                expected="Available",
+                label="Check status",
+                connector_id=1,
+                step_index=1,
+            ),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.COMPLETED
+        assert controller.get_connector.call_count >= 1
+
+    def test_assert_session_active_fails_when_missing(self) -> None:
+        controller = MagicMock()
+        controller.get_session.return_value = None
+        runner = ScenarioRunner(controller=controller)
+
+        steps = [
+            AssertStep(
+                condition="session_exists",
+                expected=True,
+                label="Session should exist",
+                step_index=0,
+            ),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.FAILED
+        assert runner.report is not None
+        assert runner.report.failure_reason is not None
+        assert "Session" in runner.report.failure_reason
+
+    def test_assert_session_not_exists_passes_when_no_session(self) -> None:
+        controller = MagicMock()
+        controller.get_session.return_value = None
+        runner = ScenarioRunner(controller=controller)
+
+        steps = [
+            AssertStep(
+                condition="session_exists",
+                expected=False,
+                label="No session yet",
+                step_index=0,
+            ),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_assert_connection_state_succeeds(self) -> None:
+        controller = MagicMock()
+        controller.is_connected = True
+        runner = ScenarioRunner(controller=controller)
+
+        steps = [
+            AssertStep(
+                condition="connection_state",
+                expected=True,
+                label="Should be connected",
+                step_index=0,
+            ),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_assert_connection_state_fails_when_disconnected(self) -> None:
+        controller = MagicMock()
+        controller.is_connected = False
+        runner = ScenarioRunner(controller=controller)
+
+        steps = [
+            AssertStep(
+                condition="connection_state",
+                expected=True,
+                label="Should be connected",
+                step_index=0,
+            ),
+        ]
+        scenario = self._make_scenario(steps)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.FAILED
+        assert runner.report is not None
+        assert "disconnected" in runner.report.failure_reason
+
+    def _make_scenario(self, steps: list) -> ScenarioDefinition:
+        return ScenarioDefinition(
+            schema_version="1.0",
+            name="Test",
+            description="Test scenario",
+            defaults=ScenarioDefaults(),
+            steps=steps,
+        )

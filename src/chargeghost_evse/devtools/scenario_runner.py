@@ -198,7 +198,7 @@ class ScenarioRunner:
             session = self.controller.get_session(connector_id)
             if session is None:
                 return False, "No active session"
-            meter = self.controller.controller.engine.get_energy_meter(connector_id)
+            meter = self.controller.engine.get_energy_meter(connector_id)
             reading = meter.get_meter_reading()
             if reading >= step.expected:
                 return True, ""
