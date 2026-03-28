@@ -213,6 +213,7 @@ class Adapter(BaseAdapter, cp):
             charge_point_model=charge_point_model,
             charge_point_vendor=charge_point_vendor,
             response_timeout=response_timeout,
+            protocol_version="ocpp1.6",
         )
 
         # Firmware and diagnostics management

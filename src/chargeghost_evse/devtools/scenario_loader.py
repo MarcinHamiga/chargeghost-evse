@@ -46,7 +46,14 @@ class ScenarioLoader:
             step = cls._parse_step(step_data, idx, defaults)
             steps.append(step)
 
-        known_fields = {"schema_version", "name", "description", "version", "defaults", "steps"}
+        known_fields = {
+            "schema_version",
+            "name",
+            "description",
+            "version",
+            "defaults",
+            "steps",
+        }
         metadata = {k: v for k, v in data.items() if k not in known_fields}
 
         return ScenarioDefinition(

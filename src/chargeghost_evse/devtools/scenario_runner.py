@@ -186,7 +186,10 @@ class ScenarioRunner:
                 return False, f"Connector {connector_id} not found"
             if conn.status.value == step.expected:
                 return True, ""
-            return False, f"Expected status '{step.expected}', got '{conn.status.value}'"
+            return (
+                False,
+                f"Expected status '{step.expected}', got '{conn.status.value}'",
+            )
 
         if step.condition == "connection_state":
             is_connected = self.controller.is_connected

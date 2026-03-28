@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QMainWindow
 from PySide6.QtWidgets import QWidget
 
 from chargeghost_evse.engine.engine import Engine
+from chargeghost_evse.devtools.timeline_store import TimelineStore
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.ui.app import ManualWidget
 from chargeghost_evse.ui.app import ModeSelectWidget
@@ -124,6 +125,7 @@ class _DummyMainWithDeps(QMainWindow):
 		self.bridge = _DummyBridge()
 		self.signal_bridge = _DummySignalBridge()
 		self.app_settings = _DummySettings()
+		self.timeline_store = TimelineStore()
 
 	def _go_home(self) -> None:
 		pass

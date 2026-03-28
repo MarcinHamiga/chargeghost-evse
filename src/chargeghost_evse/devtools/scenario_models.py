@@ -2,34 +2,40 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 
-VALID_ACTIONS = frozenset([
-    "connect",
-    "disconnect",
-    "authorize",
-    "plug_in",
-    "unplug",
-    "start_charging",
-    "stop_charging",
-    "suspend_ev",
-    "resume_charging",
-    "set_rfid",
-    "clear_rfid",
-    "send_heartbeat",
-])
+VALID_ACTIONS = frozenset(
+    [
+        "connect",
+        "disconnect",
+        "authorize",
+        "plug_in",
+        "unplug",
+        "start_charging",
+        "stop_charging",
+        "suspend_ev",
+        "resume_charging",
+        "set_rfid",
+        "clear_rfid",
+        "send_heartbeat",
+    ]
+)
 
-VALID_WAIT_CONDITIONS = frozenset([
-    "connector_status",
-    "connection_state",
-    "session_exists",
-    "meter_threshold",
-])
+VALID_WAIT_CONDITIONS = frozenset(
+    [
+        "connector_status",
+        "connection_state",
+        "session_exists",
+        "meter_threshold",
+    ]
+)
 
-VALID_ASSERT_CONDITIONS = frozenset([
-    "connector_status",
-    "connection_state",
-    "session_exists",
-    "meter_threshold",
-])
+VALID_ASSERT_CONDITIONS = frozenset(
+    [
+        "connector_status",
+        "connection_state",
+        "session_exists",
+        "meter_threshold",
+    ]
+)
 
 
 @dataclass

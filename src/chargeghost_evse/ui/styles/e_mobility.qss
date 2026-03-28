@@ -1460,3 +1460,101 @@ QPushButton#updateStatusChip:hover {
 #sessionStateBadge[state="idle"] #sessionStateName { color: #8b949e; }
 #sessionStateBadge[state="plugged"] #sessionStateName { color: #f59e0b; }
 #sessionStateSub { font-size: 10px; color: #6e7681; }
+
+/* ═══════════════════════════════════════════════════════════════
+   OCPP Timeline Panel
+═══════════════════════════════════════════════════════════════ */
+#timelineFilterBar {
+    background-color: #161b22;
+    border-bottom: 1px solid #21262d;
+}
+
+#timelineDirFilter,
+#timelineActionFilter {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #e6edf3;
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+#timelineDirFilter:hover,
+#timelineActionFilter:hover {
+    border-color: #1EAD98;
+}
+
+#timelineScrollArea {
+    background-color: #0a0f16;
+    border: none;
+}
+
+#timelineEntry {
+    background-color: transparent;
+    border-bottom: 1px solid #21262d;
+}
+
+#timelineEntry:hover {
+    background-color: rgba(30, 173, 152, 0.05);
+}
+
+#timelineTs {
+    color: #6e7681;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+    font-size: 10px;
+}
+
+#timelineAction {
+    font-size: 11px;
+}
+
+#timelineDesc {
+    font-size: 11px;
+}
+
+#timelinePayload {
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+    font-size: 10px;
+    color: #8b949e;
+    background-color: #0d1117;
+    padding: 6px 8px 6px 24px;
+    border-top: 1px solid #21262d;
+}
+
+#btnTabLog,
+#btnTabTimeline {
+    background-color: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 4px 8px;
+    min-height: 24px;
+}
+
+#btnTabLog:hover,
+#btnTabTimeline:hover {
+    color: #e6edf3;
+}
+
+#btnTabLog:checked,
+#btnTabTimeline:checked {
+    color: #1EAD98;
+    font-weight: 600;
+}
+
+#btnTimelineCopy,
+#btnTimelineExport,
+#btnTimelineClear {
+    background-color: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 4px 8px;
+    min-height: 24px;
+}
+
+#btnTimelineCopy:hover,
+#btnTimelineExport:hover,
+#btnTimelineClear:hover {
+    color: #1EAD98;
+}

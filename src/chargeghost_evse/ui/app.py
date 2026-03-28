@@ -41,6 +41,7 @@ from chargeghost_evse.bridge.bridge import Bridge
 from chargeghost_evse.devtools.scenario_loader import ScenarioLoader, ScenarioLoadError
 from chargeghost_evse.devtools.scenario_runner import ScenarioRunner
 from chargeghost_evse.devtools.simulator_controller import SimulatorController
+from chargeghost_evse.devtools.timeline_store import TimelineStore
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
 from chargeghost_evse.ui.bridge import QtSignalBridge
@@ -267,6 +268,7 @@ class SimulatorWidget(QWidget):
 
         self._profiles_tick_counter: int = 0
         self._setup_ui()
+        self.log_side_panel.set_timeline_store(self.main_window.timeline_store)
 
     def _setup_ui(self) -> None:
         main_layout = QHBoxLayout(self)
@@ -495,12 +497,30 @@ class SimulatorWidget(QWidget):
 
     def action_plug_in(self) -> None:
         self.engine.plug_in(self._selected_connector_id)
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="plug_in",
+                connector_id=self._selected_connector_id,
+                summary=f"UI: Plugged In to Connector {self._selected_connector_id}",
+            )
         self.main_window.log_message(
             f"[green]UI:[/green] Plugged In to Connector {self._selected_connector_id}"
         )
 
     def action_unplug(self) -> None:
         self.engine.unplug(self._selected_connector_id)
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="unplug",
+                connector_id=self._selected_connector_id,
+                summary=f"UI: Unplugged from Connector {self._selected_connector_id}",
+            )
         self.main_window.log_message(
             f"[yellow]UI:[/yellow] Unplugged from Connector {self._selected_connector_id}"
         )
@@ -511,22 +531,58 @@ class SimulatorWidget(QWidget):
         self.engine.start_session(
             connector_id=self._selected_connector_id, transaction_id=temp_tx_id
         )
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="start_charging",
+                connector_id=self._selected_connector_id,
+                transaction_id=temp_tx_id,
+                summary=f"UI: Started charging session on Connector {self._selected_connector_id}",
+            )
         self.main_window.log_message(
             f"[green]UI:[/green] Started charging session on Connector {self._selected_connector_id}"
         )
 
     def action_stop_charging(self) -> None:
         self.engine.stop_session()
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="stop_charging",
+                summary="UI: Stopped charging session",
+            )
         self.main_window.log_message("[red]UI:[/red] Stopped charging session")
 
     def action_suspend_ev(self) -> None:
         self.engine.suspend_ev(self._selected_connector_id)
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="suspend_ev",
+                connector_id=self._selected_connector_id,
+                summary=f"UI: Suspended EV on Connector {self._selected_connector_id}",
+            )
         self.main_window.log_message(
             f"[yellow]UI:[/yellow] Suspended EV on Connector {self._selected_connector_id}"
         )
 
     def action_resume_charging(self) -> None:
         self.engine.resume_charging(self._selected_connector_id)
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="resume_charging",
+                connector_id=self._selected_connector_id,
+                summary=f"UI: Resumed charging on Connector {self._selected_connector_id}",
+            )
         self.main_window.log_message(
             f"[green]UI:[/green] Resumed charging on Connector {self._selected_connector_id}"
         )
@@ -555,6 +611,14 @@ class SimulatorWidget(QWidget):
 
     def action_authorize(self, rfid_tag: str) -> None:
         self.bridge.send_authorize(rfid_tag)
+        if self.main_window.timeline_store is not None:
+            self.main_window.timeline_store.append(
+                source="ui",
+                direction="local",
+                event_type="action",
+                action="authorize",
+                summary=f"UI: Sending Authorize with tag: {rfid_tag}",
+            )
         self.main_window.log_message(
             f"[cyan]OCPP:[/cyan] Sending Authorize with tag: {rfid_tag}"
         )
@@ -583,7 +647,9 @@ class SimulatorWidget(QWidget):
         self.main_window.log_message(
             "[green]Config:[/green] Configuration saved and connection restarted."
         )
-        self.main_window.show_toast("Configuration saved; reconnecting to CSMS", "success")
+        self.main_window.show_toast(
+            "Configuration saved; reconnecting to CSMS", "success"
+        )
 
     def _show_error(self, message: str) -> None:
         self.main_window.log_message(f"[red]Config:[/red] {message}")
@@ -685,9 +751,7 @@ class SimulatorWidget(QWidget):
             )
         except ScenarioLoadError as e:
             self.main_window.show_toast(f"Failed to load scenario: {e}", "error")
-            self.main_window.log_message(
-                f"[red]Scenario:[/red] Load error: {e}"
-            )
+            self.main_window.log_message(f"[red]Scenario:[/red] Load error: {e}")
 
     def _on_start_scenario(self) -> None:
         scenario = self.scenario_runner_panel._scenario
@@ -708,9 +772,7 @@ class SimulatorWidget(QWidget):
     def _on_cancel_scenario(self) -> None:
         runner = self.main_window.scenario_runner
         runner.cancel()
-        self.main_window.log_message(
-            "[yellow]Scenario:[/yellow] Cancelled"
-        )
+        self.main_window.log_message("[yellow]Scenario:[/yellow] Cancelled")
 
 
 class ManualWidget(QWidget):
@@ -721,6 +783,7 @@ class ManualWidget(QWidget):
         self.engine = self.main_window.engine
         self.bridge = self.main_window.bridge
         self._setup_ui()
+        self.log_side_panel.set_timeline_store(self.main_window.timeline_store)
         self.refresh_connection_state()
 
     def _setup_ui(self) -> None:
@@ -1010,6 +1073,10 @@ class MainWindow(QMainWindow):
 
         self.bridge = self._create_bridge()
         self.bridge.setup()
+
+        # Initialize timeline store and inject into bridge
+        self.timeline_store = TimelineStore()
+        self.bridge.timeline_store = self.timeline_store
 
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
 

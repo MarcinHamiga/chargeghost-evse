@@ -59,6 +59,11 @@ from chargeghost_evse.bridge.message_queue import (
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.util.event import Event
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from chargeghost_evse.devtools.timeline_store import TimelineStore
+
 
 class AsyncRunner:
     """
@@ -192,7 +197,11 @@ class AsyncRunner:
         self._thread_shutdown.set()
         if self._shutdown_event and self.loop:
             self.loop.call_soon_threadsafe(self._shutdown_event.set)
-        if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:
+        if (
+            self._thread
+            and self._thread.is_alive()
+            and threading.current_thread() != self._thread
+        ):
             self._thread.join(timeout=5)
 
     def _start_loop(self) -> None:
@@ -245,8 +254,10 @@ class AsyncRunner:
         """Get the adapter class based on OCPP version."""
         if self.ocpp_version == "2.0.1":
             from chargeghost_evse.ocpp_adapter.v201_adapter import V201Adapter
+
             return V201Adapter
         from chargeghost_evse.ocpp_adapter.v16_adapter import V16Adapter
+
         return V16Adapter
 
     def _create_adapter(self, ws):
@@ -508,6 +519,9 @@ class Bridge:
         self._runner_unsubscribers: list[Callable[[], None]] = []
         self._is_setup = False
 
+        # Timeline store for recording events (set by app.py)
+        self.timeline_store: Optional["TimelineStore"] = None
+
     def setup(self) -> None:
         """
         Start the bridge and background threads.
@@ -523,7 +537,9 @@ class Bridge:
         self._engine_unsubscribers = [
             self.engine.session_started.subscribe(self.on_engine_session_started),
             self.engine.session_stopped.subscribe(self.on_engine_session_stopped),
-            self.engine.connector_status_changed.subscribe(self.on_connector_status_change),
+            self.engine.connector_status_changed.subscribe(
+                self.on_connector_status_change
+            ),
         ]
 
         # Start WebSocket connection in background thread
@@ -654,9 +670,11 @@ class Bridge:
         - Adapter.get_connector_info: Returns connector voltage and phases
         """
 
-        charging_profile_mgr = getattr(
-            self.runner.adapter, "charging_profile_manager", None
-        ) if self.runner.adapter else None
+        charging_profile_mgr = (
+            getattr(self.runner.adapter, "charging_profile_manager", None)
+            if self.runner.adapter
+            else None
+        )
 
         def get_limit(
             connector_id: int, transaction_id: Optional[int]
@@ -1006,9 +1024,7 @@ class Bridge:
             sample_interval = 60
             aligned_interval = 0
             if self.runner.adapter:
-                config_mgr = getattr(
-                    self.runner.adapter, "config_manager", None
-                )
+                config_mgr = getattr(self.runner.adapter, "config_manager", None)
                 if config_mgr is not None:
                     sample_interval = config_mgr.get_int_value(
                         "MeterValueSampleInterval", 60
@@ -1154,9 +1170,19 @@ class Bridge:
         """
         adapter = self.runner.adapter
         loop = self.runner.loop
-        if adapter and loop:
-            conn_status = status.value if hasattr(status, "value") else str(status)
+        conn_status = status.value if hasattr(status, "value") else str(status)
 
+        if self.timeline_store is not None:
+            self.timeline_store.append(
+                source="bridge",
+                direction="local",
+                event_type="status_change",
+                action=f"connector_{conn_status.lower()}",
+                connector_id=connector_id,
+                summary=f"Connector {connector_id} status changed to {conn_status}",
+            )
+
+        if adapter and loop:
             self._log(
                 message=f"Connector {connector_id} status changed to {conn_status}"
             )
@@ -1190,6 +1216,19 @@ class Bridge:
         if not session:
             return
 
+        if self.timeline_store is not None:
+            self.timeline_store.append(
+                source="bridge",
+                direction="local",
+                event_type="session",
+                action="session_started",
+                connector_id=connector_id,
+                transaction_id=session.transaction_id
+                if isinstance(session.transaction_id, int)
+                else 0,
+                summary=f"Session started on connector {connector_id}",
+            )
+
         self._log(message=f"Session started on connector {connector_id}")
         # Use persistent RFID if set, otherwise fall back to session's id_tag
         if self._get_rfid is not None:
@@ -1215,6 +1254,15 @@ class Bridge:
                 "TransactionEventStarted" if self._is_v201() else "StartTransaction"
             )
             self._message_queue.enqueue(msg_type, start_kwargs)
+            if self.timeline_store is not None:
+                self.timeline_store.append(
+                    source="bridge",
+                    direction="local",
+                    event_type="queue",
+                    action="queue_message",
+                    connector_id=connector_id,
+                    summary=f"[yellow]Queued[/yellow] {msg_type} (offline)",
+                )
             self._log(
                 message=f"[yellow]Queued[/yellow] {msg_type} (offline)",
                 level=logging.WARNING,
@@ -1239,25 +1287,28 @@ class Bridge:
         """Send StartTransaction (OCPP 1.6) and update session."""
         try:
             response = await adapter.send_start_transaction(**start_kwargs)
-            if (
-                response
-                and response.transaction_id
-                and self.engine.session is session
-            ):
+            if response and response.transaction_id and self.engine.session is session:
                 session.transaction_id = response.transaction_id
                 self._apply_remote_start_charging_profile(
                     session,
                     response.transaction_id,
                 )
-                self._log(
-                    message=f"Transaction ID assigned: {response.transaction_id}"
-                )
+                self._log(message=f"Transaction ID assigned: {response.transaction_id}")
         except Exception as e:
             self._log(
                 message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
                 level=logging.ERROR,
             )
             self._message_queue.enqueue("StartTransaction", start_kwargs)
+            if self.timeline_store is not None:
+                self.timeline_store.append(
+                    source="bridge",
+                    direction="local",
+                    event_type="queue",
+                    action="queue_message",
+                    connector_id=start_kwargs.get("connector_id", 0),
+                    summary="[yellow]Queued[/yellow] StartTransaction for retry",
+                )
             self._log(
                 message="[yellow]Queued[/yellow] StartTransaction for retry",
                 level=logging.WARNING,
@@ -1273,15 +1324,22 @@ class Bridge:
             )
             if tx_id and self.engine.session is session:
                 session.transaction_id = tx_id
-                self._log(
-                    message=f"Transaction ID generated: {tx_id}"
-                )
+                self._log(message=f"Transaction ID generated: {tx_id}")
         except Exception as e:
             self._log(
                 message=f"[red]TransactionEvent(Started) failed:[/red] {type(e).__name__}: {e}",
                 level=logging.ERROR,
             )
             self._message_queue.enqueue("TransactionEventStarted", start_kwargs)
+            if self.timeline_store is not None:
+                self.timeline_store.append(
+                    source="bridge",
+                    direction="local",
+                    event_type="queue",
+                    action="queue_message",
+                    connector_id=start_kwargs.get("connector_id", 0),
+                    summary="[yellow]Queued[/yellow] TransactionEvent(Started) for retry",
+                )
             self._log(
                 message="[yellow]Queued[/yellow] TransactionEvent(Started) for retry",
                 level=logging.WARNING,
@@ -1317,6 +1375,19 @@ class Bridge:
         reason = last_session.get("reason", "Local")
         meter_history = last_session.get("meter_history", [])
 
+        if self.timeline_store is not None:
+            self.timeline_store.append(
+                source="bridge",
+                direction="local",
+                event_type="session",
+                action="session_stopped",
+                connector_id=connector_id,
+                transaction_id=raw_transaction_id
+                if isinstance(raw_transaction_id, int)
+                else 0,
+                summary=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}",
+            )
+
         self._log(
             message=f"Session stopped on connector {connector_id}, tx_id={transaction_id}, reason={reason}"
         )
@@ -1334,6 +1405,15 @@ class Bridge:
                     "meter_history": meter_history,
                 }
                 self._message_queue.enqueue("TransactionEventEnded", stop_kwargs)
+                if self.timeline_store is not None:
+                    self.timeline_store.append(
+                        source="bridge",
+                        direction="local",
+                        event_type="queue",
+                        action="queue_message",
+                        connector_id=connector_id,
+                        summary="[yellow]Queued[/yellow] TransactionEvent(Ended) (offline)",
+                    )
                 self._log(
                     message="[yellow]Queued[/yellow] TransactionEvent(Ended) (offline)",
                     level=logging.WARNING,
@@ -1347,6 +1427,15 @@ class Bridge:
                     "meter_history": meter_history,
                 }
                 self._message_queue.enqueue("StopTransaction", stop_kwargs)
+                if self.timeline_store is not None:
+                    self.timeline_store.append(
+                        source="bridge",
+                        direction="local",
+                        event_type="queue",
+                        action="queue_message",
+                        connector_id=connector_id,
+                        summary="[yellow]Queued[/yellow] StopTransaction (offline)",
+                    )
                 self._log(
                     message="[yellow]Queued[/yellow] StopTransaction (offline)",
                     level=logging.WARNING,
@@ -1356,15 +1445,23 @@ class Bridge:
         if self._is_v201():
             future = asyncio.run_coroutine_threadsafe(
                 self._send_v201_session_stopped(
-                    adapter, connector_id, transaction_id,
-                    meter_stop, reason, meter_history,
+                    adapter,
+                    connector_id,
+                    transaction_id,
+                    meter_stop,
+                    reason,
+                    meter_history,
                 ),
                 loop,
             )
         else:
             future = asyncio.run_coroutine_threadsafe(
                 self._send_v16_session_stopped(
-                    adapter, transaction_id, meter_stop, reason, meter_history,
+                    adapter,
+                    transaction_id,
+                    meter_stop,
+                    reason,
+                    meter_history,
                 ),
                 loop,
             )
@@ -1394,14 +1491,23 @@ class Bridge:
                 level=logging.ERROR,
             )
             self._message_queue.enqueue("StopTransaction", stop_kwargs)
+            if self.timeline_store is not None:
+                self.timeline_store.append(
+                    source="bridge",
+                    direction="local",
+                    event_type="queue",
+                    action="queue_message",
+                    transaction_id=transaction_id
+                    if isinstance(transaction_id, int)
+                    else 0,
+                    summary="[yellow]Queued[/yellow] StopTransaction for retry",
+                )
             self._log(
                 message="[yellow]Queued[/yellow] StopTransaction for retry",
                 level=logging.WARNING,
             )
         if reason in {"SoftReset", "HardReset"}:
-            await self._send_boot_notification_for_reset(
-                reason.removesuffix("Reset")
-            )
+            await self._send_boot_notification_for_reset(reason.removesuffix("Reset"))
 
     async def _send_v201_session_stopped(
         self,
@@ -1429,14 +1535,24 @@ class Bridge:
                 level=logging.ERROR,
             )
             self._message_queue.enqueue("TransactionEventEnded", stop_kwargs)
+            if self.timeline_store is not None:
+                self.timeline_store.append(
+                    source="bridge",
+                    direction="local",
+                    event_type="queue",
+                    action="queue_message",
+                    connector_id=connector_id,
+                    transaction_id=transaction_id
+                    if isinstance(transaction_id, int)
+                    else 0,
+                    summary="[yellow]Queued[/yellow] TransactionEvent(Ended) for retry",
+                )
             self._log(
                 message="[yellow]Queued[/yellow] TransactionEvent(Ended) for retry",
                 level=logging.WARNING,
             )
         if reason in {"SoftReset", "HardReset"}:
-            await self._send_boot_notification_for_reset(
-                reason.removesuffix("Reset")
-            )
+            await self._send_boot_notification_for_reset(reason.removesuffix("Reset"))
 
     def send_authorize(self, id_tag: str) -> None:
         """

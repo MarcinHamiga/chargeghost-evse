@@ -101,7 +101,10 @@ class ScenarioRunnerPanel(QWidget):
 
         for step in scenario.steps:
             kind_icon = self._kind_icon(step.kind)
-            label = step.label or f"{step.kind}: {getattr(step, 'action', getattr(step, 'message', ''))}"
+            label = (
+                step.label
+                or f"{step.kind}: {getattr(step, 'action', getattr(step, 'message', ''))}"
+            )
             item = QListWidgetItem(f"{kind_icon} {label}")
             item.setData(Qt.ItemDataRole.UserRole, step.step_index)
             self._steps_list.addItem(item)
@@ -120,7 +123,9 @@ class ScenarioRunnerPanel(QWidget):
             return "[*]"
         return "[?]"
 
-    def set_runner_state(self, state: RunnerState, current_step_index: int = -1) -> None:
+    def set_runner_state(
+        self, state: RunnerState, current_step_index: int = -1
+    ) -> None:
         self._current_step_index = current_step_index
 
         for i in range(self._steps_list.count()):

@@ -11,11 +11,15 @@ class ActionResult:
     details: Optional[dict[str, Any]] = None
 
     @classmethod
-    def ok(cls, message: str, details: Optional[dict[str, Any]] = None) -> "ActionResult":
+    def ok(
+        cls, message: str, details: Optional[dict[str, Any]] = None
+    ) -> "ActionResult":
         return cls(success=True, message=message, details=details)
 
     @classmethod
-    def fail(cls, message: str, details: Optional[dict[str, Any]] = None) -> "ActionResult":
+    def fail(
+        cls, message: str, details: Optional[dict[str, Any]] = None
+    ) -> "ActionResult":
         return cls(success=False, message=message, details=details)
 
 

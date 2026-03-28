@@ -21,11 +21,14 @@ Classes:
 import asyncio
 import json
 import logging
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional, TYPE_CHECKING
 
 from ocpp.exceptions import PropertyConstraintViolationError
 
 from chargeghost_evse.util.event import Event
+
+if TYPE_CHECKING:
+    from chargeghost_evse.devtools.timeline_store import TimelineStore
 
 
 class BaseAdapter:
@@ -63,6 +66,8 @@ class BaseAdapter:
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
         response_timeout: int = 30,
+        protocol_version: str = "ocpp1.6",
+        timeline_store: Optional["TimelineStore"] = None,
     ) -> None:
         """
         Initialize shared adapter state.
@@ -75,9 +80,13 @@ class BaseAdapter:
                 charge_point_model: Model name reported in BootNotification.
                 charge_point_vendor: Vendor name reported in BootNotification.
                 response_timeout: Timeout for OCPP responses in seconds.
+                protocol_version: OCPP protocol version string (e.g. "ocpp1.6").
+                timeline_store: Optional TimelineStore for capturing frame events.
         """
         self.command_queue = command_queue
         self.response_timeout = response_timeout
+        self.protocol_version = protocol_version
+        self.timeline_store = timeline_store
 
         self.logger = logging.getLogger("chargeghost.ocpp")
         self._tx_logger = logging.getLogger("chargeghost.ocpp.tx")
@@ -128,10 +137,13 @@ class BaseAdapter:
         try:
             if isinstance(payload, dict):
                 payload_str = json.dumps(payload, indent=2)
+                payload_for_timeline: dict[str, Any] = payload
             else:
                 payload_str = str(payload)
+                payload_for_timeline = {"raw": str(payload)}
         except (TypeError, ValueError):
             payload_str = str(payload)
+            payload_for_timeline = {"raw": str(payload)}
 
         raw_msg = f"[{direction}] {action}"
         if message_id:
@@ -139,6 +151,10 @@ class BaseAdapter:
         raw_msg += f"\n{payload_str}"
 
         level = logging.INFO if action in self._log_important_actions else logging.DEBUG
+
+        normalized_direction: Literal["inbound", "outbound"] = (
+            "outbound" if direction == "TX" else "inbound"
+        )
 
         self.on_ocpp_message.emit(
             direction=direction, action=action, payload=payload_str
@@ -155,6 +171,20 @@ class BaseAdapter:
                 "ocpp_correlated_id": message_id if direction == "RX" else None,
             },
         )
+
+        if self.timeline_store is not None:
+            correlation_key = f"{action}:{message_id}" if message_id else action
+            self.timeline_store.append(
+                source="ocpp",
+                direction=normalized_direction,
+                event_type="frame",
+                action=action,
+                message_id=message_id,
+                level=level,
+                payload=payload_for_timeline,
+                protocol_version=self.protocol_version,
+                correlation_key=correlation_key,
+            )
 
     async def _send_call(self, message) -> Any:
         self._log_ocpp_raw("TX", message.__class__.__name__, message.__dict__)

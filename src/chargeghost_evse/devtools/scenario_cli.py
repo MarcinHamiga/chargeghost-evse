@@ -3,11 +3,13 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from chargeghost_evse.devtools.scenario_loader import ScenarioLoader, ScenarioLoadError
 from chargeghost_evse.devtools.scenario_runner import ScenarioRunner, RunnerState
 from chargeghost_evse.devtools.simulator_controller import SimulatorController
+from chargeghost_evse.devtools.timeline_store import TimelineStore
+from chargeghost_evse.devtools.timeline_export import TimelineExporter
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.util.config import SimulationConfig
 
@@ -17,6 +19,7 @@ class _HeadlessBridge:
 
     def __init__(self) -> None:
         self.logger = logging.getLogger("chargeghost.headless.bridge")
+        self.timeline_store: Optional[TimelineStore] = None
 
     def setup(self) -> None:
         pass
@@ -39,7 +42,12 @@ class _HeadlessBridge:
         return self
 
 
-def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
+def run_headless(
+    scenario_path: str,
+    timeout: float = 60.0,
+    timeline_store: Optional[TimelineStore] = None,
+    timeline_export_path: Optional[str] = None,
+) -> int:
     config = SimulationConfig.load()
     engine = Engine(multi_evse_mode=config.multi_evse_mode)
 
@@ -51,6 +59,10 @@ def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
         )
 
     bridge = _HeadlessBridge()
+
+    if timeline_store is not None:
+        bridge.timeline_store = timeline_store
+
     controller = SimulatorController(engine=engine, bridge=bridge)
     runner = ScenarioRunner(controller=controller)
 
@@ -89,19 +101,27 @@ def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
         current_time = time.monotonic()
         if current_time - last_report_time >= 1.0:
             last_report_time = current_time
-            print(f"  [{int(elapsed)}s] state={runner.state.value}, step={runner._current_step_index}")
+            print(
+                f"  [{int(elapsed)}s] state={runner.state.value}, step={runner._current_step_index}"
+            )
 
     if runner.state == RunnerState.COMPLETED:
         print(f"Scenario completed successfully in {elapsed:.1f}s")
         if runner.report:
             print(f"  Steps completed: {len(runner.report.step_results)}")
             print(f"  Duration: {runner.report.duration_seconds:.1f}s")
+        if timeline_store is not None and timeline_export_path is not None:
+            _export_timeline(timeline_store, timeline_export_path)
         return 0
     elif runner.state == RunnerState.FAILED:
         print("Scenario failed", file=sys.stderr)
         if runner.report:
-            print(f"  Failed at step {runner.report.failed_step_index}", file=sys.stderr)
+            print(
+                f"  Failed at step {runner.report.failed_step_index}", file=sys.stderr
+            )
             print(f"  Reason: {runner.report.failure_reason}", file=sys.stderr)
+        if timeline_store is not None and timeline_export_path is not None:
+            _export_timeline(timeline_store, timeline_export_path)
         return 1
     elif runner.state == RunnerState.CANCELLED:
         print("Scenario cancelled by user")
@@ -109,6 +129,12 @@ def run_headless(scenario_path: str, timeout: float = 60.0) -> int:
     else:
         print(f"Scenario ended with unexpected state: {runner.state}", file=sys.stderr)
         return 1
+
+
+def _export_timeline(store: TimelineStore, output_path: str) -> None:
+    exporter = TimelineExporter(store)
+    exporter.export(output_path=output_path)
+    print(f"  Timeline exported to: {output_path}")
 
 
 def add_cli_args(parser: argparse.ArgumentParser) -> None:
@@ -123,4 +149,9 @@ def add_cli_args(parser: argparse.ArgumentParser) -> None:
         default=60.0,
         metavar="SECONDS",
         help="Timeout for headless scenario execution (default: 60)",
+    )
+    parser.add_argument(
+        "--timeline-export",
+        metavar="PATH",
+        help="Export timeline to a JSON file after headless scenario run",
     )

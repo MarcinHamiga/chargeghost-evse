@@ -6,6 +6,7 @@ from chargeghost_evse.ui.widgets.connector_panel import (
 )
 from chargeghost_evse.ui.widgets.icons import ICONS, get_icon_svg
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
+from chargeghost_evse.ui.widgets.ocpp_timeline_panel import OCPPTimelinePanel
 from chargeghost_evse.ui.widgets.scenario_runner_panel import ScenarioRunnerPanel
 from chargeghost_evse.ui.widgets.session_dashboard import (
     ContextChip,
@@ -27,6 +28,7 @@ __all__ = [
     "IdTagInput",
     "LogPanel",
     "MetricCard",
+    "OCPPTimelinePanel",
     "ScenarioRunnerPanel",
     "SessionDashboard",
     "SettingsPanel",

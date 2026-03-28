@@ -2,6 +2,12 @@ import weakref
 
 from PySide6.QtCore import QObject, Signal
 
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from chargeghost_evse.devtools.timeline_store import TimelineStore
+    from chargeghost_evse.devtools.timeline_models import TimelineEvent
+
 
 class QtSignalBridge(QObject):
     """Bridges internal Event emissions to Qt Signals for thread-safe UI updates."""
@@ -13,16 +19,32 @@ class QtSignalBridge(QObject):
     session_stopped = Signal(int)
     connection_status_changed = Signal(bool)
     ocpp_config_key_changed = Signal(str, str)
+    timeline_event_received = Signal(object)
 
     def __init__(self, engine, bridge):
         super().__init__()
         self._engine = weakref.ref(engine)
         self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
+        self._timeline_store: "TimelineStore" | None = None
+        self._timeline_unsubscribe: "Callable[[], None]" | None = None
 
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
         engine.session_stopped.subscribe(self._on_session_stopped)
+
+    def set_timeline_store(self, store: "TimelineStore") -> None:
+        if self._timeline_unsubscribe is not None:
+            self._timeline_unsubscribe()
+            self._timeline_unsubscribe = None
+        self._timeline_store = store
+        if self._timeline_store is not None:
+            self._timeline_unsubscribe = self._timeline_store.on_event.subscribe(
+                self._on_timeline_store_event
+            )
+
+    def _on_timeline_store_event(self, event: "TimelineEvent") -> None:
+        self._safe_emit(self.timeline_event_received, event)
 
     def check_connection_status(self):
         bridge = self._bridge_ref()

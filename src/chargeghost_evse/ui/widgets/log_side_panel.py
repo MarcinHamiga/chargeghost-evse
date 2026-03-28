@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -14,6 +15,10 @@ from PySide6.QtWidgets import (
 from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.icons import get_icon_html
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
+from chargeghost_evse.ui.widgets.ocpp_timeline_panel import OCPPTimelinePanel
+
+if TYPE_CHECKING:
+    from chargeghost_evse.devtools.timeline_store import TimelineStore
 
 
 COLLAPSED_WIDTH = 32
@@ -93,7 +98,8 @@ class LogSidePanel(QWidget):
     Toggleable right-side log panel.
 
     Collapsed: 32px tab strip with log icon, label, unread badge.
-    Expanded: 340px panel with header controls and LogPanel body.
+    Expanded: 340px panel with header controls, tab switcher (Log/Timeline),
+    and LogPanel or OCPPTimelinePanel body.
     Animation: QPropertyAnimation on maximumWidth/minimumWidth.
     """
 
@@ -110,6 +116,7 @@ class LogSidePanel(QWidget):
         self._animation: Optional[QPropertyAnimation] = None
         self._anim2: Optional[QPropertyAnimation] = None
         self._finish_close_pending = False  # True when _finish_close is connected
+        self._active_tab = 0  # 0=log, 1=timeline
 
         self._setup_ui()
         self._set_collapsed_geometry()
@@ -145,9 +152,22 @@ class LogSidePanel(QWidget):
         icon_label.setText(get_icon_html("terminal", colors.ACCENT_TEAL, 14))
         header_layout.addWidget(icon_label)
 
-        title = QLabel("Activity Log")
-        title.setObjectName("logSidePanelTitle")
-        header_layout.addWidget(title)
+        self._btn_tab_log = QPushButton("Log")
+        self._btn_tab_log.setObjectName("btnTabLog")
+        self._btn_tab_log.setFlat(True)
+        self._btn_tab_log.setCheckable(True)
+        self._btn_tab_log.setChecked(True)
+        self._btn_tab_log.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_tab_log.clicked.connect(lambda: self._set_active_tab(0))
+        header_layout.addWidget(self._btn_tab_log)
+
+        self._btn_tab_timeline = QPushButton("Timeline")
+        self._btn_tab_timeline.setObjectName("btnTabTimeline")
+        self._btn_tab_timeline.setFlat(True)
+        self._btn_tab_timeline.setCheckable(True)
+        self._btn_tab_timeline.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_tab_timeline.clicked.connect(lambda: self._set_active_tab(1))
+        header_layout.addWidget(self._btn_tab_timeline)
 
         self._count_label = QLabel("")
         self._count_label.setObjectName("logSideCountLabel")
@@ -166,6 +186,7 @@ class LogSidePanel(QWidget):
         self._btn_clear.setObjectName("btnClearLog")
         self._btn_clear.setFlat(True)
         self._btn_clear.clicked.connect(self._on_clear)
+        self._clear_handler: Callable = self._on_clear
         header_layout.addWidget(self._btn_clear)
 
         btn_close = QPushButton("›")
@@ -178,8 +199,13 @@ class LogSidePanel(QWidget):
 
         panel_layout.addWidget(header)
 
+        # Stacked content: log panel or timeline panel
+        self._content_stack = QStackedWidget()
         self._log_panel = LogPanel()
-        panel_layout.addWidget(self._log_panel)
+        self._content_stack.addWidget(self._log_panel)
+        self._timeline_panel = OCPPTimelinePanel()
+        self._content_stack.addWidget(self._timeline_panel)
+        panel_layout.addWidget(self._content_stack)
 
         layout.addWidget(self._panel)
 
@@ -190,6 +216,23 @@ class LogSidePanel(QWidget):
     def _set_expanded_geometry(self) -> None:
         self.setMinimumWidth(EXPANDED_WIDTH)
         self.setMaximumWidth(EXPANDED_WIDTH)
+
+    def _set_active_tab(self, index: int) -> None:
+        self._active_tab = index
+        self._content_stack.setCurrentIndex(index)
+        self._btn_tab_log.setChecked(index == 0)
+        self._btn_tab_timeline.setChecked(index == 1)
+
+        if index == 0:
+            self._btn_clear.setText("Clear")
+            self._btn_clear.clicked.disconnect(self._clear_handler)
+            self._btn_clear.clicked.connect(self._on_clear)
+            self._clear_handler = self._on_clear
+        else:
+            self._btn_clear.setText("Clear")
+            self._btn_clear.clicked.disconnect(self._clear_handler)
+            self._btn_clear.clicked.connect(self._on_timeline_clear)
+            self._clear_handler = self._on_timeline_clear
 
     def is_open(self) -> bool:
         return self._is_open
@@ -277,6 +320,9 @@ class LogSidePanel(QWidget):
         self._entry_count = 0
         self._count_label.setText("")
 
+    def _on_timeline_clear(self) -> None:
+        self._timeline_panel._on_clear()
+
     def set_log_mode(self, is_detailed: bool) -> None:
         """Sync the log-mode toggle button state without emitting log_mode_toggled."""
         self._btn_log_mode.setChecked(is_detailed)
@@ -291,3 +337,10 @@ class LogSidePanel(QWidget):
 
     def _on_clear(self) -> None:
         self.clear()
+
+    def set_timeline_store(self, store: "TimelineStore") -> None:
+        self._timeline_panel.set_store(store)
+
+    @property
+    def timeline_panel(self) -> OCPPTimelinePanel:
+        return self._timeline_panel
