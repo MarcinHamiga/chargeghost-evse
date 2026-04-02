@@ -158,3 +158,150 @@ def test_v201_queue_drain_assigns_generated_transaction_id() -> None:
 	assert bridge.engine.session is not None
 	assert bridge.engine.session.transaction_id == "tx-queued"
 	loop.close()
+
+
+def test_remote_started_session_uses_remote_id_tag_in_v16_start_transaction() -> None:
+	bridge = Bridge(
+		engine=Engine(),
+		url="ws://localhost:3000/CP_1",
+		get_rfid=lambda: "LOCAL-TAG",
+	)
+	bridge.engine.add_connector()
+	bridge.engine.session_started.subscribe(bridge.on_engine_session_started)
+
+	adapter = MagicMock()
+	adapter.send_start_transaction = AsyncMock(
+		return_value=MagicMock(transaction_id=77, id_tag_info={"status": "Accepted"})
+	)
+	bridge.runner.adapter = adapter
+	loop = asyncio.new_event_loop()
+	bridge.runner.loop = loop
+
+	bridge.engine.plug_in(1)
+	bridge.engine.command_queue.put(
+		{
+			"action": "START",
+			"connector_id": 1,
+			"id_tag": "REMOTE-TAG",
+			"timeout": 30,
+		}
+	)
+	bridge.engine._process_commands()
+	_run_loop_until_idle(loop)
+
+	assert bridge.engine.session is not None
+	assert bridge.engine.session.id_tag == "REMOTE-TAG"
+	assert adapter.send_start_transaction.await_args is not None
+	assert adapter.send_start_transaction.await_args.kwargs["id_tag"] == "REMOTE-TAG"
+	loop.close()
+
+
+def test_app_started_session_falls_back_to_persistent_rfid_in_v16_start_transaction() -> None:
+	bridge = Bridge(
+		engine=Engine(),
+		url="ws://localhost:3000/CP_1",
+		get_rfid=lambda: "LOCAL-TAG",
+	)
+	bridge.engine.add_connector()
+	bridge.engine.session_started.subscribe(bridge.on_engine_session_started)
+
+	adapter = MagicMock()
+	adapter.send_start_transaction = AsyncMock(
+		return_value=MagicMock(transaction_id=77, id_tag_info={"status": "Accepted"})
+	)
+	bridge.runner.adapter = adapter
+	loop = asyncio.new_event_loop()
+	bridge.runner.loop = loop
+
+	bridge.engine.plug_in(1)
+	bridge.engine.start_session(connector_id=1, transaction_id=0)
+	_run_loop_until_idle(loop)
+
+	assert bridge.engine.session is not None
+	assert bridge.engine.session.id_tag is None
+	assert adapter.send_start_transaction.await_args is not None
+	assert adapter.send_start_transaction.await_args.kwargs["id_tag"] == "LOCAL-TAG"
+	loop.close()
+
+
+def test_multi_evse_v16_start_transaction_uses_connector_specific_session_data() -> None:
+	engine = Engine(multi_evse_mode=True)
+	bridge = Bridge(engine=engine, url="ws://localhost:3000/CP_1")
+	engine.add_connector()
+	engine.add_connector()
+	bridge.engine.session_started.subscribe(bridge.on_engine_session_started)
+
+	async def send_start_transaction(**kwargs):
+		return MagicMock(
+			transaction_id=700 + kwargs["connector_id"],
+			id_tag_info={"status": "Accepted"},
+		)
+
+	adapter = MagicMock()
+	adapter.send_start_transaction = AsyncMock(side_effect=send_start_transaction)
+	bridge.runner.adapter = adapter
+	loop = asyncio.new_event_loop()
+	bridge.runner.loop = loop
+
+	engine.plug_in(1)
+	engine.plug_in(2)
+	engine.get_energy_meter(1).value = 111.0
+	engine.get_energy_meter(2).value = 222.0
+
+	engine.start_session(connector_id=1, transaction_id=0, id_tag="TAG-1")
+	engine.start_session(connector_id=2, transaction_id=0, id_tag="TAG-2")
+	_run_loop_until_idle(loop)
+
+	start_calls = {
+		call.kwargs["connector_id"]: call.kwargs
+		for call in adapter.send_start_transaction.await_args_list
+	}
+	assert start_calls[1]["id_tag"] == "TAG-1"
+	assert start_calls[1]["meter_start"] == 111
+	assert start_calls[2]["id_tag"] == "TAG-2"
+	assert start_calls[2]["meter_start"] == 222
+	assert engine.get_session(1) is not None
+	assert engine.get_session(1).transaction_id == 701
+	assert engine.get_session(2) is not None
+	assert engine.get_session(2).transaction_id == 702
+	loop.close()
+
+
+def test_remote_started_session_uses_remote_id_tag_in_v201_transaction_event() -> None:
+	bridge = Bridge(
+		engine=Engine(),
+		url="ws://localhost:3000/CP_1",
+		ocpp_version="2.0.1",
+		get_rfid=lambda: "LOCAL-TAG",
+	)
+	bridge.engine.add_connector()
+	bridge.engine.session_started.subscribe(bridge.on_engine_session_started)
+
+	adapter = MagicMock()
+	adapter.send_transaction_event_started = AsyncMock(
+		return_value=(MagicMock(), "tx-77")
+	)
+	bridge.runner.adapter = adapter
+	loop = asyncio.new_event_loop()
+	bridge.runner.loop = loop
+
+	bridge.engine.plug_in(1)
+	bridge.engine.command_queue.put(
+		{
+			"action": "START",
+			"connector_id": 1,
+			"id_tag": "REMOTE-TAG",
+			"timeout": 30,
+		}
+	)
+	bridge.engine._process_commands()
+	_run_loop_until_idle(loop)
+
+	assert bridge.engine.session is not None
+	assert bridge.engine.session.id_tag == "REMOTE-TAG"
+	assert adapter.send_transaction_event_started.await_args is not None
+	assert (
+		adapter.send_transaction_event_started.await_args.kwargs["id_tag"]
+		== "REMOTE-TAG"
+	)
+	loop.close()

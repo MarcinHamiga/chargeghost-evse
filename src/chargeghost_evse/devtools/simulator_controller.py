@@ -24,9 +24,12 @@ class ActionResult:
 
 
 class SimulatorController:
-    def __init__(self, engine: Engine, bridge: Any) -> None:
+    def __init__(
+        self, engine: Engine, bridge: Any, fault_manager: Optional[Any] = None
+    ) -> None:
         self.engine = engine
         self.bridge = bridge
+        self.fault_manager = fault_manager
         self._transaction_counter: int = 0
 
     @property

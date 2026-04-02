@@ -56,6 +56,7 @@ from chargeghost_evse.bridge.message_queue import (
     JsonFileBackend,
     MessageQueue,
 )
+from chargeghost_evse.devtools.fault_manager import FaultManager
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.util.event import Event
 
@@ -112,6 +113,7 @@ class AsyncRunner:
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
         ocpp_version: str = "1.6",
+        fault_manager: Optional[FaultManager] = None,
     ) -> None:
         """
         Initialize the async runner.
@@ -125,6 +127,7 @@ class AsyncRunner:
             charge_point_model: Model name reported in BootNotification.
             charge_point_vendor: Vendor name reported in BootNotification.
             ocpp_version: OCPP protocol version ("1.6" or "2.0.1").
+            fault_manager: Optional FaultManager for transport fault injection.
         """
         self.charge_point_id = charge_point_id
 
@@ -141,6 +144,7 @@ class AsyncRunner:
         self.charge_point_vendor = charge_point_vendor
         self.command_queue = command_queue
         self.ocpp_version = ocpp_version
+        self._fault_manager = fault_manager
 
         # Async resources (created in worker thread)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -321,6 +325,18 @@ class AsyncRunner:
                     retry_delay = 1  # Reset backoff after successful connection
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
 
+                    if self._fault_manager is not None:
+                        result = self._fault_manager.consume_if_active(
+                            "forced_disconnect"
+                        )
+                        if result.triggered:
+                            self._log(
+                                message="Fault: forced disconnect",
+                                level=logging.WARNING,
+                                fault_id="forced_disconnect",
+                            )
+                            break
+
                     adapter_task = asyncio.create_task(self.adapter.start())
 
                     try:
@@ -378,6 +394,21 @@ class AsyncRunner:
 
             # Exponential backoff before retry
             if self._shutdown_event is not None and not self._shutdown_event.is_set():
+                if self._fault_manager is not None:
+                    result = self._fault_manager.consume_if_active("delayed_reconnect")
+                    if result.triggered:
+                        state = self._fault_manager.peek("delayed_reconnect")
+                        extra_delay = (
+                            state.config.parameters.get("delay_seconds", 30)
+                            if state and state.config
+                            else 30
+                        )
+                        retry_delay += extra_delay
+                        self._log(
+                            message=f"Fault: reconnect delayed by {extra_delay}s",
+                            level=logging.WARNING,
+                            fault_id="delayed_reconnect",
+                        )
                 self._log(
                     message=f"Retrying in {retry_delay}s...", level=logging.WARNING
                 )
@@ -423,6 +454,17 @@ class AsyncRunner:
                 and not self._shutdown_event.is_set()
             ):
                 try:
+                    if self._fault_manager is not None:
+                        hb_result = self._fault_manager.consume_if_active(
+                            "dropped_heartbeat"
+                        )
+                        if hb_result.triggered:
+                            self._log(
+                                message="Fault: heartbeat dropped",
+                                level=logging.WARNING,
+                                fault_id="dropped_heartbeat",
+                            )
+                            continue
                     await self.adapter.send_heartbeat()
                 except Exception as e:
                     self._log(message=f"Heartbeat failed: {e}", level=logging.ERROR)
@@ -477,6 +519,7 @@ class Bridge:
         persist_message_queue: bool = False,
         get_rfid: Optional[Any] = None,
         ocpp_version: str = "1.6",
+        fault_manager: Optional[FaultManager] = None,
     ) -> None:
         """
         Initialize the Bridge with Engine and connection parameters.
@@ -492,10 +535,12 @@ class Bridge:
             persist_message_queue: If True, persist message queue to disk.
             get_rfid: Optional callback to get the persistent RFID tag.
             ocpp_version: OCPP protocol version ("1.6" or "2.0.1").
+            fault_manager: Optional FaultManager for transport fault injection.
         """
         self.engine = engine
         self.url = url
         self._get_rfid = get_rfid
+        self._fault_manager = fault_manager
 
         # Create the async runner for WebSocket communication
         self.runner = AsyncRunner(
@@ -507,6 +552,7 @@ class Bridge:
             charge_point_model=charge_point_model,
             charge_point_vendor=charge_point_vendor,
             ocpp_version=ocpp_version,
+            fault_manager=fault_manager,
         )
 
         # Offline message queue
@@ -989,15 +1035,40 @@ class Bridge:
             adapter = self.runner.adapter
             loop = self.runner.loop
             if adapter and loop:
-                future = asyncio.run_coroutine_threadsafe(
-                    adapter.send_meter_values(
+
+                async def _do_send() -> None:
+                    await adapter.send_meter_values(
                         connector_id=connector_id,
                         value=meter_value,
                         transaction_id=transaction_id,
                         context=context,
-                    ),
-                    loop,
-                )
+                    )
+
+                coro = _do_send()
+
+                if self._fault_manager is not None:
+                    result = self._fault_manager.consume_if_active("delayed_response")
+                    if result.triggered:
+                        state = self._fault_manager.peek("delayed_response")
+                        delay = (
+                            state.config.parameters.get("delay_seconds", 5)
+                            if state and state.config
+                            else 5
+                        )
+                        self._log(
+                            message=f"Fault: delaying MeterValues send by {delay}s",
+                            level=logging.WARNING,
+                            fault_id="delayed_response",
+                        )
+                        _inner = coro
+
+                        async def _delayed_send() -> None:
+                            await asyncio.sleep(delay)
+                            await _inner
+
+                        coro = _delayed_send()
+
+                future = asyncio.run_coroutine_threadsafe(coro, loop)
                 future.add_done_callback(self._handle_future_error)
             else:
                 self._message_queue.enqueue(
@@ -1212,9 +1283,28 @@ class Bridge:
         Args:
             connector_id: ID of the connector where session started.
         """
-        session = self.engine.session
+        session = self.engine.get_session(connector_id)
         if not session:
+            self._log(
+                message=(
+                    f"Session start event received without an active session on connector "
+                    f"{connector_id}; active_connectors={sorted(self.engine._sessions.keys())}"
+                ),
+                level=logging.WARNING,
+            )
             return
+
+        meter = self.engine.get_energy_meter(connector_id)
+        meter_start = int(meter.get_meter_reading())
+        self._log(
+            message=(
+                f"Preparing session start for connector {connector_id}: "
+                f"session_connector={session.connector_id}, "
+                f"transaction_id={session.transaction_id}, meter_start={meter_start}, "
+                f"reservation_id={session.reservation_id}"
+            ),
+            level=logging.DEBUG,
+        )
 
         if self.timeline_store is not None:
             self.timeline_store.append(
@@ -1230,19 +1320,17 @@ class Bridge:
             )
 
         self._log(message=f"Session started on connector {connector_id}")
-        # Use persistent RFID if set, otherwise fall back to session's id_tag
-        if self._get_rfid is not None:
-            persistent_rfid = self._get_rfid()
-            if persistent_rfid:
-                id_tag = persistent_rfid
-            else:
-                id_tag = session.id_tag or "UNKNOWN_TAG"
-        else:
-            id_tag = session.id_tag or "UNKNOWN_TAG"
+        # Remote starts must preserve the session's id_tag. Persisted RFID is only a
+        # fallback for locally initiated sessions that didn't populate one.
+        id_tag = session.id_tag
+        if not id_tag and self._get_rfid is not None:
+            id_tag = self._get_rfid()
+        if not id_tag:
+            id_tag = "UNKNOWN_TAG"
         start_kwargs = {
             "connector_id": connector_id,
             "id_tag": id_tag,
-            "meter_start": int(self.engine.energy_meter.get_meter_reading()),
+            "meter_start": meter_start,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "reservation_id": session.reservation_id,
         }
@@ -1287,13 +1375,23 @@ class Bridge:
         """Send StartTransaction (OCPP 1.6) and update session."""
         try:
             response = await adapter.send_start_transaction(**start_kwargs)
-            if response and response.transaction_id and self.engine.session is session:
-                session.transaction_id = response.transaction_id
-                self._apply_remote_start_charging_profile(
-                    session,
-                    response.transaction_id,
-                )
-                self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+            if response and response.transaction_id:
+                active_session = self.engine.get_session(session.connector_id)
+                if active_session is session:
+                    session.transaction_id = response.transaction_id
+                    self._apply_remote_start_charging_profile(
+                        session,
+                        response.transaction_id,
+                    )
+                    self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+                else:
+                    self._log(
+                        message=(
+                            f"Discarding StartTransaction response for connector "
+                            f"{session.connector_id}: session changed before tx id assignment"
+                        ),
+                        level=logging.WARNING,
+                    )
         except Exception as e:
             self._log(
                 message=f"[red]StartTransaction failed:[/red] {type(e).__name__}: {e}",
@@ -1322,9 +1420,19 @@ class Bridge:
             response, tx_id = await adapter.send_transaction_event_started(
                 **start_kwargs
             )
-            if tx_id and self.engine.session is session:
-                session.transaction_id = tx_id
-                self._log(message=f"Transaction ID generated: {tx_id}")
+            if tx_id:
+                active_session = self.engine.get_session(session.connector_id)
+                if active_session is session:
+                    session.transaction_id = tx_id
+                    self._log(message=f"Transaction ID generated: {tx_id}")
+                else:
+                    self._log(
+                        message=(
+                            f"Discarding TransactionEvent(Started) response for connector "
+                            f"{session.connector_id}: session changed before tx id assignment"
+                        ),
+                        level=logging.WARNING,
+                    )
         except Exception as e:
             self._log(
                 message=f"[red]TransactionEvent(Started) failed:[/red] {type(e).__name__}: {e}",

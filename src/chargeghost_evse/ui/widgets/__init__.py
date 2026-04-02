@@ -4,6 +4,7 @@ from chargeghost_evse.ui.widgets.connector_panel import (
     ConnectorEditorCard,
     ConnectorPanel,
 )
+from chargeghost_evse.ui.widgets.fault_injection_panel import FaultInjectionPanel
 from chargeghost_evse.ui.widgets.icons import ICONS, get_icon_svg
 from chargeghost_evse.ui.widgets.log_panel import LogPanel
 from chargeghost_evse.ui.widgets.ocpp_timeline_panel import OCPPTimelinePanel
@@ -24,6 +25,7 @@ __all__ = [
     "ContextChip",
     "ConnectorEditorCard",
     "ConnectorPanel",
+    "FaultInjectionPanel",
     "ICONS",
     "IdTagInput",
     "LogPanel",

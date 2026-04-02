@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock
 
-
 from chargeghost_evse.devtools.scenario_models import (
     ActionStep,
     AssertStep,
+    FaultStep,
     NoteStep,
     ScenarioDefinition,
     ScenarioDefaults,
@@ -353,3 +353,136 @@ class TestWaitAndAssert:
             defaults=ScenarioDefaults(),
             steps=steps,
         )
+
+
+def _make_scenario(steps: list) -> ScenarioDefinition:
+    return ScenarioDefinition(
+        schema_version="1.0",
+        name="Test",
+        description="Test scenario",
+        defaults=ScenarioDefaults(),
+        steps=steps,
+    )
+
+
+class TestFaultSteps:
+    def test_fault_enable_step(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+        controller.fault_manager.enable = MagicMock()
+
+        steps = [FaultStep(fault_action="enable", fault_id="frozen_meter", step_index=0)]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        controller.fault_manager.enable.assert_called_once_with(
+            "frozen_meter", config=None
+        )
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_fault_enable_step_with_config(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+
+        steps = [
+            FaultStep(
+                fault_action="enable",
+                fault_id="meter_jump",
+                parameters={"amount_kwh": 5.0},
+                count_limit=3,
+                step_index=0,
+            )
+        ]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        call_args = controller.fault_manager.enable.call_args
+        assert call_args[0][0] == "meter_jump"
+        config = call_args[1].get("config") or call_args[0][1]
+        assert config.parameters == {"amount_kwh": 5.0}
+        assert config.count_limit == 3
+
+    def test_fault_disable_step(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+
+        steps = [FaultStep(fault_action="disable", fault_id="frozen_meter", step_index=0)]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        controller.fault_manager.disable.assert_called_once_with("frozen_meter")
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_fault_clear_all_step(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+
+        steps = [FaultStep(fault_action="clear_all", step_index=0)]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        controller.fault_manager.clear_all.assert_called_once()
+        assert runner.state == RunnerState.COMPLETED
+
+    def test_fault_enable_unknown_id_fails(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+        controller.fault_manager.enable.side_effect = ValueError("Unknown fault")
+
+        steps = [FaultStep(fault_action="enable", fault_id="nonexistent", step_index=0)]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.FAILED
+
+    def test_fault_step_without_manager_fails(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = None
+
+        steps = [FaultStep(fault_action="enable", fault_id="frozen_meter", step_index=0)]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert runner.state == RunnerState.FAILED
+
+    def test_fault_step_records_in_report(self) -> None:
+        controller = MagicMock()
+        controller.fault_manager = MagicMock()
+
+        steps = [
+            FaultStep(
+                fault_action="enable",
+                fault_id="frozen_meter",
+                label="Freeze meter",
+                step_index=0,
+            )
+        ]
+        scenario = _make_scenario(steps)
+        runner = ScenarioRunner(controller=controller)
+
+        runner.start(scenario)
+        runner.tick(0.1)
+
+        assert len(runner.report.step_results) == 1
+        result = runner.report.step_results[0]
+        assert result.kind == "fault"
+        assert result.label == "Freeze meter"
+        assert result.success is True

@@ -13,6 +13,7 @@ Classes:
     V201Adapter: OCPP 2.0.1 Charge Point implementation.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -152,6 +153,7 @@ class V201Adapter(BaseAdapter, cp):
         response_timeout: int = 30,
         charge_point_model: str = "ChargeGhostV2",
         charge_point_vendor: str = "ChargeGhost",
+        fault_manager: Optional[Any] = None,
     ) -> None:
         cp.__init__(self, id, connection, response_timeout)
         self._init_base(
@@ -160,6 +162,7 @@ class V201Adapter(BaseAdapter, cp):
             charge_point_vendor=charge_point_vendor,
             response_timeout=response_timeout,
             protocol_version="ocpp2.0.1",
+            fault_manager=fault_manager,
         )
         self.transaction_manager = TransactionManagerV201()
 
@@ -279,6 +282,19 @@ class V201Adapter(BaseAdapter, cp):
                 type=IdTokenEnumType.central,
             ),
         )
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("delayed_response")
+            if result.triggered:
+                delay = 5.0
+                state = self._fault_manager.peek("delayed_response")
+                if state and state.config and state.config.parameters:
+                    delay = float(state.config.parameters.get("delay_seconds", 5.0))
+                self._log(
+                    f"Fault injection: delayed_response delay={delay}s",
+                    level=logging.DEBUG,
+                    fault_id="delayed_response",
+                )
+                await asyncio.sleep(delay)
         response: call_result.Authorize = await self.call(request)
 
         id_token_info = response.id_token_info
@@ -573,6 +589,18 @@ class V201Adapter(BaseAdapter, cp):
             f"RequestStartTransaction: evse_id={evse_id}, id_token={token_str}",
         )
 
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("rejected_action")
+            if result.triggered:
+                self._log(
+                    "Fault injection: rejected_action on RequestStartTransaction",
+                    level=logging.DEBUG,
+                    fault_id="rejected_action",
+                )
+                return call_result.RequestStartTransaction(
+                    status=RequestStartStopStatusEnumType.rejected,
+                )
+
         target_evse_id: Optional[int] = None
         if evse_id is not None and evse_id != 0:
             if evse_id < 0:
@@ -685,6 +713,20 @@ class V201Adapter(BaseAdapter, cp):
         Returns:
                 TriggerMessage response.
         """
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active(
+                "trigger_message_not_implemented"
+            )
+            if result.triggered:
+                self._log(
+                    "Fault injection: trigger_message_not_implemented",
+                    level=logging.DEBUG,
+                    fault_id="trigger_message_not_implemented",
+                )
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatusEnumType.not_implemented,
+                )
+
         try:
             trigger = (
                 requested_message

@@ -1469,6 +1469,14 @@ QPushButton#updateStatusChip:hover {
     border-bottom: 1px solid #21262d;
 }
 
+#timelineFilterLabel {
+    color: #8b949e;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
 #timelineDirFilter,
 #timelineActionFilter {
     background-color: #21262d;
@@ -1477,11 +1485,16 @@ QPushButton#updateStatusChip:hover {
     color: #e6edf3;
     padding: 2px 6px;
     font-size: 11px;
+    min-height: 28px;
 }
 
 #timelineDirFilter:hover,
 #timelineActionFilter:hover {
     border-color: #1EAD98;
+}
+
+#timelineActionsRow {
+    margin-top: 2px;
 }
 
 #timelineScrollArea {
@@ -1545,9 +1558,10 @@ QPushButton#updateStatusChip:hover {
 #btnTimelineCopy,
 #btnTimelineExport,
 #btnTimelineClear {
-    background-color: transparent;
-    border: none;
-    color: #8b949e;
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #e6edf3;
     font-size: 11px;
     padding: 4px 8px;
     min-height: 24px;
@@ -1556,5 +1570,97 @@ QPushButton#updateStatusChip:hover {
 #btnTimelineCopy:hover,
 #btnTimelineExport:hover,
 #btnTimelineClear:hover {
-    color: #1EAD98;
+    background-color: #30363d;
+    border-color: #1EAD98;
+}
+
+/* ============================================
+   Fault Injection Panel
+   ============================================ */
+
+QPushButton#clearAllBtn {
+    background-color: rgba(218, 54, 51, 0.15);
+    color: #f85149;
+    border: 1px solid rgba(218, 54, 51, 0.3);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-weight: bold;
+}
+
+QPushButton#clearAllBtn:hover {
+    background-color: rgba(218, 54, 51, 0.25);
+}
+
+QFrame[faultCard="true"] {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+QFrame[faultCard="true"][enabled="true"] {
+    border-color: #f59e0b;
+    background-color: rgba(245, 158, 11, 0.08);
+}
+
+/* ============================================
+   Settings Page
+   ============================================ */
+
+QWidget#settingsPage {
+	background-color: transparent;
+}
+
+QFrame#settingsHeader {
+	background-color: #121923;
+	border: 1px solid #30363d;
+	border-radius: 12px;
+	padding: 16px 20px;
+	margin-bottom: 16px;
+}
+
+QLabel#settingsHeaderTitle {
+	color: #e6edf3;
+	font-size: 16px;
+	font-weight: bold;
+	background-color: transparent;
+}
+
+QLabel#settingsHeaderBody {
+	color: #8b949e;
+	font-weight: normal;
+	background-color: transparent;
+}
+
+QWidget#settingsRail {
+	background-color: transparent;
+	max-width: 380px;
+}
+
+QWidget#settingsWorkspace {
+	background-color: transparent;
+}
+
+QFrame#settingsCard {
+	background-color: #161b22;
+	border: 1px solid #30363d;
+	border-radius: 8px;
+	padding: 16px;
+}
+
+QLabel#settingsCardTitle {
+	color: #1EAD98;
+	font-weight: 600;
+	background-color: transparent;
+}
+
+QLabel#settingsCardHelp {
+	color: #6e7681;
+	font-size: 11px;
+	background-color: transparent;
+}
+
+QFrame#settingsSaveBar {
+	background-color: transparent;
+	margin-top: 16px;
+	padding-top: 12px;
 }

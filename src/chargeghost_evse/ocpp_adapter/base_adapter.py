@@ -28,6 +28,7 @@ from ocpp.exceptions import PropertyConstraintViolationError
 from chargeghost_evse.util.event import Event
 
 if TYPE_CHECKING:
+    from chargeghost_evse.devtools.fault_manager import FaultManager
     from chargeghost_evse.devtools.timeline_store import TimelineStore
 
 
@@ -68,6 +69,7 @@ class BaseAdapter:
         response_timeout: int = 30,
         protocol_version: str = "ocpp1.6",
         timeline_store: Optional["TimelineStore"] = None,
+        fault_manager: Optional["FaultManager"] = None,
     ) -> None:
         """
         Initialize shared adapter state.
@@ -82,11 +84,13 @@ class BaseAdapter:
                 response_timeout: Timeout for OCPP responses in seconds.
                 protocol_version: OCPP protocol version string (e.g. "ocpp1.6").
                 timeline_store: Optional TimelineStore for capturing frame events.
+                fault_manager: Optional FaultManager for protocol fault injection.
         """
         self.command_queue = command_queue
         self.response_timeout = response_timeout
         self.protocol_version = protocol_version
         self.timeline_store = timeline_store
+        self._fault_manager = fault_manager
 
         self.logger = logging.getLogger("chargeghost.ocpp")
         self._tx_logger = logging.getLogger("chargeghost.ocpp.tx")

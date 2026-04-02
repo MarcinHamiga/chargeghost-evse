@@ -194,6 +194,7 @@ class Adapter(BaseAdapter, cp):
         response_timeout: int = 30,
         charge_point_model: str = "ChargeGhostV1",
         charge_point_vendor: str = "ChargeGhost",
+        fault_manager: Optional[Any] = None,
     ) -> None:
         """
         Initialize the OCPP adapter.
@@ -205,6 +206,7 @@ class Adapter(BaseAdapter, cp):
             response_timeout: Timeout for OCPP responses in seconds.
             charge_point_model: Model name reported in BootNotification.
             charge_point_vendor: Vendor name reported in BootNotification.
+            fault_manager: Optional FaultManager for protocol fault injection.
         """
         cp.__init__(self, id, connection, response_timeout)
 
@@ -214,6 +216,7 @@ class Adapter(BaseAdapter, cp):
             charge_point_vendor=charge_point_vendor,
             response_timeout=response_timeout,
             protocol_version="ocpp1.6",
+            fault_manager=fault_manager,
         )
 
         # Firmware and diagnostics management
@@ -550,6 +553,20 @@ class Adapter(BaseAdapter, cp):
 
         Supports the simulator's built-in trigger set only.
         """
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active(
+                "trigger_message_not_implemented"
+            )
+            if result.triggered:
+                self._log(
+                    "Fault injection: trigger_message_not_implemented",
+                    level=logging.DEBUG,
+                    fault_id="trigger_message_not_implemented",
+                )
+                return call_result.TriggerMessage(
+                    status=TriggerMessageStatus.not_implemented
+                )
+
         try:
             trigger = (
                 requested_message
@@ -660,6 +677,18 @@ class Adapter(BaseAdapter, cp):
             f"RemoteStartTransaction: connector_id={connector_id}, id_tag={id_tag}",
         )
 
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("rejected_action")
+            if result.triggered:
+                self._log(
+                    "Fault injection: rejected_action on RemoteStartTransaction",
+                    level=logging.DEBUG,
+                    fault_id="rejected_action",
+                )
+                return call_result.RemoteStartTransaction(
+                    status=RemoteStartStopStatus.rejected
+                )
+
         remote_start_profile = charging_profile
         if remote_start_profile is None:
             remote_start_profile = kwargs.get("charging_profile")
@@ -693,6 +722,21 @@ class Adapter(BaseAdapter, cp):
             if ocpp_connector_id < 0:
                 self._log(
                     f"Out-of-range connector_id: {ocpp_connector_id}",
+                    level=logging.WARNING,
+                )
+                return call_result.RemoteStartTransaction(
+                    status=RemoteStartStopStatus.rejected
+                )
+
+            if (
+                self.known_connector_ids
+                and ocpp_connector_id not in self.known_connector_ids
+            ):
+                self._log(
+                    (
+                        f"RemoteStartTransaction: unknown connector_id={ocpp_connector_id}; "
+                        f"known_connector_ids={self.known_connector_ids}"
+                    ),
                     level=logging.WARNING,
                 )
                 return call_result.RemoteStartTransaction(
@@ -916,12 +960,23 @@ class Adapter(BaseAdapter, cp):
 
         # If an active transaction exists on this connector, stop it first
         if connector_id in self.active_transactions and self.command_queue is not None:
+            transaction_id = self.active_transactions.get(connector_id)
             self._log(
-                f"UnlockConnector: stopping active transaction on connector {connector_id}",
+                (
+                    f"UnlockConnector: stopping active transaction on connector "
+                    f"{connector_id}; tx_id={transaction_id}; "
+                    f"active_transactions={self.active_transactions}"
+                ),
                 level=logging.DEBUG,
             )
-            self.command_queue.put({"action": "STOP", "reason": "UnlockCommand"})
-            self.clear_active_transaction(connector_id)
+            self.command_queue.put(
+                {
+                    "action": "STOP",
+                    "connector_id": connector_id,
+                    "transaction_id": transaction_id,
+                    "reason": "UnlockCommand",
+                }
+            )
 
         return call_result.UnlockConnector(status=UnlockStatus.unlocked)
 
@@ -1568,6 +1623,19 @@ class Adapter(BaseAdapter, cp):
 
         # Fall back to CSMS
         request = call.Authorize(id_tag=id_tag)
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("delayed_response")
+            if result.triggered:
+                delay = 5.0
+                state = self._fault_manager.peek("delayed_response")
+                if state and state.config and state.config.parameters:
+                    delay = float(state.config.parameters.get("delay_seconds", 5.0))
+                self._log(
+                    f"Fault injection: delayed_response delay={delay}s",
+                    level=logging.DEBUG,
+                    fault_id="delayed_response",
+                )
+                await asyncio.sleep(delay)
         response: call_result.Authorize = await self.call(request)
         status = (
             response.id_tag_info.get("status", "Unknown")

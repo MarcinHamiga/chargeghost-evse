@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING, Callable, Optional, cast, Literal
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QCheckBox,
     QComboBox,
-    QFormLayout,
-    QGroupBox,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -118,104 +119,225 @@ class SettingsPanel(QWidget):
         self._on_connector_apply: Optional[Callable] = None
         self._on_connector_remove: Optional[Callable] = None
         self._on_connector_add: Optional[Callable] = None
+        self._layout_mode: str = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        self.setObjectName("settingsPage")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_header())
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setObjectName("settingsScroll")
 
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(20)
-        content_layout.setContentsMargins(0, 0, 8, 0)
+        self._body_content = QWidget()
+        self._body_layout = QHBoxLayout(self._body_content)
+        self._body_layout.setSpacing(16)
+        self._body_layout.setContentsMargins(0, 0, 8, 0)
 
-        connection_group = QGroupBox("Connection Settings")
-        conn_form = QFormLayout(connection_group)
-        conn_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        conn_form.setSpacing(12)
+        self._rail = self._build_settings_rail()
+        self._workspace = self._build_connector_workspace()
 
-        self.input_url = ValidatedLineEdit("ws://example.com/ocpp")
-        self.input_url.set_validator(validate_url)
-        conn_form.addRow("WebSocket URL:", self.input_url)
+        self._body_layout.addWidget(self._rail)
+        self._body_layout.addWidget(self._workspace, 1)
 
-        self.input_ocpp_id = QLineEdit()
-        self.input_ocpp_id.setPlaceholderText("CP-001")
-        conn_form.addRow("OCPP ID:", self.input_ocpp_id)
+        scroll.setWidget(self._body_content)
+        root.addWidget(scroll, 1)
 
-        self.input_password = QLineEdit()
-        self.input_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.input_password.setPlaceholderText("Optional")
-        conn_form.addRow("Password:", self.input_password)
+        self._update_layout_mode()
 
-        self.checkbox_skip_tls = QCheckBox("Skip TLS Verification")
-        conn_form.addRow(self.checkbox_skip_tls)
+    def _build_header(self) -> QFrame:
+        header = QFrame()
+        header.setObjectName("settingsHeader")
+        header.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        self.combo_ocpp_version = QComboBox()
-        self.combo_ocpp_version.addItems(["OCPP 1.6J", "OCPP 2.0.1"])
-        conn_form.addRow("OCPP Version:", self.combo_ocpp_version)
+        lay = QHBoxLayout(header)
+        lay.setContentsMargins(0, 0, 0, 0)
 
-        content_layout.addWidget(connection_group)
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
 
-        identity_group = QGroupBox("Station Identity")
-        ident_form = QFormLayout(identity_group)
-        ident_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        ident_form.setSpacing(12)
+        title = QLabel("Settings")
+        title.setObjectName("settingsHeaderTitle")
+        text_col.addWidget(title)
 
-        self.input_vendor = QLineEdit()
-        self.input_vendor.setPlaceholderText("ChargeGhost")
-        ident_form.addRow("Vendor:", self.input_vendor)
+        body = QLabel("Configure your EVSE connection, identity, and connectors.")
+        body.setObjectName("settingsHeaderBody")
+        text_col.addWidget(body)
 
-        self.input_model = QLineEdit()
-        self.input_model.setPlaceholderText("ChargeGhostV1")
-        ident_form.addRow("Model:", self.input_model)
+        lay.addLayout(text_col, 1)
 
-        content_layout.addWidget(identity_group)
-
-        simulation_group = QGroupBox("Simulation Mode")
-        sim_form = QFormLayout(simulation_group)
-        sim_form.setSpacing(12)
-
-        self.checkbox_multi_evse = QCheckBox(
-            "Each connector operates as an independent EVSE"
-        )
-        self.checkbox_multi_evse.setToolTip(
-            "When enabled, each connector can run a separate charging session "
-            "simultaneously. When disabled, only one session can be active at a time."
-        )
-        sim_form.addRow(self.checkbox_multi_evse)
-
-        content_layout.addWidget(simulation_group)
-
-        connectors_group = QGroupBox("Connector Management")
-        conn_group_layout = QVBoxLayout(connectors_group)
-        conn_group_layout.setContentsMargins(8, 16, 8, 8)
-        conn_group_layout.setSpacing(8)
-
-        self.connector_panel = ConnectorPanel()
-        conn_group_layout.addWidget(self.connector_panel)
-
-        content_layout.addWidget(connectors_group)
+        save_bar = QFrame()
+        save_bar.setObjectName("settingsSaveBar")
+        save_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        save_lay = QHBoxLayout(save_bar)
+        save_lay.setContentsMargins(0, 0, 0, 0)
 
         self.btn_save = QPushButton("Save Configuration")
         self.btn_save.setObjectName("btnSaveConfig")
         self.btn_save.setProperty("primary", True)
         self.btn_save.setMinimumHeight(44)
         self.btn_save.clicked.connect(self._on_save_config)
-        content_layout.addWidget(self.btn_save)
+        save_lay.addWidget(self.btn_save)
 
-        content_layout.addStretch()
+        lay.addWidget(save_bar)
+        return header
 
-        scroll.setWidget(content)
-        layout.addWidget(scroll)
+    def _build_settings_rail(self) -> QWidget:
+        rail = QWidget()
+        rail.setObjectName("settingsRail")
+        lay = QVBoxLayout(rail)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+
+        lay.addWidget(self._build_connection_card())
+        lay.addWidget(self._build_identity_card())
+        lay.addWidget(self._build_simulation_card())
+        lay.addStretch()
+        return rail
+
+    def _make_card(self, title: str) -> QFrame:
+        card = QFrame()
+        card.setObjectName("settingsCard")
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        lay = QVBoxLayout(card)
+        lay.setSpacing(8)
+        lay.setContentsMargins(16, 16, 16, 16)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("settingsCardTitle")
+        lay.addWidget(title_lbl)
+        return card
+
+    def _build_connection_card(self) -> QFrame:
+        card = self._make_card("Connection")
+        lay = cast(QVBoxLayout, card.layout())
+
+        lay.addWidget(QLabel("WebSocket URL"))
+        self.input_url = ValidatedLineEdit("ws://example.com/ocpp")
+        self.input_url.set_validator(validate_url)
+        lay.addWidget(self.input_url)
+
+        row_id_pw = QHBoxLayout()
+        row_id_pw.setSpacing(8)
+
+        col_id = QVBoxLayout()
+        col_id.setSpacing(2)
+        col_id.addWidget(QLabel("OCPP ID"))
+        self.input_ocpp_id = QLineEdit()
+        self.input_ocpp_id.setPlaceholderText("CP-001")
+        col_id.addWidget(self.input_ocpp_id)
+        row_id_pw.addLayout(col_id)
+
+        col_pw = QVBoxLayout()
+        col_pw.setSpacing(2)
+        col_pw.addWidget(QLabel("Password"))
+        self.input_password = QLineEdit()
+        self.input_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.input_password.setPlaceholderText("Optional")
+        col_pw.addWidget(self.input_password)
+        row_id_pw.addLayout(col_pw)
+
+        lay.addLayout(row_id_pw)
+
+        row_ver_tls = QHBoxLayout()
+        row_ver_tls.setSpacing(8)
+
+        col_ver = QVBoxLayout()
+        col_ver.setSpacing(2)
+        col_ver.addWidget(QLabel("OCPP Version"))
+        self.combo_ocpp_version = QComboBox()
+        self.combo_ocpp_version.addItems(["OCPP 1.6J", "OCPP 2.0.1"])
+        col_ver.addWidget(self.combo_ocpp_version)
+        row_ver_tls.addLayout(col_ver)
+
+        self.checkbox_skip_tls = QCheckBox("Skip TLS Verification")
+        row_ver_tls.addWidget(self.checkbox_skip_tls)
+        row_ver_tls.addStretch()
+
+        lay.addLayout(row_ver_tls)
+        return card
+
+    def _build_identity_card(self) -> QFrame:
+        card = self._make_card("Station Identity")
+        lay = cast(QVBoxLayout, card.layout())
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        col_v = QVBoxLayout()
+        col_v.setSpacing(2)
+        col_v.addWidget(QLabel("Vendor"))
+        self.input_vendor = QLineEdit()
+        self.input_vendor.setPlaceholderText("ChargeGhost")
+        col_v.addWidget(self.input_vendor)
+        row.addLayout(col_v)
+
+        col_m = QVBoxLayout()
+        col_m.setSpacing(2)
+        col_m.addWidget(QLabel("Model"))
+        self.input_model = QLineEdit()
+        self.input_model.setPlaceholderText("ChargeGhostV1")
+        col_m.addWidget(self.input_model)
+        row.addLayout(col_m)
+
+        lay.addLayout(row)
+        return card
+
+    def _build_simulation_card(self) -> QFrame:
+        card = self._make_card("Simulation")
+        lay = cast(QVBoxLayout, card.layout())
+
+        self.checkbox_multi_evse = QCheckBox(
+            "Each connector operates as an independent EVSE"
+        )
+        self.checkbox_multi_evse.setToolTip(
+            "When enabled, each connector can run a separate charging "
+            "session simultaneously. When disabled, only one session "
+            "can be active at a time."
+        )
+        lay.addWidget(self.checkbox_multi_evse)
+        return card
+
+    def _build_connector_workspace(self) -> QWidget:
+        workspace = QWidget()
+        workspace.setObjectName("settingsWorkspace")
+        lay = QVBoxLayout(workspace)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+
+        title = QLabel("Connector Management")
+        title.setObjectName("settingsCardTitle")
+        lay.addWidget(title)
+
+        self.connector_panel = ConnectorPanel()
+        lay.addWidget(self.connector_panel, 1)
+
+        return workspace
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_layout_mode()
+
+    def _update_layout_mode(self) -> None:
+        mode = "split" if self.width() >= 1050 else "stacked"
+        if mode != self._layout_mode:
+            self._set_layout_mode(mode)
+
+    def _set_layout_mode(self, mode: str) -> None:
+        self._layout_mode = mode
+        self.setProperty("layoutMode", mode)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+        if mode == "stacked":
+            self._body_layout.setDirection(QBoxLayout.Direction.TopToBottom)
+        else:
+            self._body_layout.setDirection(QBoxLayout.Direction.LeftToRight)
 
     def set_engine(self, engine: "Engine") -> None:
         self._engine = engine

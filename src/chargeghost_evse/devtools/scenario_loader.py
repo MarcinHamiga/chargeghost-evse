@@ -1,14 +1,17 @@
 import json
 from pathlib import Path
 
+from chargeghost_evse.devtools.fault_catalog import FAULT_IDS
 from chargeghost_evse.devtools.scenario_models import (
     ActionStep,
     AssertStep,
+    FaultStep,
     NoteStep,
     ScenarioDefinition,
     ScenarioDefaults,
     VALID_ACTIONS,
     VALID_ASSERT_CONDITIONS,
+    VALID_FAULT_ACTIONS,
     VALID_WAIT_CONDITIONS,
     WaitStep,
 )
@@ -76,7 +79,7 @@ class ScenarioLoader:
     @classmethod
     def _parse_step(
         cls, data: dict, index: int, defaults: ScenarioDefaults
-    ) -> ActionStep | WaitStep | AssertStep | NoteStep:
+    ) -> ActionStep | WaitStep | AssertStep | NoteStep | FaultStep:
         kind = data.get("kind")
         if kind == "action":
             return cls._parse_action_step(data, index, defaults)
@@ -86,6 +89,8 @@ class ScenarioLoader:
             return cls._parse_assert_step(data, index, defaults)
         elif kind == "note":
             return cls._parse_note_step(data, index)
+        elif kind == "fault":
+            return cls._parse_fault_step(data, index)
         else:
             raise ScenarioLoadError(f"Unknown step kind: {kind!r}")
 
@@ -143,6 +148,25 @@ class ScenarioLoader:
         return NoteStep(
             kind="note",
             message=data.get("message", ""),
+            label=data.get("label", ""),
+            step_index=index,
+        )
+
+    @classmethod
+    def _parse_fault_step(cls, data: dict, index: int) -> FaultStep:
+        fault_action = data.get("fault_action", "")
+        if fault_action not in VALID_FAULT_ACTIONS:
+            raise ScenarioLoadError(f"Unknown fault action: {fault_action!r}")
+        fault_id = data.get("fault_id", "")
+        if fault_action in ("enable", "disable"):
+            if fault_id not in FAULT_IDS:
+                raise ScenarioLoadError(f"Unknown fault_id: {fault_id!r}")
+        return FaultStep(
+            kind="fault",
+            fault_action=fault_action,
+            fault_id=fault_id,
+            parameters=data.get("parameters", {}),
+            count_limit=data.get("count_limit"),
             label=data.get("label", ""),
             step_index=index,
         )

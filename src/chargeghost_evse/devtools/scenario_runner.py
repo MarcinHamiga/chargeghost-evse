@@ -5,6 +5,7 @@ from enum import Enum
 from chargeghost_evse.devtools.scenario_models import (
     ActionStep,
     AssertStep,
+    FaultStep,
     NoteStep,
     ScenarioDefinition,
     WaitStep,
@@ -116,6 +117,10 @@ class ScenarioRunner:
             self._handle_assert_step(step, step_start)
             return
 
+        if isinstance(step, FaultStep):
+            self._handle_fault_step(step, step_start)
+            return
+
         if isinstance(step, ActionStep):
             connector_id = step.connector_id if step.connector_id is not None else 1
             result = self.controller.execute_action(
@@ -166,6 +171,73 @@ class ScenarioRunner:
         else:
             self.report.mark_failed(
                 f"Assertion failed: {step.label} - {error_msg}",
+                step.step_index,
+            )
+            self.state = RunnerState.FAILED
+
+    def _handle_fault_step(self, step: FaultStep, step_start: float) -> None:
+        if self.report is None:
+            return
+
+        fault_manager = self.controller.fault_manager
+        if fault_manager is None:
+            self.report.add_step_result(
+                StepResult(
+                    step_index=step.step_index,
+                    kind=step.kind,
+                    label=step.label,
+                    success=False,
+                    duration=time.monotonic() - step_start,
+                    error_message="No fault manager available",
+                )
+            )
+            self.report.mark_failed(
+                f"Fault step failed: {step.label} - No fault manager available",
+                step.step_index,
+            )
+            self.state = RunnerState.FAILED
+            return
+
+        try:
+            if step.fault_action == "enable":
+                from chargeghost_evse.devtools.fault_models import FaultConfig
+
+                config: "FaultConfig | None" = None
+                if step.parameters or step.count_limit is not None:
+                    config = FaultConfig(
+                        fault_id=step.fault_id,
+                        parameters=step.parameters,
+                        count_limit=step.count_limit,
+                    )
+                fault_manager.enable(step.fault_id, config=config)
+            elif step.fault_action == "disable":
+                fault_manager.disable(step.fault_id)
+            elif step.fault_action == "clear_all":
+                fault_manager.clear_all()
+
+            self.report.add_step_result(
+                StepResult(
+                    step_index=step.step_index,
+                    kind=step.kind,
+                    label=step.label,
+                    success=True,
+                    duration=time.monotonic() - step_start,
+                )
+            )
+            self._advance_to_next_step()
+        except ValueError as exc:
+            self.report.add_step_result(
+                StepResult(
+                    step_index=step.step_index,
+                    kind=step.kind,
+                    label=step.label,
+                    success=False,
+                    duration=time.monotonic() - step_start,
+                    error_message=str(exc),
+                )
+            )
+            self.report.mark_failed(
+                f"Fault step failed: {step.label} - {exc}",
                 step.step_index,
             )
             self.state = RunnerState.FAILED

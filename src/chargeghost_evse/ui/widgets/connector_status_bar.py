@@ -190,6 +190,15 @@ class ConnectorStatusBar(QWidget):
             pill.set_selected(cid == connector_id)
         self._selected_id = connector_id
 
+    def remove_connector(self, connector_id: int) -> None:
+        pill = self._pills.pop(connector_id, None)
+        if pill is not None:
+            pill.clicked.disconnect(self._on_pill_clicked)
+            self._pills_layout.removeWidget(pill)
+            pill.deleteLater()
+            if self._selected_id == connector_id:
+                self._selected_id = None
+
     def _on_pill_clicked(self, connector_id: int) -> None:
         self.set_selected_connector(connector_id)
         self.connector_selected.emit(connector_id)

@@ -92,6 +92,22 @@ def test_remote_start_transaction_enqueues_valid_tx_profile() -> None:
     assert command["charging_profile"].transaction_id is None
 
 
+def test_remote_start_transaction_rejects_unknown_connector_id() -> None:
+    command_queue: queue.Queue = queue.Queue()
+    adapter = _make_adapter(command_queue)
+    adapter.known_connector_ids = [1, 2]
+
+    result = asyncio.run(
+        adapter.on_remote_start_transaction(
+            connector_id=99,
+            id_tag="TAG-1",
+        )
+    )
+
+    assert result.status == RemoteStartStopStatus.rejected
+    assert command_queue.empty()
+
+
 def test_remote_start_transaction_rejects_non_tx_profile() -> None:
     command_queue: queue.Queue = queue.Queue()
     adapter = _make_adapter(command_queue)

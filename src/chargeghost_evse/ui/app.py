@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.bridge.bridge import Bridge
+from chargeghost_evse.devtools.fault_manager import FaultManager
 from chargeghost_evse.devtools.scenario_loader import ScenarioLoader, ScenarioLoadError
 from chargeghost_evse.devtools.scenario_runner import ScenarioRunner
 from chargeghost_evse.devtools.simulator_controller import SimulatorController
@@ -50,6 +51,7 @@ from chargeghost_evse.ui.widgets.app_settings import AppSettings
 from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_status_bar import ConnectorStatusBar
+from chargeghost_evse.ui.widgets.fault_injection_panel import FaultInjectionPanel
 from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 from chargeghost_evse.ui.widgets.icons import get_icon
 from chargeghost_evse.ui.widgets.scenario_runner_panel import ScenarioRunnerPanel
@@ -305,6 +307,10 @@ class SimulatorWidget(QWidget):
         self._btn_scenarios.clicked.connect(lambda: self._on_nav_clicked(4))
         sidebar_layout.addWidget(self._btn_scenarios)
 
+        self._btn_faults = self._create_nav_btn("Faults", "alert_triangle")
+        self._btn_faults.clicked.connect(lambda: self._on_nav_clicked(5))
+        sidebar_layout.addWidget(self._btn_faults)
+
         # Map index → (button, icon_name) for icon colour updates on nav click
         self._nav_btns: list[tuple[QToolButton, str]] = [
             (self._btn_dashboard, "dashboard"),
@@ -312,6 +318,7 @@ class SimulatorWidget(QWidget):
             (self._btn_ocpp_keys, "key"),
             (self._btn_profiles, "sliders"),
             (self._btn_scenarios, "play"),
+            (self._btn_faults, "alert_triangle"),
         ]
 
         sidebar_layout.addStretch()
@@ -345,6 +352,7 @@ class SimulatorWidget(QWidget):
         self._build_ocpp_keys_tab()
         self._build_profiles_tab()
         self._build_scenarios_tab()
+        self._build_faults_tab()
 
         main_layout.addWidget(content_col, 1)
 
@@ -440,6 +448,15 @@ class SimulatorWidget(QWidget):
         self.scenario_runner_panel.cancel_run_clicked.connect(self._on_cancel_scenario)
         scenarios_layout.addWidget(self.scenario_runner_panel)
         self.stack.addWidget(scenarios_tab)
+
+    def _build_faults_tab(self) -> None:
+        faults_tab = QWidget()
+        faults_layout = QVBoxLayout(faults_tab)
+        faults_layout.setSpacing(0)
+        faults_layout.setContentsMargins(0, 0, 0, 0)
+        self.fault_panel = FaultInjectionPanel()
+        faults_layout.addWidget(self.fault_panel)
+        self.stack.addWidget(faults_tab)
 
     def _on_nav_clicked(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -681,6 +698,7 @@ class SimulatorWidget(QWidget):
         except ValueError as e:
             self._show_error(str(e))
             return
+        self.connector_bar.remove_connector(connector_id)
         self.settings_panel.rebuild_connector_cards()
         self._ensure_valid_selection()
         self.main_window.log_message(
@@ -1071,6 +1089,9 @@ class MainWindow(QMainWindow):
                 phase=connector_config.phase,
             )
 
+        self.fault_manager = FaultManager()
+        self.engine.set_fault_manager(self.fault_manager)
+
         self.bridge = self._create_bridge()
         self.bridge.setup()
 
@@ -1079,6 +1100,7 @@ class MainWindow(QMainWindow):
         self.bridge.timeline_store = self.timeline_store
 
         self.signal_bridge = QtSignalBridge(self.engine, self.bridge)
+        self.signal_bridge.set_fault_manager(self.fault_manager)
 
         self.simulator_controller = SimulatorController(self.engine, self.bridge)
         self.scenario_runner = ScenarioRunner(self.simulator_controller)
@@ -1111,6 +1133,12 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._setup_shortcuts()
         self._restore_ui_state()
+
+        self.simulator.fault_panel.fault_toggled.connect(self._on_fault_toggled)
+        self.simulator.fault_panel.clear_all_requested.connect(
+            self.fault_manager.clear_all
+        )
+        self.fault_manager.fault_changed.subscribe(self._on_fault_manager_changed)
 
         self._last_tick_time = time.monotonic()
         self.timer = QTimer()
@@ -1327,6 +1355,17 @@ class MainWindow(QMainWindow):
             self.simulator.log_side_panel.log_message(message)
         elif self.stack.currentWidget() == self.manual:
             self.manual.log_side_panel.log_message(message)
+
+    def _on_fault_toggled(self, fault_id: str, enabled: bool) -> None:
+        if enabled:
+            self.fault_manager.enable(fault_id)
+        else:
+            self.fault_manager.disable(fault_id)
+
+    def _on_fault_manager_changed(self, **kwargs) -> None:
+        self.simulator.fault_panel.set_fault_states(
+            self.fault_manager.get_active_summary()
+        )
 
     def simulate_step(self) -> None:
         current_time = time.monotonic()

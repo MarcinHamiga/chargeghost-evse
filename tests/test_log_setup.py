@@ -74,6 +74,21 @@ class TestJsonLogFormatter:
 		assert "connector_id" in output
 		assert output["connector_id"] == 0
 
+	def test_json_formatter_includes_fault_fields(self):
+		formatter = JsonLogFormatter()
+		record = self._make_record(
+			"fault triggered",
+			fault_id="frozen_meter",
+			fault_enabled=True,
+			fault_trigger_count=3,
+			fault_scope="meter",
+		)
+		output = json.loads(formatter.format(record))
+		assert output["fault_id"] == "frozen_meter"
+		assert output["fault_enabled"] is True
+		assert output["fault_trigger_count"] == 3
+		assert output["fault_scope"] == "meter"
+
 
 class TestLogBridgeHandler:
 	def test_emit_calls_signal(self):

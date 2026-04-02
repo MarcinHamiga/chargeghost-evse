@@ -20,7 +20,7 @@ import queue
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from chargeghost_evse.engine.connector import Connector, ConnectorState
 from chargeghost_evse.engine.energy_meter import EnergyMeter
@@ -28,6 +28,9 @@ from chargeghost_evse.engine.reservation import Reservation
 from chargeghost_evse.engine.session import Session
 from chargeghost_evse.util.event import Event
 from chargeghost_evse.util.subscriber import Subscriber
+
+if TYPE_CHECKING:
+    from chargeghost_evse.devtools.fault_manager import FaultManager
 
 
 class Engine(Subscriber):
@@ -132,6 +135,9 @@ class Engine(Subscriber):
         # Signature: (connector_id: int, transaction_id: Optional[int]) -> Optional[float]
         self.get_limit: Optional[Callable[[int, Optional[int]], Optional[float]]] = None
 
+        # Injectable fault manager for meter/state fault injection
+        self._fault_manager: Optional["FaultManager"] = None
+
     @property
     def multi_evse_mode(self) -> bool:
         """Check if multi-EVSE mode is enabled."""
@@ -226,6 +232,23 @@ class Engine(Subscriber):
             **extra: Additional key/value pairs passed as log record extras.
         """
         self.logger.log(level, message, extra={"source": "engine", **extra})
+
+    def set_fault_manager(self, fault_manager: "FaultManager") -> None:
+        """
+        Inject a FaultManager for meter and state fault injection.
+
+        Args:
+            fault_manager: FaultManager instance to use for fault checks.
+        """
+        self._fault_manager = fault_manager
+
+    def _get_fault_config_param(self, fault_id: str, key: str, default: Any) -> Any:
+        if self._fault_manager is None:
+            return default
+        state = self._fault_manager.peek(fault_id)
+        if state and state.config and key in state.config.parameters:
+            return state.config.parameters[key]
+        return default
 
     def add_connector(
         self, voltage: float = 230.0, current: float = 32.0, phase: int = 1
@@ -438,6 +461,27 @@ class Engine(Subscriber):
             connector_id: ID of the connector that changed.
             status: New connector status.
         """
+        if self._fault_manager is not None:
+            flap = self._fault_manager.consume_if_active("status_flap")
+            if flap.triggered:
+                flap_count = self._get_fault_config_param(
+                    "status_flap", "flap_count", 2
+                )
+                self._log(
+                    f"Fault: status_flap — emitting {flap_count} flap cycles",
+                    level=logging.DEBUG,
+                    fault_id="status_flap",
+                )
+                for _ in range(flap_count):
+                    self.connector_status_changed.emit(
+                        connector_id=connector_id,
+                        status=ConnectorState.FAULTED,
+                    )
+                    self.connector_status_changed.emit(
+                        connector_id=connector_id,
+                        status=status,
+                    )
+
         self.connector_status_changed.emit(connector_id=connector_id, status=status)
 
         # Process pending remote start when EV plugs in
@@ -876,15 +920,56 @@ class Engine(Subscriber):
                 connector.resume_charging()
 
             # Update energy meter with current parameters
-            meter.update(
-                connector.voltage,
-                effective_current,
-                connector.phase,
-                interval_seconds=interval_seconds,
-            )
+            if self._fault_manager is not None:
+                frozen = self._fault_manager.consume_if_active("frozen_meter")
+                if frozen.triggered:
+                    self._log(
+                        "Fault: frozen_meter — skipping meter.update()",
+                        level=logging.DEBUG,
+                        fault_id="frozen_meter",
+                    )
+                else:
+                    meter.update(
+                        connector.voltage,
+                        effective_current,
+                        connector.phase,
+                        interval_seconds=interval_seconds,
+                    )
+            else:
+                meter.update(
+                    connector.voltage,
+                    effective_current,
+                    connector.phase,
+                    interval_seconds=interval_seconds,
+                )
 
-            # Record meter reading for UI charts
-            self.event_queue.append(meter.get_meter_reading())
+            if self._fault_manager is not None:
+                jumped = self._fault_manager.consume_if_active("meter_jump")
+                if jumped.triggered:
+                    amount_kwh = self._get_fault_config_param(
+                        "meter_jump", "amount_kwh", 10.0
+                    )
+                    amount_wh = amount_kwh * 1000.0
+                    meter.consume_energy(amount_wh)
+                    self._log(
+                        f"Fault: meter_jump — injected {amount_wh:.1f} Wh",
+                        level=logging.DEBUG,
+                        fault_id="meter_jump",
+                    )
+
+            reading = meter.get_meter_reading()
+
+            if self._fault_manager is not None:
+                reset = self._fault_manager.consume_if_active("meter_reset")
+                if reset.triggered:
+                    self._log(
+                        f"Fault: meter_reset — reporting 0.0 instead of {reading:.3f}",
+                        level=logging.DEBUG,
+                        fault_id="meter_reset",
+                    )
+                    reading = 0.0
+
+            self.event_queue.append(reading)
 
     def _process_commands(self) -> None:
         """

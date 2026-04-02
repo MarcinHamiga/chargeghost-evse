@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 
+VALID_FAULT_ACTIONS: frozenset[str] = frozenset(["enable", "disable", "clear_all"])
+
+
 VALID_ACTIONS = frozenset(
     [
         "connect",
@@ -83,7 +86,18 @@ class NoteStep:
     step_index: int = 0
 
 
-ScenarioStep = ActionStep | WaitStep | AssertStep | NoteStep
+@dataclass
+class FaultStep:
+    kind: Literal["fault"] = "fault"
+    fault_action: str = ""
+    fault_id: str = ""
+    parameters: dict[str, Any] = field(default_factory=dict)
+    count_limit: Optional[int] = None
+    label: str = ""
+    step_index: int = 0
+
+
+ScenarioStep = ActionStep | WaitStep | AssertStep | NoteStep | FaultStep
 
 
 @dataclass

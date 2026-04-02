@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Signal
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
+    from chargeghost_evse.devtools.fault_manager import FaultManager
     from chargeghost_evse.devtools.timeline_store import TimelineStore
     from chargeghost_evse.devtools.timeline_models import TimelineEvent
 
@@ -20,6 +21,7 @@ class QtSignalBridge(QObject):
     connection_status_changed = Signal(bool)
     ocpp_config_key_changed = Signal(str, str)
     timeline_event_received = Signal(object)
+    fault_changed = Signal(str, bool)
 
     def __init__(self, engine, bridge):
         super().__init__()
@@ -60,6 +62,9 @@ class QtSignalBridge(QObject):
         self._bridge_ref = weakref.ref(bridge)
         self._last_connected = False
 
+    def set_fault_manager(self, fault_manager: "FaultManager") -> None:
+        fault_manager.fault_changed.subscribe(self._on_fault_changed)
+
     def _safe_emit(self, signal, *args):
         try:
             signal.emit(*args)
@@ -74,6 +79,9 @@ class QtSignalBridge(QObject):
 
     def _on_session_stopped(self, connector_id: int):
         self._safe_emit(self.session_stopped, connector_id)
+
+    def _on_fault_changed(self, fault_id: str, enabled: bool) -> None:
+        self._safe_emit(self.fault_changed, fault_id, enabled)
 
     def subscribe_to_adapter(self, adapter) -> None:
         adapter.config_manager.on_key_changed.subscribe(self._on_config_key_changed)

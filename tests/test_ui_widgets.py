@@ -3,12 +3,16 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QComboBox
 from PySide6.QtWidgets import QFrame
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QPushButton
 from PySide6.QtWidgets import QWidget
 
 from chargeghost_evse.engine.engine import Engine
+from chargeghost_evse.devtools.fault_catalog import FAULT_CATALOG
+from chargeghost_evse.devtools.fault_models import FaultState
 from chargeghost_evse.devtools.timeline_store import TimelineStore
 from chargeghost_evse.ui.app import MainWindow
 from chargeghost_evse.ui.app import ManualWidget
@@ -16,7 +20,9 @@ from chargeghost_evse.ui.app import ModeSelectWidget
 from chargeghost_evse.ui.app import ToastManager
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets import session_dashboard
+from chargeghost_evse.ui.widgets.fault_injection_panel import FaultInjectionPanel
 from chargeghost_evse.ui.widgets.log_entry import CollapsibleLogEntry
+from chargeghost_evse.ui.widgets.ocpp_timeline_panel import OCPPTimelinePanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification
 from chargeghost_evse.ui.widgets.session_dashboard import TelemetryChart
 from chargeghost_evse.ocpp_adapter.config_keys import ConfigurationKeyManager
@@ -153,6 +159,23 @@ def test_manual_widget_has_log_side_panel() -> None:
 	assert hasattr(widget, "log_side_panel")
 	from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 	assert isinstance(widget.log_side_panel, LogSidePanel)
+
+
+def test_timeline_panel_stacks_action_buttons_below_filters() -> None:
+	app = _app()
+	panel = OCPPTimelinePanel()
+	panel.resize(340, 320)
+	panel.show()
+	app.processEvents()
+
+	action_combo = panel.findChild(QComboBox, "timelineActionFilter")
+	copy_btn = panel.findChild(QPushButton, "btnTimelineCopy")
+
+	assert action_combo is not None
+	assert copy_btn is not None
+	action_bottom = action_combo.mapTo(panel, action_combo.rect().bottomLeft()).y()
+	copy_top = copy_btn.mapTo(panel, copy_btn.rect().topLeft()).y()
+	assert copy_top >= action_bottom
 
 
 def test_manual_widget_disables_actions_without_adapter() -> None:
@@ -469,3 +492,55 @@ class TestCollapsibleLogEntry:
 		assert entry._detail_label.isVisible()
 		entry._on_toggle()
 		assert not entry._detail_label.isVisible()
+
+
+def test_fault_panel_creates_cards_for_all_faults() -> None:
+	_app()
+	panel = FaultInjectionPanel()
+	assert len(panel._cards) == len(FAULT_CATALOG)
+	for fault_id in FAULT_CATALOG:
+		assert fault_id in panel._cards
+		assert panel.findChild(QFrame, f"fault_card_{fault_id}") is not None
+
+
+def test_fault_panel_shows_active_fault_count() -> None:
+	_app()
+	panel = FaultInjectionPanel()
+	states = [
+		FaultState(fault_id="frozen_meter", enabled=True, trigger_count=5),
+		FaultState(fault_id="meter_jump", enabled=True, trigger_count=1),
+	]
+	panel.set_fault_states(states)
+
+	assert panel._toggle_buttons["frozen_meter"].text() == "Disable"
+	assert panel._toggle_buttons["meter_jump"].text() == "Disable"
+	assert panel._toggle_buttons["forced_disconnect"].text() == "Enable"
+	assert panel._count_labels["frozen_meter"].text() == "5"
+	assert not panel._count_labels["frozen_meter"].isHidden()
+	assert panel._count_labels["meter_jump"].text() == "1"
+	assert not panel._count_labels["meter_jump"].isHidden()
+	assert panel._count_labels["forced_disconnect"].isHidden()
+
+
+def test_fault_panel_clear_all_emits_signal() -> None:
+	_app()
+	panel = FaultInjectionPanel()
+	emitted = []
+	panel.clear_all_requested.connect(lambda: emitted.append(True))
+
+	clear_btn = panel.findChild(QPushButton, "clearAllBtn")
+	clear_btn.click()
+
+	assert len(emitted) == 1
+
+
+def test_fault_panel_toggle_emits_signal() -> None:
+	_app()
+	panel = FaultInjectionPanel()
+	emitted = []
+	panel.fault_toggled.connect(lambda fid, enabled: emitted.append((fid, enabled)))
+
+	panel._toggle_buttons["frozen_meter"].click()
+
+	assert len(emitted) == 1
+	assert emitted[0] == ("frozen_meter", True)

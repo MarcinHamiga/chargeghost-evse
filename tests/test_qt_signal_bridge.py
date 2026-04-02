@@ -53,3 +53,24 @@ class TestQtSignalBridgeTimeline:
 
         mock_unsubscribe.assert_called_once()
         assert qt_bridge._timeline_store == mock_store2
+
+
+class TestQtSignalBridgeFault:
+    def test_fault_changed_signal_exists(self):
+        from chargeghost_evse.ui.bridge import QtSignalBridge
+
+        assert hasattr(QtSignalBridge, "fault_changed")
+
+    def test_set_fault_manager_subscribes(self):
+        from unittest.mock import MagicMock
+        from chargeghost_evse.engine.engine import Engine
+        from chargeghost_evse.ui.bridge import QtSignalBridge
+
+        engine = Engine()
+        bridge = MagicMock()
+        qt_bridge = QtSignalBridge(engine, bridge)
+
+        mock_fault_manager = MagicMock()
+        qt_bridge.set_fault_manager(mock_fault_manager)
+
+        mock_fault_manager.fault_changed.subscribe.assert_called_once()

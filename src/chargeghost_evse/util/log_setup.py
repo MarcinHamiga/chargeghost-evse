@@ -23,6 +23,10 @@ EXTRA_KEYS = (
     "winning_profile",
     "computed_limit_amps",
     "reason",
+    "fault_id",
+    "fault_enabled",
+    "fault_trigger_count",
+    "fault_scope",
 )
 
 
