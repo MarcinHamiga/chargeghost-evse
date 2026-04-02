@@ -1597,7 +1597,7 @@ QFrame[faultCard="true"] {
     padding: 8px;
 }
 
-QFrame[faultCard="true"][enabled="true"] {
+QFrame[faultCard="true"][faultActive="true"] {
     border-color: #f59e0b;
     background-color: rgba(245, 158, 11, 0.08);
 }

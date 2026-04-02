@@ -544,3 +544,17 @@ def test_fault_panel_toggle_emits_signal() -> None:
 
 	assert len(emitted) == 1
 	assert emitted[0] == ("frozen_meter", True)
+
+
+def test_fault_panel_state_updates_do_not_disable_other_fault_buttons() -> None:
+	_app()
+	panel = FaultInjectionPanel()
+	panel.set_fault_states([FaultState(fault_id="frozen_meter", enabled=True)])
+
+	assert panel._cards["forced_disconnect"].isEnabled()
+	assert panel._toggle_buttons["forced_disconnect"].isEnabled()
+
+	panel.set_fault_states([])
+
+	assert panel._cards["frozen_meter"].isEnabled()
+	assert panel._toggle_buttons["frozen_meter"].isEnabled()

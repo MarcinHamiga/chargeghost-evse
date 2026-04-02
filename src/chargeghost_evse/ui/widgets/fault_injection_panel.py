@@ -107,7 +107,7 @@ class FaultInjectionPanel(QWidget):
             is_active = fault_id in active_ids
             btn.setText("Disable" if is_active else "Enable")
             card = self._cards[fault_id]
-            card.setProperty("enabled", is_active)
+            card.setProperty("faultActive", is_active)
             card.style().unpolish(card)
             card.style().polish(card)
 
