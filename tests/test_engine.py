@@ -685,3 +685,74 @@ class TestEngineLogging:
 	def test_engine_session_logger_name(self):
 		engine = Engine()
 		assert engine._session_logger.name == "chargeghost.engine.session"
+
+
+def test_default_battery_capacity():
+	"""Engine.ev_battery_capacity must default to 55000.0 Wh."""
+	engine = Engine()
+	assert engine.ev_battery_capacity == 55000.0
+
+
+def test_set_battery_capacity():
+	"""set_battery_capacity() must convert kWh to Wh."""
+	engine = Engine()
+	engine.set_battery_capacity(75.0)
+	assert engine.ev_battery_capacity == 75000.0
+
+
+def test_start_session_uses_configured_capacity():
+	"""start_session without explicit max_energy must use engine's ev_battery_capacity."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.set_battery_capacity(100.0)
+	engine.start_session(connector_id=1, transaction_id=1)
+
+	assert engine.session is not None
+	assert engine.session.max_energy == 100000.0
+
+
+def test_start_session_explicit_max_energy_overrides():
+	"""Explicit max_energy must override engine's ev_battery_capacity."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.set_battery_capacity(100.0)
+	engine.start_session(connector_id=1, transaction_id=1, max_energy=50000.0)
+
+	assert engine.session is not None
+	assert engine.session.max_energy == 50000.0
+
+
+def test_soc_reflects_custom_capacity():
+	"""SoC must reflect the custom battery capacity."""
+	engine = Engine()
+	engine.add_connector(voltage=230.0, current=32.0, phase=1)
+	engine.plug_in(1)
+	engine.set_battery_capacity(10.0)  # 10 kWh = 10000 Wh
+	engine.start_session(connector_id=1, transaction_id=1)
+
+	# Simulate 1 second at 230V * 32A * 1 phase = 7360W
+	# Energy in 1s: 7360 / 3600 ≈ 2.044 Wh
+	engine.simulate(1.0)
+
+	assert engine.session is not None
+	expected_soc = (engine.session.energy_charged / 10000.0) * 100.0
+	assert engine.session.state_of_charge == pytest.approx(expected_soc, rel=1e-3)
+
+
+def test_command_queue_start_uses_configured_capacity():
+	"""START command without max_energy must use engine's ev_battery_capacity."""
+	engine = Engine()
+	engine.add_connector()
+	engine.plug_in(1)
+	engine.set_battery_capacity(80.0)
+	engine.command_queue.put({
+		"action": "START",
+		"connector_id": 1,
+		"transaction_id": 1,
+	})
+	engine._process_commands()
+
+	assert engine.session is not None
+	assert engine.session.max_energy == 80000.0

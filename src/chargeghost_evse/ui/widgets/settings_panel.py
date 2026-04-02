@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QBoxLayout,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,6 +18,11 @@ from PySide6.QtWidgets import (
 )
 
 from chargeghost_evse.ui.widgets.connector_panel import ConnectorPanel
+from chargeghost_evse.util.config import (
+    BATTERY_CAPACITY_DEFAULT,
+    BATTERY_CAPACITY_MAX,
+    BATTERY_CAPACITY_MIN,
+)
 
 if TYPE_CHECKING:
     from chargeghost_evse.engine.engine import Engine
@@ -301,6 +307,29 @@ class SettingsPanel(QWidget):
             "can be active at a time."
         )
         lay.addWidget(self.checkbox_multi_evse)
+
+        capacity_row = QHBoxLayout()
+        capacity_row.setSpacing(8)
+
+        col_cap = QVBoxLayout()
+        col_cap.setSpacing(2)
+        col_cap.addWidget(QLabel("EV Battery Capacity"))
+        self.input_battery_capacity = QDoubleSpinBox()
+        self.input_battery_capacity.setRange(BATTERY_CAPACITY_MIN, BATTERY_CAPACITY_MAX)
+        self.input_battery_capacity.setValue(BATTERY_CAPACITY_DEFAULT)
+        self.input_battery_capacity.setSuffix(" kWh")
+        self.input_battery_capacity.setDecimals(1)
+        self.input_battery_capacity.setSingleStep(5.0)
+        self.input_battery_capacity.setMinimumWidth(120)
+        self.input_battery_capacity.setToolTip(
+            "Sets the simulated EV battery capacity. Controls state-of-charge "
+            "percentage calculation during charging sessions."
+        )
+        col_cap.addWidget(self.input_battery_capacity)
+        capacity_row.addLayout(col_cap)
+        capacity_row.addStretch()
+
+        lay.addLayout(capacity_row)
         return card
 
     def _build_connector_workspace(self) -> QWidget:
@@ -358,6 +387,7 @@ class SettingsPanel(QWidget):
         self.input_model.setText(self._config.charge_point_model)
         self.checkbox_skip_tls.setChecked(self._config.skip_tls_verify)
         self.checkbox_multi_evse.setChecked(self._config.multi_evse_mode)
+        self.input_battery_capacity.setValue(self._config.ev_battery_capacity)
         ocpp_version_map = {"1.6": "OCPP 1.6J", "2.0.1": "OCPP 2.0.1"}
         self.combo_ocpp_version.setCurrentText(
             ocpp_version_map.get(self._config.ocpp_version, "OCPP 1.6J")
@@ -396,6 +426,7 @@ class SettingsPanel(QWidget):
         )
         self._config.skip_tls_verify = self.checkbox_skip_tls.isChecked()
         self._config.multi_evse_mode = self.checkbox_multi_evse.isChecked()
+        self._config.ev_battery_capacity = self.input_battery_capacity.value()
         ocpp_version_map = {"OCPP 1.6J": "1.6", "OCPP 2.0.1": "2.0.1"}
         self._config.ocpp_version = cast(
             "Literal['1.6', '2.0.1']",

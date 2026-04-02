@@ -5,6 +5,12 @@ from PySide6.QtWidgets import QWidget
 
 from chargeghost_evse.ui.widgets.connector_panel import ConnectorPanel
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
+from chargeghost_evse.util.config import (
+    BATTERY_CAPACITY_DEFAULT,
+    BATTERY_CAPACITY_MAX,
+    BATTERY_CAPACITY_MIN,
+    SimulationConfig,
+)
 
 
 def _app() -> QApplication:
@@ -91,3 +97,50 @@ def test_settings_panel_returns_to_split_mode_when_wide(qtbot) -> None:
 	_app().processEvents()
 
 	assert panel.property("layoutMode") == "split"
+
+
+def test_settings_panel_has_battery_capacity_input(qtbot) -> None:
+	_app()
+	panel = SettingsPanel()
+	qtbot.addWidget(panel)
+
+	assert hasattr(panel, "input_battery_capacity")
+	spin = panel.input_battery_capacity
+	assert spin.minimum() == BATTERY_CAPACITY_MIN
+	assert spin.maximum() == BATTERY_CAPACITY_MAX
+	assert spin.suffix() == " kWh"
+	assert spin.decimals() == 1
+	assert spin.value() == BATTERY_CAPACITY_DEFAULT
+
+
+def test_settings_panel_populates_battery_capacity(qtbot) -> None:
+	_app()
+	panel = SettingsPanel()
+	qtbot.addWidget(panel)
+
+	config = SimulationConfig()
+	config.ev_battery_capacity = 85.0
+	panel.set_config(config)
+
+	assert panel.input_battery_capacity.value() == 85.0
+
+
+def test_settings_panel_saves_battery_capacity(qtbot) -> None:
+	_app()
+	panel = SettingsPanel()
+	qtbot.addWidget(panel)
+
+	config = SimulationConfig()
+	panel.set_config(config)
+
+	panel.input_battery_capacity.setValue(120.0)
+	saved = []
+
+	def on_save():
+		saved.append(True)
+
+	panel.save_config_clicked.connect(on_save)
+	panel._on_save_config()
+
+	assert config.ev_battery_capacity == 120.0
+	assert len(saved) == 1

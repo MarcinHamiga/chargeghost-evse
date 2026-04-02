@@ -660,6 +660,7 @@ class SimulatorWidget(QWidget):
             for c in self.engine.connectors
         ]
         self.config.save()
+        self.engine.set_battery_capacity(self.config.ev_battery_capacity)
         self.main_window.restart_bridge_connection()
         self.main_window.log_message(
             "[green]Config:[/green] Configuration saved and connection restarted."
@@ -1082,6 +1083,7 @@ class MainWindow(QMainWindow):
 
         self.config = SimulationConfig.load()
         self.engine = Engine(multi_evse_mode=self.config.multi_evse_mode)
+        self.engine.set_battery_capacity(self.config.ev_battery_capacity)
         for connector_config in self.config.connectors:
             self.engine.add_connector(
                 voltage=connector_config.voltage,

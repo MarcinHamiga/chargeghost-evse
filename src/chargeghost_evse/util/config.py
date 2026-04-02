@@ -71,6 +71,11 @@ PHASE_MIN = 1
 PHASE_MAX = 3
 PHASE_DEFAULT = 1  # Single-phase default
 
+# EV battery capacity limits and default
+BATTERY_CAPACITY_MIN = 1.0  # kWh
+BATTERY_CAPACITY_MAX = 500.0  # kWh
+BATTERY_CAPACITY_DEFAULT = 55.0  # kWh
+
 
 @dataclass
 class ConnectorConfig:
@@ -212,6 +217,9 @@ class SimulationConfig:
     # Multi-EVSE mode: each connector operates as independent EVSE
     multi_evse_mode: bool = False
 
+    # EV battery capacity (kWh) — controls SoC calculation during sessions
+    ev_battery_capacity: float = BATTERY_CAPACITY_DEFAULT
+
     # OCPP protocol version
     ocpp_version: OcppVersion = "1.6"
 
@@ -306,6 +314,13 @@ class SimulationConfig:
                     rfid_tag=data.get("rfid_tag"),
                     multi_evse_mode=data.get("multi_evse_mode", False),
                     ocpp_version=data.get("ocpp_version", "1.6"),
+                    ev_battery_capacity=max(
+                        BATTERY_CAPACITY_MIN,
+                        min(
+                            BATTERY_CAPACITY_MAX,
+                            data.get("ev_battery_capacity", BATTERY_CAPACITY_DEFAULT),
+                        ),
+                    ),
                 )
             except (json.JSONDecodeError, IOError) as e:
                 logging.warning(
@@ -341,6 +356,7 @@ class SimulationConfig:
             "rfid_tag": self.rfid_tag,
             "multi_evse_mode": self.multi_evse_mode,
             "ocpp_version": self.ocpp_version,
+            "ev_battery_capacity": self.ev_battery_capacity,
         }
 
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

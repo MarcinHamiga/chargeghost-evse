@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from chargeghost_evse.util import config as cfg_module
-from chargeghost_evse.util.config import SimulationConfig
+from chargeghost_evse.util.config import (
+    BATTERY_CAPACITY_DEFAULT,
+    BATTERY_CAPACITY_MAX,
+    BATTERY_CAPACITY_MIN,
+    SimulationConfig,
+)
 
 
 def test_load_logs_warning_on_corrupted_json(tmp_path, monkeypatch, caplog):
@@ -92,3 +97,66 @@ def test_log_mode_unknown_value_defaults_to_shallow(tmp_path, monkeypatch):
 
 	config = SimulationConfig.load()
 	assert config.log_mode == "shallow"
+
+
+def test_battery_capacity_default():
+	"""SimulationConfig must default ev_battery_capacity to 55.0 kWh."""
+	config = SimulationConfig()
+	assert config.ev_battery_capacity == BATTERY_CAPACITY_DEFAULT
+
+
+def test_battery_capacity_save_load(tmp_path, monkeypatch):
+	"""Battery capacity must persist through save/load cycle."""
+	config_file = tmp_path / "config.json"
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig()
+	config.ev_battery_capacity = 75.0
+	config.save()
+
+	loaded = SimulationConfig.load()
+	assert loaded.ev_battery_capacity == 75.0
+
+
+def test_battery_capacity_in_json_output(tmp_path, monkeypatch):
+	"""ev_battery_capacity key must appear in saved JSON."""
+	config_file = tmp_path / "config.json"
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig()
+	config.ev_battery_capacity = 100.0
+	config.save()
+
+	data = json.loads(config_file.read_text())
+	assert "ev_battery_capacity" in data
+	assert data["ev_battery_capacity"] == 100.0
+
+
+def test_battery_capacity_clamped_on_load(tmp_path, monkeypatch):
+	"""Out-of-range battery capacity must be clamped on load."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"ev_battery_capacity": 9999.0}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.ev_battery_capacity == BATTERY_CAPACITY_MAX
+
+
+def test_battery_capacity_clamped_below_min_on_load(tmp_path, monkeypatch):
+	"""Battery capacity below minimum must be clamped on load."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({"ev_battery_capacity": -5.0}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.ev_battery_capacity == BATTERY_CAPACITY_MIN
+
+
+def test_battery_capacity_missing_uses_default(tmp_path, monkeypatch):
+	"""Missing ev_battery_capacity in JSON must use the default."""
+	config_file = tmp_path / "config.json"
+	config_file.write_text(json.dumps({}))
+	monkeypatch.setattr(cfg_module, "CONFIG_FILE", config_file)
+
+	config = SimulationConfig.load()
+	assert config.ev_battery_capacity == BATTERY_CAPACITY_DEFAULT

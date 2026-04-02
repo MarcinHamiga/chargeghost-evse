@@ -138,6 +138,9 @@ class Engine(Subscriber):
         # Injectable fault manager for meter/state fault injection
         self._fault_manager: Optional["FaultManager"] = None
 
+        # EV battery capacity in Watt-hours (controls SoC calculation)
+        self.ev_battery_capacity: float = 55000.0
+
     @property
     def multi_evse_mode(self) -> bool:
         """Check if multi-EVSE mode is enabled."""
@@ -241,6 +244,15 @@ class Engine(Subscriber):
             fault_manager: FaultManager instance to use for fault checks.
         """
         self._fault_manager = fault_manager
+
+    def set_battery_capacity(self, capacity_kwh: float) -> None:
+        """
+        Set the EV battery capacity used as the default max_energy for sessions.
+
+        Args:
+            capacity_kwh: Battery capacity in kilowatt-hours (kWh).
+        """
+        self.ev_battery_capacity = capacity_kwh * 1000.0
 
     def _get_fault_config_param(self, fault_id: str, key: str, default: Any) -> Any:
         if self._fault_manager is None:
@@ -562,7 +574,7 @@ class Engine(Subscriber):
         self,
         connector_id: int,
         transaction_id: int,
-        max_energy: float = 55000.0,
+        max_energy: Optional[float] = None,
         id_tag: Optional[str] = None,
         timeout: Optional[float] = None,
         remote_start_charging_profile: Optional[Any] = None,
@@ -578,7 +590,7 @@ class Engine(Subscriber):
             connector_id: ID of the connector for the session.
             transaction_id: OCPP transaction identifier.
             max_energy: Maximum energy to deliver in Watt-hours (Wh).
-                Defaults to 55000.0 (55 kWh).
+                Defaults to the engine's ev_battery_capacity.
             id_tag: Authorization identifier for the session.
             timeout: Optional timeout in seconds to wait for plug-in.
                 If None or 0, fails immediately if not plugged in.
@@ -589,6 +601,8 @@ class Engine(Subscriber):
             In single-EVSE mode, only one session can be active at a time.
             In multi-EVSE mode, each connector can have its own session.
         """
+        if max_energy is None:
+            max_energy = self.ev_battery_capacity
         self._expire_reservations()
 
         connector = self._connectors.get(connector_id)
@@ -1023,7 +1037,7 @@ class Engine(Subscriber):
             self.start_session(
                 connector_id=connector_id,
                 transaction_id=command.get("transaction_id", 0),
-                max_energy=command.get("max_energy", 55000.0),
+                max_energy=command.get("max_energy"),
                 id_tag=command.get("id_tag"),
                 timeout=command.get("timeout"),
                 remote_start_charging_profile=command.get("charging_profile"),

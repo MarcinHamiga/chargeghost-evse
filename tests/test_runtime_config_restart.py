@@ -85,3 +85,16 @@ def test_reconnect_uses_explicit_success_message_after_config_restart(monkeypatc
 		"[green]Config:[/green] Reconnected to Central System with new settings."
 	)
 	assert window._config_restart_pending is False
+
+
+def test_save_config_updates_engine_battery_capacity(monkeypatch, qtbot):
+	monkeypatch.setattr("chargeghost_evse.ui.app.Bridge", FakeBridge)
+	window = MainWindow()
+	qtbot.addWidget(window)
+	window.config.save = MagicMock()
+
+	window.simulator.settings_panel.input_battery_capacity.setValue(100.0)
+	window.simulator.settings_panel._on_save_config()
+
+	assert window.config.ev_battery_capacity == 100.0
+	assert window.engine.ev_battery_capacity == 100000.0
