@@ -1,6 +1,12 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Kilo when working with code in this repository.
+
+## Project Configuration
+
+- Commands: `.kilo/command/*.md`
+- Agents: `.kilo/agent/*.md`
+- Global config: `~/.config/kilo/`
 
 ## Commands
 
