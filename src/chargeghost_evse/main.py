@@ -1,4 +1,5 @@
 import sys
+import warnings
 from typing import Optional
 
 from chargeghost_evse.devtools.scenario_cli import add_cli_args, run_headless
@@ -37,7 +38,18 @@ def main_entry() -> int:
             timeline_export_path=args.timeline_export,
         )
 
-    from chargeghost_evse.ui.app import main
+    warnings.warn(
+        "The desktop GUI is deprecated and will be removed in a future release. "
+        "Use 'poetry run api' for the headless REST API server.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    try:
+        from chargeghost_evse.ui.app import main
+    except ImportError:
+        sys.exit(
+            "GUI mode requires PySide6. Install with: poetry install --with gui"
+        )
 
     main()
     return 0

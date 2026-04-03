@@ -14,6 +14,7 @@ from chargeghost_evse.api.serializers import (
     create_ws_message,
     serialize_session,
     serialize_stopped_session,
+    serialize_timeline_event,
 )
 from chargeghost_evse.engine.connector import ConnectorState
 
@@ -62,6 +63,32 @@ class WebSocketManager:
         self._snapshot_provider = snapshot_provider
         self._tick_provider = tick_provider
         self._tick_interval_seconds = max(tick_interval_seconds, 0.1)
+
+    def subscribe_to_connection_status(self, runner: Any) -> None:
+        self._on_connection_state_ref = self._on_connection_state
+        self._unsubscribers.append(
+            runner.on_connection_state_changed.subscribe(self._on_connection_state_ref)
+        )
+
+    def subscribe_to_timeline(self, timeline_store: Any) -> None:
+        self._on_timeline_event_ref = self._on_timeline_event
+        self._unsubscribers.append(
+            timeline_store.on_event.subscribe(self._on_timeline_event_ref)
+        )
+
+    def subscribe_to_firmware(self, firmware_manager: Any) -> None:
+        self._on_firmware_status_ref = self._on_firmware_status
+        self._on_diagnostics_status_ref = self._on_diagnostics_status
+        self._unsubscribers.extend(
+            [
+                firmware_manager.on_firmware_status_changed.subscribe(
+                    self._on_firmware_status_ref
+                ),
+                firmware_manager.on_diagnostics_status_changed.subscribe(
+                    self._on_diagnostics_status_ref
+                ),
+            ]
+        )
 
     def unsubscribe_all(self) -> None:
         for unsub in self._unsubscribers:
@@ -161,3 +188,15 @@ class WebSocketManager:
             "session_stopped",
             serialize_stopped_session(self._engine.last_stopped_session),
         )
+
+    def _on_connection_state(self, connected: bool) -> None:
+        self._schedule_broadcast("connection_state_changed", {"connected": connected})
+
+    def _on_timeline_event(self, event: Any) -> None:
+        self._schedule_broadcast("timeline_event_received", serialize_timeline_event(event))
+
+    def _on_firmware_status(self, status: Any) -> None:
+        self._schedule_broadcast("firmware_status_changed", {"status": status.value})
+
+    def _on_diagnostics_status(self, status: Any) -> None:
+        self._schedule_broadcast("diagnostics_status_changed", {"status": status.value})

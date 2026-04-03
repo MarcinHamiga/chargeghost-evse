@@ -255,3 +255,12 @@ class LocalAuthListManager(Subscriber):
         if saved:
             self.on_list_updated.emit(version=self._version)
         return saved, save_msg
+
+    def remove_entry(self, id_tag: str) -> tuple[bool, str]:
+        if id_tag not in self._entries:
+            return False, f"id_tag '{id_tag}' not found"
+        del self._entries[id_tag]
+        saved, save_msg = self._save()
+        if saved:
+            self.on_list_updated.emit(version=self._version)
+        return saved, save_msg

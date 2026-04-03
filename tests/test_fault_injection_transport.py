@@ -178,6 +178,10 @@ async def test_reconnect_delay_fault_extends_backoff():
     async def capturing_wait_for(awaitable, timeout=None):
         captured_timeouts.append(timeout)
         runner._shutdown_event.set()
+        try:
+            await awaitable
+        except asyncio.CancelledError:
+            pass
         raise asyncio.TimeoutError()
 
     with patch.object(asyncio, "wait_for", side_effect=capturing_wait_for):

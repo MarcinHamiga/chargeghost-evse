@@ -9,15 +9,19 @@ from chargeghost_evse.api.dependencies import ApiAppState
 from chargeghost_evse.api.runtime import ConfigApplyResult, ConfigSaveResult
 from chargeghost_evse.api.runtime import SimulationRuntime
 from chargeghost_evse.api.routes import (
+    about,
     charging_profiles,
     config,
     connectors,
     faults,
+    firmware,
+    local_auth,
     ocpp,
     reservations,
     scenarios,
     sessions,
     status,
+    timeline,
     updates,
     ws,
 )
@@ -184,6 +188,13 @@ class MockRuntime:
     def ignore_version_sync(self, tag: str):
         self.config.ignored_version = tag
 
+    @property
+    def timeline_store(self):
+        return self.bridge.timeline_store
+
+    async def send_ocpp_raw(self, method_name: str, *args, **kwargs):
+        return None
+
 
 @pytest.fixture
 def mock_controller():
@@ -251,6 +262,10 @@ def app(mock_controller, mock_ws_manager, mock_simulation_config):
     application.include_router(charging_profiles.router)
     application.include_router(reservations.router)
     application.include_router(updates.router)
+    application.include_router(timeline.router)
+    application.include_router(local_auth.router)
+    application.include_router(firmware.router)
+    application.include_router(about.router)
 
     mock_ws_manager.subscribe_to_engine(mock_controller.engine)
     mock_ws_manager.set_state_providers(

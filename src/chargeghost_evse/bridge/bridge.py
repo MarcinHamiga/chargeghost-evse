@@ -156,6 +156,7 @@ class AsyncRunner:
         # Event emitted after each successful boot notification / registration
         self.on_adapter_registered: Event = Event()
         self.on_reset_requested: Event = Event()
+        self.on_connection_state_changed: Event = Event()
 
         # Connection state
         self._connected = False
@@ -176,6 +177,32 @@ class AsyncRunner:
             **extra: Additional key-value pairs attached as log record extras.
         """
         self.logger.log(level, message, extra={"source": "bridge", **extra})
+
+    def _on_connect(self) -> None:
+        """Emit connection state changed event with connected=True."""
+        self.on_connection_state_changed.emit(connected=True)
+
+    def _on_disconnect(self) -> None:
+        """Emit connection state changed event with connected=False."""
+        self.on_connection_state_changed.emit(connected=False)
+
+    async def _wait_for_shutdown(self, timeout: float) -> bool:
+        if self._shutdown_event is None:
+            return False
+
+        wait_task = asyncio.create_task(self._shutdown_event.wait())
+        try:
+            await asyncio.wait_for(wait_task, timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            if not wait_task.done():
+                wait_task.cancel()
+            try:
+                await wait_task
+            except asyncio.CancelledError:
+                pass
 
     def run_in_thread(self) -> threading.Thread:
         """
@@ -218,7 +245,21 @@ class AsyncRunner:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self._shutdown_event = asyncio.Event()
-        self.loop.run_until_complete(self._run_adapter())
+        try:
+            self.loop.run_until_complete(self._run_adapter())
+        finally:
+            try:
+                pending = asyncio.all_tasks(self.loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self.loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+            except Exception:
+                pass
+            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            self.loop.close()
 
     def _get_auth_header(self) -> dict:
         """
@@ -322,6 +363,7 @@ class AsyncRunner:
                         self.on_reset_requested.emit
                     )
                     self._connected = True
+                    self._on_connect()
                     retry_delay = 1  # Reset backoff after successful connection
                     self._log(message="WebSocket connected. Starting OCPP adapter...")
 
@@ -388,6 +430,7 @@ class AsyncRunner:
                 traceback.print_exc()
             finally:
                 self._connected = False
+                self._on_disconnect()
                 self.adapter = None
                 if self._heartbeat_task and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
@@ -412,13 +455,9 @@ class AsyncRunner:
                 self._log(
                     message=f"Retrying in {retry_delay}s...", level=logging.WARNING
                 )
-                try:
-                    await asyncio.wait_for(
-                        self._shutdown_event.wait(), timeout=retry_delay
-                    )
-                except asyncio.TimeoutError:
-                    pass
-                retry_delay = min(retry_delay * 2, max_retry_delay)
+                shutdown_requested = await self._wait_for_shutdown(retry_delay)
+                if not shutdown_requested:
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
 
     async def _heartbeat_loop(self) -> None:
         """
@@ -441,11 +480,8 @@ class AsyncRunner:
             if interval <= 0:
                 interval = 300  # Default to 5 minutes
 
-            try:
-                await asyncio.wait_for(self._shutdown_event.wait(), timeout=interval)
+            if await self._wait_for_shutdown(interval):
                 break  # Shutdown signaled
-            except asyncio.TimeoutError:
-                pass  # Interval elapsed, send heartbeat
 
             if (
                 self._connected

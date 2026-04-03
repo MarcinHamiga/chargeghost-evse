@@ -4,10 +4,13 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional, cast
 
+from chargeghost_evse.devtools.timeline_models import TimelineEvent
 from chargeghost_evse.engine.connector import Connector
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.engine.energy_meter import EnergyMeter
 from chargeghost_evse.engine.session import Session
+from chargeghost_evse.ocpp_adapter.firmware_manager import FirmwareManager
+from chargeghost_evse.ocpp_adapter.local_auth_list import LocalAuthListManager
 from chargeghost_evse.util.config import SimulationConfig
 
 
@@ -136,4 +139,70 @@ def serialize_full_state(
             if bridge
             else False
         ),
+    }
+
+
+def serialize_timeline_event(event: TimelineEvent) -> dict[str, Any]:
+    return {
+        "event_id": event.event_id,
+        "timestamp": event.timestamp,
+        "source": event.source,
+        "direction": event.direction,
+        "event_type": event.event_type,
+        "protocol_version": event.protocol_version,
+        "action": event.action,
+        "message_id": event.message_id,
+        "connector_id": event.connector_id,
+        "transaction_id": event.transaction_id,
+        "level": event.level,
+        "summary": event.summary,
+        "payload": event.payload,
+        "correlation_key": event.correlation_key,
+        "tags": event.tags,
+    }
+
+
+def serialize_local_auth_list(manager: LocalAuthListManager) -> dict[str, Any]:
+    return {
+        "version": manager.version,
+        "enabled": manager.enabled,
+        "entry_count": manager.entry_count,
+        "max_entries": manager.max_entries,
+    }
+
+
+def serialize_local_auth_entry(
+    manager: LocalAuthListManager, id_tag: str
+) -> Optional[dict[str, Any]]:
+    entry = manager._entries.get(id_tag)
+    if entry is None:
+        return None
+    return {
+        "id_tag": entry.id_tag,
+        "id_tag_info": entry.id_tag_info,
+    }
+
+
+def serialize_firmware_status(manager: FirmwareManager) -> dict[str, Any]:
+    task = manager.firmware_task
+    return {
+        "status": manager.get_firmware_status().value,
+        "location": task.location if task else None,
+        "retrieve_date": task.retrieve_date.isoformat() if task and task.retrieve_date else None,
+        "retries": task.retries if task else 0,
+        "retry_interval": task.retry_interval if task else 0,
+        "file_name": task.file_name if task else None,
+        "file_hash": task.file_hash if task else None,
+    }
+
+
+def serialize_diagnostics_status(manager: FirmwareManager) -> dict[str, Any]:
+    task = manager.diagnostics_task
+    return {
+        "status": manager.get_diagnostics_status().value,
+        "location": task.location if task else None,
+        "start_time": task.start_time.isoformat() if task and task.start_time else None,
+        "stop_time": task.stop_time.isoformat() if task and task.stop_time else None,
+        "retries": task.retries if task else 0,
+        "retry_interval": task.retry_interval if task else 0,
     }

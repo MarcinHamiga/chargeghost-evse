@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -311,3 +311,134 @@ class SessionDetailInfo(BaseModel):
     max_energy: float
     is_charging: bool
     id_tag: Optional[str] = None
+
+
+class TimelineEventInfo(BaseModel):
+    event_id: int
+    timestamp: str
+    source: str
+    direction: str
+    event_type: str
+    protocol_version: str
+    action: str
+    message_id: str
+    connector_id: int
+    transaction_id: int
+    level: int
+    summary: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    correlation_key: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class TimelineQueryParams(BaseModel):
+    source: Optional[str] = None
+    direction: Optional[str] = None
+    event_type: Optional[str] = None
+    action: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    connector_id: Optional[int] = None
+    transaction_id: Optional[int] = None
+    min_level: Optional[int] = None
+    tags: Optional[list[str]] = None
+    search: Optional[str] = None
+
+
+class RawStartTransactionRequest(BaseModel):
+    connector_id: int
+    id_tag: str
+    meter_start: Optional[int] = None
+    timestamp: Optional[str] = None
+
+
+class RawStopTransactionRequest(BaseModel):
+    transaction_id: int
+    meter_stop: Optional[int] = None
+    timestamp: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class StatusNotificationRequest(BaseModel):
+    connector_id: int
+    error_code: str = "NoError"
+    status: str
+
+
+class MeterValuesRequest(BaseModel):
+    connector_id: int
+    value: Optional[float] = None
+    transaction_id: Optional[int] = None
+
+
+class DataTransferRequest(BaseModel):
+    vendor_id: str
+    message_id: Optional[str] = None
+    data: Optional[str] = None
+
+
+class DiagnosticsStatusRequest(BaseModel):
+    status: str
+
+
+class FirmwareStatusRequest(BaseModel):
+    status: str
+
+
+class SecurityEventRequest(BaseModel):
+    event_type: str
+    timestamp: Optional[str] = None
+    tech_info: Optional[str] = None
+
+
+class LocalAuthListEntryInfo(BaseModel):
+    id_tag: str
+    id_tag_info: dict[str, Any]
+    is_expired: bool
+    authorization_status: str
+
+
+class LocalAuthListInfo(BaseModel):
+    version: int
+    entry_count: int
+    max_entries: int
+    enabled: bool
+    entries: list[LocalAuthListEntryInfo]
+
+
+class LocalAuthListUpdateRequest(BaseModel):
+    list_version: int
+    entries: Optional[list[dict[str, Any]]] = None
+    update_type: Literal["full", "differential"]
+
+
+class FirmwareStatusInfo(BaseModel):
+    status: Optional[str] = None
+    location: Optional[str] = None
+    retrieve_date: Optional[str] = None
+    file_name: Optional[str] = None
+    file_hash: Optional[str] = None
+
+
+class DiagnosticsStatusInfo(BaseModel):
+    status: Optional[str] = None
+    location: Optional[str] = None
+
+
+class FirmwareTriggerRequest(BaseModel):
+    location: str
+    retrieve_date: Optional[str] = None
+
+
+class DiagnosticsTriggerRequest(BaseModel):
+    location: str
+    retries: int = 0
+    retry_interval: int = 0
+
+
+class AboutInfo(BaseModel):
+    version: str
+    description: str
+    ocpp_versions: list[str]
+    license: str
+    features: list[str]

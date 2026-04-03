@@ -23,6 +23,7 @@ from chargeghost_evse.devtools.fault_manager import FaultManager
 from chargeghost_evse.devtools.scenario_models import ScenarioDefinition
 from chargeghost_evse.devtools.scenario_runner import ScenarioRunner
 from chargeghost_evse.devtools.simulator_controller import SimulatorController
+from chargeghost_evse.devtools.timeline_store import TimelineStore
 from chargeghost_evse.engine.engine import Engine
 from chargeghost_evse.ocpp_adapter.charging_profile_manager import (
     ChargingProfileManager,
@@ -106,6 +107,7 @@ class SimulationRuntime:
         self._latest_release: Optional[ReleaseInfo] = None
         self._download_progress: int = 0
         self._download_status: str = "idle"
+        self._timeline_store: Optional[TimelineStore] = None
         self._build_runtime_objects()
 
     def _build_runtime_objects(self) -> None:
@@ -119,6 +121,9 @@ class SimulationRuntime:
                 phase=connector_config.phase,
             )
         self._bridge = self._create_bridge()
+        self._timeline_store = TimelineStore()
+        if self._bridge is not None:
+            self._bridge.timeline_store = self._timeline_store
         self._controller = SimulatorController(
             engine=self._engine,
             bridge=self._bridge,
@@ -181,6 +186,10 @@ class SimulationRuntime:
     @property
     def update_manager(self) -> Optional[UpdateManager]:
         return self._update_manager
+
+    @property
+    def timeline_store(self) -> Optional[TimelineStore]:
+        return self._timeline_store
 
     def start(self) -> None:
         with self._lock:
@@ -263,6 +272,17 @@ class SimulationRuntime:
 
     async def has_active_session(self) -> bool:
         return await self.call(self._has_active_session_sync)
+
+    async def send_ocpp_raw(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        if self._bridge is None or self._bridge.runner is None or self._bridge.runner.adapter is None:
+            return None
+        adapter = self._bridge.runner.adapter
+        loop = self._bridge.runner.loop
+        if loop is None:
+            return None
+        coro = getattr(adapter, method_name)(*args, **kwargs)
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=30)
 
     def _take_snapshot(self) -> dict[str, Any]:
         eng = self._engine
