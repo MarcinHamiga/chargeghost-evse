@@ -1383,7 +1383,9 @@ class Bridge:
                         session,
                         response.transaction_id,
                     )
-                    self._log(message=f"Transaction ID assigned: {response.transaction_id}")
+                    self._log(
+                        message=f"Transaction ID assigned: {response.transaction_id}"
+                    )
                 else:
                     self._log(
                         message=(
@@ -1689,3 +1691,21 @@ class Bridge:
         if adapter and loop:
             future = asyncio.run_coroutine_threadsafe(adapter.send_heartbeat(), loop)
             future.add_done_callback(self._handle_future_error)
+
+    def get_ocpp_config_keys(self) -> list[Any]:
+        """
+        Return all OCPP configuration keys from the connected adapter.
+
+        Returns an empty list when the adapter or its configuration manager
+        is not yet available (e.g. before the first successful connection).
+
+        Returns:
+            Sorted list of configuration key objects from the adapter.
+        """
+        adapter = self.runner.adapter if self.runner is not None else None
+        if adapter is None:
+            return []
+        config_manager = getattr(adapter, "config_manager", None)
+        if config_manager is None:
+            return []
+        return sorted(config_manager.get_all_keys(), key=lambda ck: ck.key)

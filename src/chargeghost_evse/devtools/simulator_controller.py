@@ -52,7 +52,7 @@ class SimulatorController:
         elif action == "start_charging":
             return self.start_charging(connector_id)
         elif action == "stop_charging":
-            return self.stop_charging()
+            return self.stop_charging(connector_id)
         elif action == "suspend_ev":
             return self.suspend_ev(connector_id)
         elif action == "resume_charging":
@@ -96,8 +96,8 @@ class SimulatorController:
             details={"transaction_id": transaction_id},
         )
 
-    def stop_charging(self) -> ActionResult:
-        self.engine.stop_session()
+    def stop_charging(self, connector_id: Optional[int] = None) -> ActionResult:
+        self.engine.stop_session(connector_id=connector_id)
         return ActionResult.ok("Stopped charging session")
 
     def suspend_ev(self, connector_id: int) -> ActionResult:
