@@ -18,67 +18,77 @@ logger = logging.getLogger("chargeghost.api.app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-	config = SimulationConfig.load()
-	fault_manager = FaultManager()
+    config = SimulationConfig.load()
+    fault_manager = FaultManager()
 
-	runtime = SimulationRuntime(config=config, fault_manager=fault_manager)
-	runtime.start()
+    runtime = SimulationRuntime(config=config, fault_manager=fault_manager)
+    runtime.start()
 
-	ws_manager = WebSocketManager()
-	ws_manager.set_loop(asyncio.get_running_loop())
-	ws_manager.subscribe_to_engine(runtime.engine)
-	ws_manager.set_state_providers(
-		snapshot_provider=runtime.full_state,
-		tick_provider=lambda: runtime.system_status(start_time),
-	)
+    ws_manager = WebSocketManager()
+    ws_manager.set_loop(asyncio.get_running_loop())
+    ws_manager.subscribe_to_engine(runtime.engine)
+    ws_manager.set_state_providers(
+        snapshot_provider=runtime.full_state,
+        tick_provider=lambda: runtime.system_status(start_time),
+    )
 
-	start_time = time.monotonic()
-	app.state.api = ApiAppState(
-		runtime=runtime,
-		ws_manager=ws_manager,
-		start_time=start_time,
-	)
-	app.state.runtime = runtime
-	app.state.ws_manager = ws_manager
-	tick_task = asyncio.create_task(ws_manager.run_tick_loop())
+    start_time = time.monotonic()
+    app.state.api = ApiAppState(
+        runtime=runtime,
+        ws_manager=ws_manager,
+        start_time=start_time,
+    )
+    app.state.runtime = runtime
+    app.state.ws_manager = ws_manager
+    tick_task = asyncio.create_task(ws_manager.run_tick_loop())
 
-	logger.info("ChargeGhost API server started")
+    logger.info("ChargeGhost API server started")
 
-	try:
-		yield
-	finally:
-		tick_task.cancel()
-		try:
-			await tick_task
-		except asyncio.CancelledError:
-			pass
-		ws_manager.unsubscribe_all()
-		runtime.stop()
-		logger.info("ChargeGhost API server stopped")
+    try:
+        yield
+    finally:
+        tick_task.cancel()
+        try:
+            await tick_task
+        except asyncio.CancelledError:
+            pass
+        ws_manager.unsubscribe_all()
+        runtime.stop()
+        logger.info("ChargeGhost API server stopped")
 
 
 def create_app() -> FastAPI:
-	app = FastAPI(
-		title="ChargeGhost EVSE API",
-		description="REST + WebSocket API for controlling the ChargeGhost EVSE simulator",
-		version="0.4.3",
-		lifespan=lifespan,
-	)
+    app = FastAPI(
+        title="ChargeGhost EVSE API",
+        description="REST + WebSocket API for controlling the ChargeGhost EVSE simulator",
+        version="0.4.3",
+        lifespan=lifespan,
+    )
 
-	from chargeghost_evse.api.routes import (
-		config,
-		connectors,
-		ocpp,
-		sessions,
-		status,
-		ws,
-	)
+    from chargeghost_evse.api.routes import (
+        charging_profiles,
+        config,
+        connectors,
+        faults,
+        ocpp,
+        reservations,
+        scenarios,
+        sessions,
+        status,
+        updates,
+        ws,
+    )
 
-	app.include_router(status.router)
-	app.include_router(connectors.router)
-	app.include_router(sessions.router)
-	app.include_router(config.router)
-	app.include_router(ocpp.router)
-	app.include_router(ws.router)
+    app.include_router(status.router)
+    app.include_router(connectors.router)
+    app.include_router(sessions.router)
+    app.include_router(config.router)
+    app.include_router(ocpp.router)
+    app.include_router(ws.router)
+    app.include_router(faults.router)
+    app.include_router(scenarios.router)
+    app.include_router(charging_profiles.router)
+    app.include_router(reservations.router)
+    app.include_router(updates.router)
 
-	return app
+    return app

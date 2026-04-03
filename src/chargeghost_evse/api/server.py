@@ -6,9 +6,9 @@ VALID_LOG_LEVELS = frozenset({"critical", "error", "warning", "info", "debug", "
 
 
 def run_server(
-	host: str = "127.0.0.1",
-	port: int = 8080,
-	log_level: str = "info",
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    log_level: str = "info",
 ) -> None:
     if log_level not in VALID_LOG_LEVELS:
         raise ValueError(

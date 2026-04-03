@@ -38,6 +38,7 @@ def _make_session(
 	energy_charged: float = 1234.56,
 	state_of_charge: float = 67.8,
 	start_time: float = 1710000000.0,
+	max_energy: float = 55000.0,
 	id_tag: str | None = None,
 ):
 	return SimpleNamespace(
@@ -46,6 +47,7 @@ def _make_session(
 		energy_charged=energy_charged,
 		state_of_charge=state_of_charge,
 		start_time=start_time,
+		max_energy=max_energy,
 		id_tag=id_tag,
 	)
 
@@ -492,6 +494,51 @@ class TestSessionRoutes:
 			"id_tag": "STOP-TAG",
 		}
 
+	def test_get_session_info(self, client, mock_controller):
+		connector_1 = _make_connector(1)
+		connector_2 = _make_connector(2)
+		session = _make_session(
+			8,
+			2,
+			energy_charged=456.78,
+			state_of_charge=54.3,
+			start_time=1711111111.0,
+			max_energy=72000.0,
+			id_tag="RFID-8",
+		)
+		meter = _make_meter(is_charging=True)
+
+		mock_controller.engine.connectors = [connector_1, connector_2]
+		mock_controller.engine.get_session.side_effect = lambda connector_id: (
+			session if connector_id == 2 else None
+		)
+		mock_controller.engine.get_energy_meter.side_effect = lambda connector_id: meter
+
+		response = client.get("/api/v1/sessions/info")
+
+		assert response.status_code == 200
+		assert response.json() == [
+			{
+				"transaction_id": 8,
+				"connector_id": 2,
+				"energy_charged_wh": 456.78,
+				"state_of_charge": 54.3,
+				"start_time": 1711111111.0,
+				"max_energy": 72000.0,
+				"is_charging": True,
+				"id_tag": "RFID-8",
+			}
+		]
+
+	def test_get_session_info_empty(self, client, mock_controller):
+		mock_controller.engine.connectors = [_make_connector(1)]
+		mock_controller.engine.get_session.return_value = None
+
+		response = client.get("/api/v1/sessions/info")
+
+		assert response.status_code == 200
+		assert response.json() == []
+
 
 class TestOCPPRoutes:
 	def test_connect(self, client, mock_controller):
@@ -601,6 +648,56 @@ class TestOCPPRoutes:
 
 		assert response.status_code == 200
 		assert response.json() == []
+
+	def test_update_config_key(self, client, app):
+		app.state.controller.adapter = MagicMock()
+		app.state.runtime._set_ocpp_config_key_sync = MagicMock(return_value="accepted")
+
+		response = client.put(
+			"/api/v1/ocpp/config-keys",
+			json={"key": "HeartbeatInterval", "value": "120"},
+		)
+
+		assert response.status_code == 200
+		assert response.json() == {
+			"success": True,
+			"message": "Configuration key 'HeartbeatInterval' updated",
+			"details": None,
+		}
+		app.state.runtime._set_ocpp_config_key_sync.assert_called_once_with(
+			"HeartbeatInterval", "120"
+		)
+
+	def test_update_config_key_rejected(self, client, app):
+		app.state.controller.adapter = MagicMock()
+		app.state.runtime._set_ocpp_config_key_sync = MagicMock(return_value="rejected")
+
+		response = client.put(
+			"/api/v1/ocpp/config-keys",
+			json={"key": "HeartbeatInterval", "value": "120"},
+		)
+
+		assert response.status_code == 200
+		assert response.json() == {
+			"success": False,
+			"message": "Configuration key update failed: rejected",
+			"details": {"status": "rejected"},
+		}
+
+	def test_update_config_key_requires_connection(self, client, app):
+		app.state.controller.adapter = None
+
+		response = client.put(
+			"/api/v1/ocpp/config-keys",
+			json={"key": "HeartbeatInterval", "value": "120"},
+		)
+
+		assert response.status_code == 200
+		assert response.json() == {
+			"success": False,
+			"message": "OCPP not connected",
+			"details": {"status": "not_supported"},
+		}
 
 
 class TestConfigRoutes:
