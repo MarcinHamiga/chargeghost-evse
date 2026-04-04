@@ -4,7 +4,7 @@
   <img src="assets/ChargeGhost.png" alt="ChargeGhost Logo" width="200">
 </p>
 
-A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator featuring a modern graphical user interface built with PySide6 (Qt). ChargeGhost simulates complex EV charging sessions and communicates with Central Systems (CSMS) via the OCPP 1.6 protocol over WebSocket.
+**Version v0.8.1** | A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator featuring a modern graphical user interface built with PySide6 (Qt). ChargeGhost simulates complex EV charging sessions and communicates with Central Systems (CSMS) via the OCPP 1.6 and OCPP 2.0.1 protocols over WebSocket.
 
 ## Table of Contents
 
@@ -15,22 +15,26 @@ A professional, Python-based Electric Vehicle Supply Equipment (EVSE) simulator 
 - [User Manual](#user-manual)
   - [Simulator Mode](#simulator-mode)
   - [Manual Mode](#manual-mode)
+  - [Headless API Mode](#headless-api-mode)
   - [Configuration](#configuration)
 - [Architecture](#architecture)
-- [OCPP 1.6 Support](#ocpp-16-support)
+- [OCPP Support](#ocpp-support)
 - [Development](#development)
 - [Building](#building)
 - [License](#license)
 
 ## Features
 
-- **Comprehensive OCPP 1.6J Support**: Robust CSMS communication across Core, FirmwareManagement, LocalAuthListManagement, Reservation, RemoteTrigger, and SmartCharging profiles.
+- **Comprehensive OCPP 1.6J & 2.0.1 Support**: Robust CSMS communication across Core, FirmwareManagement, LocalAuthListManagement, Reservation, RemoteTrigger, and SmartCharging profiles.
 - **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
   - **Manual**: Direct protocol interaction for debugging and testing CSMS implementations.
-- **Multi-Connector Support**: Simulate stations with multiple independent connectors, each with its own configuration.
-- **Live Metrics Dashboard**: Real-time tracking of energy (Wh), Power (kW), Voltage (V), Current (A), and State of Charge (SoC) with a rolling window telemetry chart for visualizing power trends.
+- **Headless API Server**: FastAPI-based REST API for CI/CD integration, automated testing, and external tooling. Exposes simulator control, session management, OCPP raw endpoints, and timeline introspection.
+- **Multi-EVSE Simulation**: Simulate multiple EVSEs with parallel charging sessions on independent connectors.
+- **Scenario Runner**: Define and execute test scenarios with actions (plug_in, start_charging, etc.), wait conditions (connector_status, meter_threshold), and assertions for automated testing.
+- **Fault Injection**: Inject faults (overcurrent, undervoltage, ground fault, etc.) to test CSMS error handling.
+- **Live Metrics Dashboard**: Real-time tracking of energy (Wh), Power (kW), Voltage (V), Current (A), and State of Charge (SoC) with a rolling window telemetry chart for visualizing power trends. Configurable EV battery capacity.
 - **OCPP Config Key Management**: Built-in editor for mandatory, optional, and read-only OCPP configuration keys.
 - **Firmware Management**: Simulated firmware updates and diagnostics upload with full status reporting.
 - **Local Authorization**: Support for local authorization lists with full and differential update capabilities.
@@ -72,6 +76,8 @@ pip install -e .
 
 ## Quick Start
 
+### GUI Mode
+
 1. Start the application:
    ```bash
    poetry run dev
@@ -82,6 +88,15 @@ pip install -e .
 5. Switch back to the **Dashboard** tab.
 6. Enter an **ID Tag** (e.g., `DEADBEEF`) and click **Apply**.
 7. Click **Plug In**, then **Start Charging**.
+
+### Headless API Mode
+
+```bash
+poetry run api
+# Then control via HTTP:
+curl -X POST http://localhost:8080/connectors/1/plug_in
+curl -X POST http://localhost:8080/sessions/start -d '{"id_tag": "DEADBEEF"}'
+```
 
 ## User Manual
 
@@ -113,6 +128,28 @@ Manual Mode bypasses the simulation engine, allowing you to send raw OCPP messag
 
 - **OCPP Controls**: Buttons for `BootNotification`, `Heartbeat`, `StatusNotification`, `Start`, and `Stop`.
 - **Protocol Log**: Dedicated area to view raw message exchange and server responses.
+
+### Headless API Mode
+
+The headless API server provides a FastAPI-based REST interface for controlling the simulator without the GUI. Ideal for CI/CD pipelines, automated test suites, and external tooling integration.
+
+Start the API server:
+```bash
+poetry run api
+# Or with custom host/port:
+poetry run api --host 0.0.0.0 --port 9000
+```
+
+Key API capabilities:
+- **Simulator Control**: Plug in, start/stop charging, suspend/resume, authorize
+- **Session Management**: Query and control active sessions
+- **OCPP Raw Endpoints**: Send arbitrary OCPP messages and receive responses
+- **Timeline Introspection**: Access message history with filtering and export
+- **Charging Profiles**: View and manage active profiles
+- **Fault Injection**: Enable/disable faults programmatically
+- **Connectors**: Configure per-connector hardware limits
+
+See `poetry run api --help` for server options.
 
 ### Configuration
 
@@ -160,26 +197,34 @@ ChargeGhost uses a decoupled, event-driven architecture to ensure UI responsiven
 ┌─────────────────────────▼───────────────────────────────────┐
 │                     Simulation Core                         │
 │  (Engine, Connector, Session, EnergyMeter, LocalAuthList,   │
-│                    ChargingProfileManager)                   │
+│                    ChargingProfileManager)                  │
 └───────────┬─────────────────────────────────────┬───────────┘
             │                                     │
 ┌───────────▼─────────────────────────────────────▼───────────┐
 │                       OCPP Adapter                          │
-│  (AsyncRunner, Message Handlers, ConfigurationKeyManager)   │
+│  (AsyncRunner, Message Handlers, ConfigurationKeyManager)  │
+│                OCPP 1.6 Adapter  │  OCPP 2.0.1 Adapter      │
+└─────────────────────────────────────────────────────────────┘
+            │
+┌───────────▼─────────────────────────────────────────────────┐
+│                     Headless API Server                      │
+│  (FastAPI: REST endpoints, WebSocket manager, timeline)     │
+│              Scenario Runner │ Fault Injection              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 - **Engine**: The heart of the simulation; manages state machines and hardware constraints.
 - **Bridge**: Orchestrates communication between the Engine and the OCPP Adapter.
-- **OCPP Adapter**: Runs in a dedicated background thread to handle asynchronous network I/O without blocking the UI.
+- **OCPP Adapter**: Runs in a dedicated background thread to handle asynchronous network I/O without blocking the UI. Supports both OCPP 1.6J and OCPP 2.0.1.
 - **LocalAuthList**: Handles offline authorization and CSMS list synchronization.
 - **ChargingProfileManager**: Manages charging profiles, calculates composite schedules, and enforces power/current limits.
+- **Headless API Server**: FastAPI-based REST API for programmatic simulator control, CI/CD integration, and automated testing.
+- **Scenario Runner**: Executes predefined test scenarios with actions, wait conditions, and assertions.
+- **Fault Manager**: Injects faults (overcurrent, undervoltage, ground fault, etc.) to test error handling.
 
-## OCPP 1.6 Support
+## OCPP Support
 
-For detailed implementation status and compliance information, see [OCPP_IMPLEMENTATION_PLAN.md](OCPP_IMPLEMENTATION_PLAN.md).
-
-### Implemented Profiles
+### OCPP 1.6J - Implemented Profiles
 
 | Profile | Status | Notes |
 | :--- | :--- | :--- |
@@ -190,7 +235,9 @@ For detailed implementation status and compliance information, see [OCPP_IMPLEME
 | **Reservation** | Full | ReserveNow and CancelReservation supported |
 | **Remote Trigger** | Full | TriggerMessage for all supported message types |
 
-For the current OCPP 1.6J implementation roadmap and compliance status, see [OCPP_IMPLEMENTATION_PLAN.md](OCPP_IMPLEMENTATION_PLAN.md).
+### OCPP 2.0.1
+
+Initial adapter support is available. Core messages and transaction handling are implemented.
 
 ## Development
 
