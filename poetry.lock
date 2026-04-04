@@ -1872,7 +1872,7 @@ version = "6.10.2"
 description = "Python bindings for the Qt cross-platform application and UI framework"
 optional = false
 python-versions = "<3.15,>=3.9"
-groups = ["main"]
+groups = ["gui"]
 files = [
     {file = "pyside6-6.10.2-cp39-abi3-macosx_13_0_universal2.whl", hash = "sha256:4b084293caa7845d0064aaf6af258e0f7caae03a14a33537d0a552131afddaf0"},
     {file = "pyside6-6.10.2-cp39-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:1b89ce8558d4b4f35b85bff1db90d680912e4d3ce9e79ff804d6fef1d1a151ef"},
@@ -1892,7 +1892,7 @@ version = "6.10.2"
 description = "Python bindings for the Qt cross-platform application and UI framework (Addons)"
 optional = false
 python-versions = "<3.15,>=3.9"
-groups = ["main"]
+groups = ["gui"]
 files = [
     {file = "pyside6_addons-6.10.2-cp39-abi3-macosx_13_0_universal2.whl", hash = "sha256:0de7d0c9535e17d5e3b634b61314a1867f3b0f6d35c3d7cdc99efc353192faff"},
     {file = "pyside6_addons-6.10.2-cp39-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:030a851163b51dbf0063be59e9ddb6a9e760bde89a28e461ccc81a224d286eaf"},
@@ -1911,7 +1911,7 @@ version = "6.10.2"
 description = "Python bindings for the Qt cross-platform application and UI framework (Essentials)"
 optional = false
 python-versions = "<3.15,>=3.9"
-groups = ["main"]
+groups = ["gui"]
 files = [
     {file = "pyside6_essentials-6.10.2-cp39-abi3-macosx_13_0_universal2.whl", hash = "sha256:1dee2cb9803ff135f881dadeb5c0edcef793d1ec4f8a9140a1348cecb71074e1"},
     {file = "pyside6_essentials-6.10.2-cp39-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:660aea45bfa36f1e06f799b934c2a7df963bd31abc5083e8bb8a5bfaef45686b"},
@@ -2311,7 +2311,7 @@ version = "6.10.2"
 description = "Python/C++ bindings helper module"
 optional = false
 python-versions = "<3.15,>=3.9"
-groups = ["main"]
+groups = ["gui"]
 files = [
     {file = "shiboken6-6.10.2-cp39-abi3-macosx_13_0_universal2.whl", hash = "sha256:3bd4e94e9a3c8c1fa8362fd752d399ef39265d5264e4e37bae61cdaa2a00c8c7"},
     {file = "shiboken6-6.10.2-cp39-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:ace0790032d9cb0adda644b94ee28d59410180d9773643bb6cf8438c361987ad"},
@@ -2819,4 +2819,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "3038df8f3b1b532c21fbb674920d0368ab41a9fa3bab312d019fd98420545779"
+content-hash = "fae783980cb9e2514642c62fce63cca0efda1aaadeef70ace9dee0251acb7b9f"

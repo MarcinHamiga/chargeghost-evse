@@ -2,7 +2,7 @@ import weakref
 
 from PySide6.QtCore import QObject, Signal
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from chargeghost_evse.devtools.fault_manager import FaultManager
@@ -11,8 +11,6 @@ if TYPE_CHECKING:
 
 
 class QtSignalBridge(QObject):
-    """Bridges internal Event emissions to Qt Signals for thread-safe UI updates."""
-
     log_record_received = Signal(object)
     status_updated = Signal(object)
     connector_status_changed = Signal(int, object)
@@ -22,6 +20,9 @@ class QtSignalBridge(QObject):
     ocpp_config_key_changed = Signal(str, str)
     timeline_event_received = Signal(object)
     fault_changed = Signal(str, bool)
+    display_message_received = Signal(object)
+    cost_updated = Signal(str, object)
+    event_notification = Signal(str, str, int)
 
     def __init__(self, engine, bridge):
         super().__init__()
@@ -30,6 +31,9 @@ class QtSignalBridge(QObject):
         self._last_connected = False
         self._timeline_store: "TimelineStore" | None = None
         self._timeline_unsubscribe: "Callable[[], None]" | None = None
+        self._display_message_unsub: Optional["Callable[[], None]"] = None
+        self._cost_updated_unsub: Optional["Callable[[], None]"] = None
+        self._event_notification_unsub: Optional["Callable[[], None]"] = None
 
         engine.connector_status_changed.subscribe(self._on_connector_status_changed)
         engine.session_started.subscribe(self._on_session_started)
@@ -84,7 +88,44 @@ class QtSignalBridge(QObject):
         self._safe_emit(self.fault_changed, fault_id, enabled)
 
     def subscribe_to_adapter(self, adapter) -> None:
-        adapter.config_manager.on_key_changed.subscribe(self._on_config_key_changed)
+        config_manager = getattr(adapter, "config_manager", None)
+        if config_manager is not None and hasattr(config_manager, "on_key_changed"):
+            config_manager.on_key_changed.subscribe(self._on_config_key_changed)
+
+        if hasattr(adapter, "on_display_message"):
+            if self._display_message_unsub is not None:
+                self._display_message_unsub()
+            self._display_message_unsub = adapter.on_display_message.subscribe(
+                self._on_display_message
+            )
+
+        if hasattr(adapter, "cost_updated"):
+            if self._cost_updated_unsub is not None:
+                self._cost_updated_unsub()
+            self._cost_updated_unsub = adapter.cost_updated.subscribe(
+                self._on_cost_updated
+            )
+
+        if hasattr(adapter, "on_event_notification"):
+            if self._event_notification_unsub is not None:
+                self._event_notification_unsub()
+            self._event_notification_unsub = adapter.on_event_notification.subscribe(
+                self._on_event_notification
+            )
 
     def _on_config_key_changed(self, key_name: str, new_value: str) -> None:
         self._safe_emit(self.ocpp_config_key_changed, key_name, new_value)
+
+    def _on_display_message(self, **kwargs) -> None:
+        self._safe_emit(self.display_message_received, kwargs)
+
+    def _on_cost_updated(self, **kwargs) -> None:
+        transaction_id = kwargs.get("transaction_id", "")
+        total_cost = kwargs.get("total_cost", [])
+        self._safe_emit(self.cost_updated, transaction_id, total_cost)
+
+    def _on_event_notification(self, **kwargs) -> None:
+        component = kwargs.get("component", "")
+        variable = kwargs.get("variable", "")
+        severity = kwargs.get("severity", 0)
+        self._safe_emit(self.event_notification, component, variable, severity)

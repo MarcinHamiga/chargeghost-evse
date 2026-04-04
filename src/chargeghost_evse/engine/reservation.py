@@ -10,6 +10,8 @@ class Reservation:
     id_tag: str
     expiry_date: datetime
     parent_id_tag: Optional[str] = None
+    connector_type: Optional[str] = None
+    group_id_tag: Optional[str] = None
 
     def is_expired(self, now: Optional[datetime] = None) -> bool:
         current_time = now or datetime.now(timezone.utc)
