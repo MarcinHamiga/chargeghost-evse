@@ -307,13 +307,6 @@ class V201Adapter(BaseAdapter, cp):
             self._on_monitor_threshold_breach
         )
 
-    def _on_monitor_threshold_breach(self, **kwargs: Any) -> None:
-        monitors = kwargs.get("monitors", [])
-        self._log(
-            f"Monitor threshold breach: {len(monitors)} monitor(s)",
-            level=logging.WARNING,
-        )
-
     # -------------------------------------------------------------------------
     # Outbound OCPP Messages
     # -------------------------------------------------------------------------

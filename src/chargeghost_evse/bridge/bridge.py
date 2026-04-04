@@ -737,27 +737,11 @@ class Bridge:
 
             def on_v201_updated_response(response: Any, kwargs: dict) -> None:
                 """Handle TransactionEvent(Updated) response after offline replay."""
-                if response is None:
-                    return
-                total_cost = getattr(response, "total_cost", None)
-                if total_cost is not None:
-                    self._log(
-                        message=f"[cyan]Queue:[/cyan] TransactionEvent(Updated) "
-                        f"response: total_cost={total_cost}",
-                        level=logging.DEBUG,
-                    )
+                self._handle_tx_event_queue_response(response, "Updated")
 
             def on_v201_ended_response(response: Any, kwargs: dict) -> None:
                 """Handle TransactionEvent(Ended) response after offline replay."""
-                if response is None:
-                    return
-                total_cost = getattr(response, "total_cost", None)
-                if total_cost is not None:
-                    self._log(
-                        message=f"[cyan]Queue:[/cyan] TransactionEvent(Ended) "
-                        f"response: total_cost={total_cost}",
-                        level=logging.DEBUG,
-                    )
+                self._handle_tx_event_queue_response(response, "Ended")
 
             sent = await self._message_queue.drain(
                 adapter,
@@ -1504,8 +1488,11 @@ class Bridge:
                                 val, comp_ocpp, VariableType(name="Voltage")
                             )
                             all_breached.extend(breached)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as e:
+                            self._log(
+                                message=f"Monitor eval error (EVSE/Voltage): {e}",
+                                level=logging.DEBUG,
+                            )
 
             conn_comp = device_model.find_component(
                 name="Connector", evse_id=connector_id
@@ -1525,8 +1512,11 @@ class Bridge:
                                 VariableType(name="Power.Active.Import"),
                             )
                             all_breached.extend(breached)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as e:
+                            self._log(
+                                message=f"Monitor eval error (Connector/Power.Active.Import): {e}",
+                                level=logging.DEBUG,
+                            )
 
         if all_breached:
             self._send_monitoring_report(adapter, loop, all_breached)
@@ -1547,6 +1537,18 @@ class Bridge:
             self._log(
                 message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}",
                 level=logging.ERROR,
+            )
+
+    def _handle_tx_event_queue_response(self, response: Any, event_type: str) -> None:
+        """Handle total_cost from TransactionEvent response after offline replay."""
+        if response is None:
+            return
+        total_cost = getattr(response, "total_cost", None)
+        if total_cost is not None:
+            self._log(
+                message=f"[cyan]Queue:[/cyan] TransactionEvent({event_type}) "
+                f"response: total_cost={total_cost}",
+                level=logging.DEBUG,
             )
 
     def _apply_remote_start_charging_profile(
