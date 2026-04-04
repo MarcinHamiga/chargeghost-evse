@@ -23,10 +23,12 @@
 - [Building](#building)
 - [License](#license)
 
+> **⚠️ Deprecation Notice**: The integrated PySide6 GUI is deprecated and will be removed in v1.0. Use the [Headless API Mode](#headless-api-mode) for all new workflows. The GUI remains functional in v0.x but will not receive new features.
+
 ## Features
 
 - **Comprehensive OCPP 1.6J & 2.0.1 Support**: Robust CSMS communication across Core, FirmwareManagement, LocalAuthListManagement, Reservation, RemoteTrigger, and SmartCharging profiles.
-- **Modern Qt GUI**: Sleek, high-performance interface with dark theme and interactive elements.
+- **Modern Qt GUI** *(deprecated)*: Sleek, high-performance interface with dark theme and interactive elements. Will be removed in v1.0.
 - **Dual Operational Modes**:
   - **Simulator**: Full autonomous domain logic simulation with realistic charging curves.
   - **Manual**: Direct protocol interaction for debugging and testing CSMS implementations.
