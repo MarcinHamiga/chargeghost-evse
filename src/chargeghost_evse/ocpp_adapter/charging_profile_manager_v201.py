@@ -348,7 +348,7 @@ class ChargingProfileManagerV201:
         profiles = self.get_profiles_for_purpose(purpose, evse_id)
 
         if purpose == ChargingProfilePurposeEnumType.tx_profile:
-            profiles = [p for p in profiles if p.transaction_id is transaction_id]
+            profiles = [p for p in profiles if p.transaction_id == transaction_id]
 
         profiles = [p for p in profiles if self._is_valid_at(p, now)]
 
@@ -542,7 +542,7 @@ class ChargingProfileManagerV201:
         profiles = self.get_profiles_for_purpose(purpose, evse_id)
 
         if purpose == ChargingProfilePurposeEnumType.tx_profile:
-            profiles = [p for p in profiles if p.transaction_id is transaction_id]
+            profiles = [p for p in profiles if p.transaction_id == transaction_id]
 
         return [
             p for p in profiles if self._is_valid_in_window(p, start_time, end_time)

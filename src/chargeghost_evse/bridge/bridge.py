@@ -1477,19 +1477,59 @@ class Bridge:
         if monitor_mgr is None:
             return
 
+        device_model = getattr(adapter, "device_model", None)
+        if device_model is None:
+            return
+
         from ocpp.v201.datatypes import ComponentType, EVSEType, VariableType
 
-        for connector_id, session in list(self.engine._sessions.items()):
+        all_breached: list[Any] = []
+
+        for connector_id in list(self.engine._connectors.keys()):
             meter = self.engine.get_energy_meter(connector_id)
             meter_value = meter.get_meter_reading()
 
-            evse = EVSEType(id=connector_id, connector_id=1)
-            comp = ComponentType(name="Connector", evse=evse)
-            var = VariableType(name="Power.Active.Import")
+            evse_comp = device_model.find_component(name="EVSE", evse_id=connector_id)
+            if evse_comp is not None:
+                evse_ocpp = EVSEType(id=connector_id, connector_id=1)
+                comp_ocpp = ComponentType(name="EVSE", evse=evse_ocpp)
 
-            breached = monitor_mgr.evaluate(meter_value, comp, var)
-            if breached:
-                self._send_monitoring_report(adapter, loop, breached)
+                evse_var = device_model.find_variable(evse_comp, "Voltage")
+                if evse_var:
+                    attr = evse_var.attributes.get("Actual")
+                    if attr:
+                        try:
+                            val = float(attr.value)
+                            breached = monitor_mgr.evaluate(
+                                val, comp_ocpp, VariableType(name="Voltage")
+                            )
+                            all_breached.extend(breached)
+                        except (ValueError, TypeError):
+                            pass
+
+            conn_comp = device_model.find_component(
+                name="Connector", evse_id=connector_id
+            )
+            if conn_comp is not None:
+                evse_ocpp = EVSEType(id=connector_id, connector_id=1)
+                comp_ocpp = ComponentType(name="Connector", evse=evse_ocpp)
+
+                conn_var = device_model.find_variable(conn_comp, "Power.Active.Import")
+                if conn_var:
+                    attr = conn_var.attributes.get("Actual")
+                    if attr:
+                        try:
+                            breached = monitor_mgr.evaluate(
+                                meter_value,
+                                comp_ocpp,
+                                VariableType(name="Power.Active.Import"),
+                            )
+                            all_breached.extend(breached)
+                        except (ValueError, TypeError):
+                            pass
+
+        if all_breached:
+            self._send_monitoring_report(adapter, loop, all_breached)
 
     def _send_monitoring_report(
         self, adapter: Any, loop: Any, monitors: list[Any]

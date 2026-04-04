@@ -170,7 +170,9 @@ class MonitorManager:
         if monitor.component.evse is not None and component.evse is not None:
             if monitor.component.evse.id != component.evse.id:
                 return False
-        elif monitor.component.evse is not component.evse:
+        elif component.evse is not None and monitor.component.evse is None:
+            return False
+        elif monitor.component.evse is not None and component.evse is None:
             return False
         if monitor.variable.name != variable.name:
             return False
