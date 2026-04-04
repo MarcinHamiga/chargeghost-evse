@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 from chargeghost_evse.api.runtime import (
@@ -184,3 +185,28 @@ class TestSimulationRuntime:
             assert keys[0]["key"] == "HeartbeatInterval"
             assert keys[0]["value"] == "300"
             assert keys[0]["readonly"] is False
+
+    async def test_send_ocpp_raw_awaits_wrapped_future(self) -> None:
+        runtime = _make_runtime()
+        runtime.bridge.runner.loop = MagicMock()
+        runtime.bridge.runner.adapter = MagicMock()
+        runtime.bridge.runner.adapter.send_boot_notification = MagicMock(
+            return_value=object()
+        )
+
+        wrapped_future = asyncio.get_running_loop().create_future()
+        wrapped_future.set_result("ok")
+
+        with patch(
+            "chargeghost_evse.api.runtime.asyncio.run_coroutine_threadsafe",
+            return_value=MagicMock(),
+        ) as mock_threadsafe:
+            with patch(
+                "chargeghost_evse.api.runtime.asyncio.wrap_future",
+                return_value=wrapped_future,
+            ) as mock_wrap_future:
+                result = await runtime.send_ocpp_raw("send_boot_notification")
+
+        assert result == "ok"
+        mock_threadsafe.assert_called_once()
+        mock_wrap_future.assert_called_once()

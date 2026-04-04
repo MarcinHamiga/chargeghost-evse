@@ -274,7 +274,11 @@ class SimulationRuntime:
         return await self.call(self._has_active_session_sync)
 
     async def send_ocpp_raw(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
-        if self._bridge is None or self._bridge.runner is None or self._bridge.runner.adapter is None:
+        if (
+            self._bridge is None
+            or self._bridge.runner is None
+            or self._bridge.runner.adapter is None
+        ):
             return None
         adapter = self._bridge.runner.adapter
         loop = self._bridge.runner.loop
@@ -282,7 +286,11 @@ class SimulationRuntime:
             return None
         coro = getattr(adapter, method_name)(*args, **kwargs)
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=30)
+        try:
+            return await asyncio.wait_for(asyncio.wrap_future(future), timeout=30)
+        except asyncio.TimeoutError:
+            future.cancel()
+            raise
 
     def _take_snapshot(self) -> dict[str, Any]:
         eng = self._engine

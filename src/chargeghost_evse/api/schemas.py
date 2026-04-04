@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from typing import Any, Literal, Optional
 
+from ocpp.v16.enums import DiagnosticsStatus, FirmwareStatus
 from pydantic import BaseModel, Field
 
 from chargeghost_evse.util.config import BATTERY_CAPACITY_MAX, BATTERY_CAPACITY_MIN
@@ -378,16 +380,16 @@ class DataTransferRequest(BaseModel):
 
 
 class DiagnosticsStatusRequest(BaseModel):
-    status: str
+    status: DiagnosticsStatus
 
 
 class FirmwareStatusRequest(BaseModel):
-    status: str
+    status: FirmwareStatus
 
 
 class SecurityEventRequest(BaseModel):
     event_type: str
-    timestamp: Optional[str] = None
+    timestamp: Optional[datetime] = None
     tech_info: Optional[str] = None
 
 
@@ -416,6 +418,8 @@ class FirmwareStatusInfo(BaseModel):
     status: Optional[str] = None
     location: Optional[str] = None
     retrieve_date: Optional[str] = None
+    retries: int = 0
+    retry_interval: int = 0
     file_name: Optional[str] = None
     file_hash: Optional[str] = None
 
@@ -423,6 +427,10 @@ class FirmwareStatusInfo(BaseModel):
 class DiagnosticsStatusInfo(BaseModel):
     status: Optional[str] = None
     location: Optional[str] = None
+    start_time: Optional[str] = None
+    stop_time: Optional[str] = None
+    retries: int = 0
+    retry_interval: int = 0
 
 
 class FirmwareTriggerRequest(BaseModel):

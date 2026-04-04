@@ -602,3 +602,52 @@ class TestLocalAuthListManager:
             assert "Failed to save" in message
 
             file_path.parent.chmod(0o755)
+
+    def test_remove_entry_increments_version(self, tmp_path):
+        file_path = tmp_path / "local_auth_list.json"
+
+        with patch(
+            "chargeghost_evse.ocpp_adapter.local_auth_list.LOCAL_AUTH_LIST_FILE",
+            file_path,
+        ):
+            manager = LocalAuthListManager()
+            manager.update_list(
+                list_version=1,
+                local_authorization_list=[
+                    {"idTag": "TAG001", "idTagInfo": {"status": "Accepted"}}
+                ],
+                update_type=UpdateType.full,
+            )
+
+            saved, message = manager.remove_entry("TAG001")
+
+            assert saved is True
+            assert message == "Saved successfully"
+            assert manager.version == 2
+            assert manager.entry_count == 0
+
+    def test_remove_entry_restores_state_when_save_fails(self, tmp_path):
+        file_path = tmp_path / "local_auth_list.json"
+
+        with patch(
+            "chargeghost_evse.ocpp_adapter.local_auth_list.LOCAL_AUTH_LIST_FILE",
+            file_path,
+        ):
+            manager = LocalAuthListManager()
+            manager.update_list(
+                list_version=1,
+                local_authorization_list=[
+                    {"idTag": "TAG001", "idTagInfo": {"status": "Accepted"}}
+                ],
+                update_type=UpdateType.full,
+            )
+
+            with patch.object(manager, "_save", return_value=(False, "boom")):
+                saved, message = manager.remove_entry("TAG001")
+
+            assert saved is False
+            assert message == "boom"
+            assert manager.version == 1
+            assert manager.entry_count == 1
+            assert "TAG001" in manager._entries
+            assert manager._entries["TAG001"].id_tag_info == {"status": "Accepted"}

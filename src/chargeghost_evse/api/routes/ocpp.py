@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from ocpp.v16.enums import DiagnosticsStatus, FirmwareStatus
 
 from chargeghost_evse.api.dependencies import get_runtime
 from chargeghost_evse.api.runtime import SimulationRuntime
@@ -129,7 +128,9 @@ async def boot_notification(
 ) -> ActionResult:
     _require_adapter(runtime)
     result = await runtime.send_ocpp_raw("send_boot_notification")
-    return ActionResult(success=True, message="BootNotification sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="BootNotification sent", details=_detail(result)
+    )
 
 
 @router.post("/status-notification", response_model=ActionResult)
@@ -144,7 +145,9 @@ async def status_notification(
         request.error_code,
         request.status,
     )
-    return ActionResult(success=True, message="StatusNotification sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="StatusNotification sent", details=_detail(result)
+    )
 
 
 @router.post("/start-transaction", response_model=ActionResult)
@@ -162,7 +165,9 @@ async def start_transaction(
         meter_start,
         timestamp,
     )
-    return ActionResult(success=True, message="StartTransaction sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="StartTransaction sent", details=_detail(result)
+    )
 
 
 @router.post("/stop-transaction", response_model=ActionResult)
@@ -180,7 +185,9 @@ async def stop_transaction(
         request.transaction_id,
         request.reason,
     )
-    return ActionResult(success=True, message="StopTransaction sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="StopTransaction sent", details=_detail(result)
+    )
 
 
 @router.post("/meter-values", response_model=ActionResult)
@@ -196,7 +203,9 @@ async def meter_values(
         value,
         request.transaction_id,
     )
-    return ActionResult(success=True, message="MeterValues sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="MeterValues sent", details=_detail(result)
+    )
 
 
 @router.post("/data-transfer", response_model=ActionResult)
@@ -211,7 +220,9 @@ async def data_transfer(
         request.message_id,
         request.data,
     )
-    return ActionResult(success=True, message="DataTransfer sent", details=_detail(result))
+    return ActionResult(
+        success=True, message="DataTransfer sent", details=_detail(result)
+    )
 
 
 @router.post("/diagnostics-status-notification", response_model=ActionResult)
@@ -222,10 +233,12 @@ async def diagnostics_status_notification(
     _require_adapter(runtime)
     result = await runtime.send_ocpp_raw(
         "send_diagnostics_status_notification",
-        DiagnosticsStatus(request.status),
+        request.status,
     )
     return ActionResult(
-        success=True, message="DiagnosticsStatusNotification sent", details=_detail(result)
+        success=True,
+        message="DiagnosticsStatusNotification sent",
+        details=_detail(result),
     )
 
 
@@ -237,7 +250,7 @@ async def firmware_status_notification(
     _require_adapter(runtime)
     result = await runtime.send_ocpp_raw(
         "send_firmware_status_notification",
-        FirmwareStatus(request.status),
+        request.status,
     )
     return ActionResult(
         success=True, message="FirmwareStatusNotification sent", details=_detail(result)
@@ -250,11 +263,7 @@ async def security_event_notification(
     runtime: SimulationRuntime = Depends(get_runtime),
 ) -> ActionResult:
     _require_adapter(runtime)
-    ts = (
-        datetime.fromisoformat(request.timestamp)
-        if request.timestamp
-        else datetime.now(timezone.utc)
-    )
+    ts = request.timestamp or datetime.now(timezone.utc)
     result = await runtime.send_ocpp_raw(
         "send_security_event_notification",
         request.event_type,

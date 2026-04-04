@@ -124,7 +124,7 @@ if current_os == "Darwin":
                 name="ChargeGhost EVSE.app",
                 icon=icon_path_str,
                 bundle_identifier="com.chargeghost.evse",
-                version="v0.4.3",
+                version="v0.8.1",
                 info_plist={
                         "CFBundleName": "ChargeGhost EVSE",
                         "CFBundleDisplayName": "ChargeGhost EVSE",

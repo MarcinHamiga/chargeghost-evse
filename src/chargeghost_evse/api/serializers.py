@@ -163,11 +163,15 @@ def serialize_timeline_event(event: TimelineEvent) -> dict[str, Any]:
 
 
 def serialize_local_auth_list(manager: LocalAuthListManager) -> dict[str, Any]:
+    entries = [
+        _serialize_local_auth_entry_info(entry) for entry in manager._entries.values()
+    ]
     return {
         "version": manager.version,
         "enabled": manager.enabled,
         "entry_count": manager.entry_count,
         "max_entries": manager.max_entries,
+        "entries": entries,
     }
 
 
@@ -178,8 +182,20 @@ def serialize_local_auth_entry(
     if entry is None:
         return None
     return {
+        "version": manager.version,
+        "enabled": manager.enabled,
+        "entry_count": 1,
+        "max_entries": manager.max_entries,
+        "entries": [_serialize_local_auth_entry_info(entry)],
+    }
+
+
+def _serialize_local_auth_entry_info(entry: Any) -> dict[str, Any]:
+    return {
         "id_tag": entry.id_tag,
         "id_tag_info": entry.id_tag_info,
+        "is_expired": entry.is_expired(),
+        "authorization_status": entry.get_authorization_status().value,
     }
 
 
@@ -188,7 +204,9 @@ def serialize_firmware_status(manager: FirmwareManager) -> dict[str, Any]:
     return {
         "status": manager.get_firmware_status().value,
         "location": task.location if task else None,
-        "retrieve_date": task.retrieve_date.isoformat() if task and task.retrieve_date else None,
+        "retrieve_date": task.retrieve_date.isoformat()
+        if task and task.retrieve_date
+        else None,
         "retries": task.retries if task else 0,
         "retry_interval": task.retry_interval if task else 0,
         "file_name": task.file_name if task else None,
