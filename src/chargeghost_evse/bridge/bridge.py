@@ -401,10 +401,11 @@ class AsyncRunner:
                         except asyncio.CancelledError:
                             pass
                         except Exception as e:
-                            self._log(
-                                message=f"Adapter task error: {type(e).__name__}: {e}",
-                                level=logging.ERROR,
-                            )
+                            if not isinstance(e, websockets.ConnectionClosed):
+                                self._log(
+                                    message=f"Adapter task error: {type(e).__name__}: {e}",
+                                    level=logging.ERROR,
+                                )
 
             except websockets.ConnectionClosed as e:
                 self._log(
@@ -639,6 +640,9 @@ class Bridge:
         self._runner_unsubscribers = [
             self.runner.on_adapter_registered.subscribe(self._on_adapter_registered),
             self.runner.on_reset_requested.subscribe(self.on_reset_requested),
+            self.runner.on_connection_state_changed.subscribe(
+                self._on_connection_state_changed
+            ),
         ]
         self._is_setup = True
 
@@ -678,6 +682,18 @@ class Bridge:
         else:
             backend = InMemoryBackend()
         return MessageQueue(backend=backend, max_attempts=3)
+
+    def _on_connection_state_changed(self, connected: bool) -> None:
+        """Set known_connector_ids on the adapter as soon as the WebSocket connects.
+
+        This must happen before the adapter task starts processing CSMS messages,
+        so that connector ID validation works even for commands that arrive in the
+        same batch as the BootNotification response.
+        """
+        if connected and self.runner.adapter:
+            self.runner.adapter.known_connector_ids = [
+                conn.id for conn in self.engine.connectors
+            ]
 
     def _on_adapter_registered(self) -> None:
         """Called after each successful boot notification / registration."""
