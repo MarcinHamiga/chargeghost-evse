@@ -259,5 +259,6 @@ _ACTION_TO_METHOD: dict[str, str] = {
     "StopTransaction": "send_stop_transaction",
     "MeterValues": "send_meter_values",
     "TransactionEventStarted": "send_transaction_event_started",
+    "TransactionEventUpdated": "send_transaction_event_updated",
     "TransactionEventEnded": "send_transaction_event_ended",
 }

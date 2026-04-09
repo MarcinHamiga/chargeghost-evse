@@ -130,6 +130,7 @@ class Engine(Subscriber):
         self.session_stopped: Event = Event()
         self.connector_status_changed: Event = Event()
         self.connector_parameters_changed: Event = Event()
+        self.reservation_expired: Event = Event()
 
         # Injectable callback for external charging limits (e.g., ChargingProfileManager)
         # Signature: (connector_id: int, transaction_id: Optional[int]) -> Optional[float]
@@ -447,17 +448,21 @@ class Engine(Subscriber):
             return
 
         now = datetime.now(timezone.utc)
-        expired_connector_ids = [
-            connector_id
+        expired_items = [
+            (connector_id, reservation)
             for connector_id, reservation in self._reservations.items()
             if reservation.is_expired(now)
         ]
 
-        for connector_id in expired_connector_ids:
+        for connector_id, reservation in expired_items:
             del self._reservations[connector_id]
             connector = self._connectors.get(connector_id)
             if connector is not None:
                 connector.clear_reservation()
+            self.reservation_expired.emit(
+                reservation_id=reservation.reservation_id,
+                connector_id=connector_id,
+            )
 
     def handle_connector_status_change(
         self, connector_id: int, status: "ConnectorState"

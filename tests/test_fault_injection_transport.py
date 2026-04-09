@@ -91,6 +91,7 @@ class _MockRunner:
         self.loop = None
         self.logger = logging.getLogger("chargeghost.bridge")
         self._fault_manager = None
+        self.ocpp_version = "1.6"
 
     @property
     def is_connected(self) -> bool:

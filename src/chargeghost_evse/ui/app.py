@@ -49,13 +49,17 @@ from chargeghost_evse.ui.bridge import QtSignalBridge
 from chargeghost_evse.ui.styles import colors
 from chargeghost_evse.ui.widgets.app_settings import AppSettings
 from chargeghost_evse.ui.widgets.charging_profiles_panel import ChargingProfilesPanel
+from chargeghost_evse.ui.widgets.display_message_widget import DisplayMessageWidget
 from chargeghost_evse.ui.widgets.config_keys_panel import ConfigKeysPanel
 from chargeghost_evse.ui.widgets.connector_status_bar import ConnectorStatusBar
 from chargeghost_evse.ui.widgets.fault_injection_panel import FaultInjectionPanel
 from chargeghost_evse.ui.widgets.log_side_panel import LogSidePanel
 from chargeghost_evse.ui.widgets.icons import get_icon
 from chargeghost_evse.ui.widgets.scenario_runner_panel import ScenarioRunnerPanel
-from chargeghost_evse.ui.widgets.session_dashboard import SessionDashboard, IdTagInput
+from chargeghost_evse.ui.widgets.session_dashboard import (
+    SessionDashboard,
+    IdTagInput,
+)
 from chargeghost_evse.ui.widgets.settings_panel import SettingsPanel
 from chargeghost_evse.ui.widgets.toast import ToastNotification, ToastType
 from chargeghost_evse.ui.widgets.update_dialog import UpdateDialog, UpdateStatusChip
@@ -340,6 +344,10 @@ class SimulatorWidget(QWidget):
         self.connector_bar = ConnectorStatusBar()
         self.connector_bar.connector_selected.connect(self._on_connector_bar_selected)
         content_col_layout.addWidget(self.connector_bar)
+
+        # CSMS display message widget (V201, hidden when no messages)
+        self.display_message_widget = DisplayMessageWidget()
+        content_col_layout.addWidget(self.display_message_widget)
 
         # Content stack
         self.stack = QStackedWidget()
@@ -725,24 +733,30 @@ class SimulatorWidget(QWidget):
     def load_ocpp_config_keys(self) -> None:
         adapter = self.bridge.runner.adapter
         if adapter:
-            self.config_keys_panel.set_keys(adapter.config_manager.get_all_keys())
+            config_manager = getattr(adapter, "config_manager", None)
+            if config_manager is not None:
+                self.config_keys_panel.set_keys(config_manager.get_all_keys())
 
     def _on_ocpp_key_changed(self, key_name: str, new_value: str) -> None:
         adapter = self.bridge.runner.adapter
         if adapter:
-            status = adapter.config_manager.set_key(key_name, new_value)
-            if status == ConfigurationStatus.accepted:
-                self.main_window.log_message(
-                    f"[green]Config:[/green] OCPP key '{key_name}' set to '{new_value}'"
-                )
-                self.main_window.show_toast(f"Updated OCPP key: {key_name}", "success")
-            else:
-                self.main_window.log_message(
-                    f"[red]Config:[/red] Failed to update OCPP key '{key_name}' ({status.value})"
-                )
-                self.main_window.show_toast(
-                    f"Failed to update OCPP key: {key_name}", "error"
-                )
+            config_manager = getattr(adapter, "config_manager", None)
+            if config_manager is not None:
+                status = config_manager.set_key(key_name, new_value)
+                if status == ConfigurationStatus.accepted:
+                    self.main_window.log_message(
+                        f"[green]Config:[/green] OCPP key '{key_name}' set to '{new_value}'"
+                    )
+                    self.main_window.show_toast(
+                        f"Updated OCPP key: {key_name}", "success"
+                    )
+                else:
+                    self.main_window.log_message(
+                        f"[red]Config:[/red] Failed to update OCPP key '{key_name}' ({status.value})"
+                    )
+                    self.main_window.show_toast(
+                        f"Failed to update OCPP key: {key_name}", "error"
+                    )
 
     def _on_load_scenario(self) -> None:
         last_path = self.main_window.app_settings.last_scenario_path
@@ -1130,6 +1144,9 @@ class MainWindow(QMainWindow):
             self.on_ocpp_config_key_changed
         )
         self.signal_bridge.session_started.connect(self.on_session_started)
+        self.signal_bridge.display_message_received.connect(self._on_display_message)
+        self.signal_bridge.cost_updated.connect(self._on_cost_updated)
+        self.signal_bridge.event_notification.connect(self._on_event_notification)
 
         self._setup_ui()
         self._setup_menu()
@@ -1464,6 +1481,41 @@ class MainWindow(QMainWindow):
     @Slot(str, str)
     def on_ocpp_config_key_changed(self, key_name: str, new_value: str) -> None:
         self.simulator.config_keys_panel.update_key(key_name, new_value)
+
+    @Slot(object)
+    def _on_display_message(self, data: object) -> None:
+        if not isinstance(data, dict):
+            return
+        self.simulator.display_message_widget.update_message(
+            data.get("action", ""), data.get("message", {})
+        )
+
+    @Slot(str, object)
+    def _on_cost_updated(self, transaction_id: str, total_cost: object) -> None:
+        if not total_cost:
+            self.simulator.dashboard.clear_cost_display()
+            return
+        cost_parts: list[str] = []
+        for cost in total_cost:
+            kind = (
+                cost.cost_kind.value
+                if hasattr(cost, "cost_kind") and hasattr(cost.cost_kind, "value")
+                else str(getattr(cost, "cost_kind", ""))
+            )
+            amount = getattr(cost, "amount", 0)
+            multiplier = getattr(cost, "amount_multiplier", 0) or 0
+            if multiplier != 0:
+                amount = amount * (10**multiplier)
+            cost_parts.append(f"{kind}: {amount:.2f}")
+        self.simulator.dashboard.set_cost_display("; ".join(cost_parts))
+
+    @Slot(str, str, int)
+    def _on_event_notification(
+        self, component: str, variable: str, severity: int
+    ) -> None:
+        self.log_message(
+            f"[cyan]Event:[/cyan] {component}/{variable} (severity={severity})"
+        )
 
     @Slot(str, str)
     def _on_update_available(self, tag_name: str, body: str) -> None:

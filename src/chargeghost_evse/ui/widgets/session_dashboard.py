@@ -642,12 +642,14 @@ class SessionDashboard(QWidget):
         self.chip_voltage = ContextChip("Voltage")
         self.chip_current = ContextChip("Current")
         self.chip_meter = ContextChip("Total Meter")
+        self.chip_cost = ContextChip("Cost")
         self.chip_phases = ContextChip("Phases")
         for chip in (
             self.chip_tx_id,
             self.chip_voltage,
             self.chip_current,
             self.chip_meter,
+            self.chip_cost,
             self.chip_phases,
         ):
             context_row.addWidget(chip)
@@ -854,3 +856,9 @@ class SessionDashboard(QWidget):
             Current text in the RFID input field.
         """
         return self.id_tag_input.get_tag()
+
+    def set_cost_display(self, cost_text: str) -> None:
+        self.chip_cost.set_value(cost_text)
+
+    def clear_cost_display(self) -> None:
+        self.chip_cost.clear()

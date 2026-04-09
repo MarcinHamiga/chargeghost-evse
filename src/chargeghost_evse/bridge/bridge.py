@@ -401,10 +401,11 @@ class AsyncRunner:
                         except asyncio.CancelledError:
                             pass
                         except Exception as e:
-                            self._log(
-                                message=f"Adapter task error: {type(e).__name__}: {e}",
-                                level=logging.ERROR,
-                            )
+                            if not isinstance(e, websockets.ConnectionClosed):
+                                self._log(
+                                    message=f"Adapter task error: {type(e).__name__}: {e}",
+                                    level=logging.ERROR,
+                                )
 
             except websockets.ConnectionClosed as e:
                 self._log(
@@ -599,6 +600,7 @@ class Bridge:
         self._shutdown_event = threading.Event()
         self._engine_unsubscribers: list[Callable[[], None]] = []
         self._runner_unsubscribers: list[Callable[[], None]] = []
+        self._adapter_unsubscribers: list[Callable[[], None]] = []
         self._is_setup = False
 
         # Timeline store for recording events (set by app.py)
@@ -622,6 +624,7 @@ class Bridge:
             self.engine.connector_status_changed.subscribe(
                 self.on_connector_status_change
             ),
+            self.engine.reservation_expired.subscribe(self._on_reservation_expired),
         ]
 
         # Start WebSocket connection in background thread
@@ -637,6 +640,9 @@ class Bridge:
         self._runner_unsubscribers = [
             self.runner.on_adapter_registered.subscribe(self._on_adapter_registered),
             self.runner.on_reset_requested.subscribe(self.on_reset_requested),
+            self.runner.on_connection_state_changed.subscribe(
+                self._on_connection_state_changed
+            ),
         ]
         self._is_setup = True
 
@@ -654,6 +660,9 @@ class Bridge:
         for unsubscribe in self._runner_unsubscribers:
             unsubscribe()
         self._runner_unsubscribers = []
+        for unsubscribe in self._adapter_unsubscribers:
+            unsubscribe()
+        self._adapter_unsubscribers = []
         self._shutdown_event.set()
         self.runner.shutdown()
         if (
@@ -674,6 +683,18 @@ class Bridge:
             backend = InMemoryBackend()
         return MessageQueue(backend=backend, max_attempts=3)
 
+    def _on_connection_state_changed(self, connected: bool) -> None:
+        """Set known_connector_ids on the adapter as soon as the WebSocket connects.
+
+        This must happen before the adapter task starts processing CSMS messages,
+        so that connector ID validation works even for commands that arrive in the
+        same batch as the BootNotification response.
+        """
+        if connected and self.runner.adapter:
+            self.runner.adapter.known_connector_ids = [
+                conn.id for conn in self.engine.connectors
+            ]
+
     def _on_adapter_registered(self) -> None:
         """Called after each successful boot notification / registration."""
         self._log(
@@ -682,6 +703,8 @@ class Bridge:
         self._send_initial_status_notifications()
         self._inject_limit_getter()
         self._drain_message_queue()
+        self._wire_adapter_subscriptions()
+        self._sync_device_model()
 
     def _drain_message_queue(self) -> None:
         """Replay queued messages after reconnection."""
@@ -728,11 +751,21 @@ class Bridge:
                         message=f"Transaction ID assigned from queue drain: {tx_id}"
                     )
 
+            def on_v201_updated_response(response: Any, kwargs: dict) -> None:
+                """Handle TransactionEvent(Updated) response after offline replay."""
+                self._handle_tx_event_queue_response(response, "Updated")
+
+            def on_v201_ended_response(response: Any, kwargs: dict) -> None:
+                """Handle TransactionEvent(Ended) response after offline replay."""
+                self._handle_tx_event_queue_response(response, "Ended")
+
             sent = await self._message_queue.drain(
                 adapter,
                 response_callbacks={
                     "StartTransaction": on_start_tx_response,
                     "TransactionEventStarted": on_v201_start_response,
+                    "TransactionEventUpdated": on_v201_updated_response,
+                    "TransactionEventEnded": on_v201_ended_response,
                 },
             )
             remaining = self._message_queue.size
@@ -756,6 +789,11 @@ class Bridge:
             getattr(self.runner.adapter, "charging_profile_manager", None)
             if self.runner.adapter
             else None
+        )
+
+        is_v201 = (
+            charging_profile_mgr is not None
+            and "ChargingProfileManagerV201" in type(charging_profile_mgr).__name__
         )
 
         def get_limit(
@@ -783,6 +821,17 @@ class Bridge:
             if session:
                 transaction_start = datetime.fromtimestamp(
                     session.start_time, tz=timezone.utc
+                )
+
+            if is_v201:
+                tx_id_str = str(transaction_id) if transaction_id is not None else None
+                return charging_profile_mgr.get_composite_limit(
+                    evse_id=connector_id,
+                    transaction_id=tx_id_str,
+                    now=datetime.now(timezone.utc),
+                    connector_voltage=connector.voltage,
+                    transaction_start=transaction_start,
+                    phases=connector.phase,
                 )
 
             return charging_profile_mgr.get_composite_limit(
@@ -880,6 +929,116 @@ class Bridge:
             self.runner.adapter.reserve_connector = None
             self.runner.adapter.cancel_reservation = None
             self.runner.adapter.set_connector_availability = None
+
+    def _wire_adapter_subscriptions(self) -> None:
+        for unsubscribe in self._adapter_unsubscribers:
+            unsubscribe()
+        self._adapter_unsubscribers = []
+
+        adapter = self.runner.adapter
+        if adapter is None or not self._is_v201():
+            return
+
+        firmware_mgr = getattr(adapter, "firmware_manager", None)
+        if firmware_mgr is not None:
+            unsub = firmware_mgr.on_firmware_status_changed.subscribe(
+                self._on_firmware_status_changed
+            )
+            self._adapter_unsubscribers.append(unsub)
+            unsub = firmware_mgr.on_publish_firmware_status_changed.subscribe(
+                self._on_publish_firmware_status_changed
+            )
+            self._adapter_unsubscribers.append(unsub)
+
+        local_auth_mgr = getattr(adapter, "local_auth_manager", None)
+        if local_auth_mgr is not None:
+            unsub = local_auth_mgr.on_list_changed.subscribe(
+                self._on_local_auth_list_changed
+            )
+            self._adapter_unsubscribers.append(unsub)
+
+        display_msg_event = getattr(adapter, "on_display_message", None)
+        if display_msg_event is not None and isinstance(display_msg_event, Event):
+            unsub = display_msg_event.subscribe(self._on_adapter_display_message)
+            self._adapter_unsubscribers.append(unsub)
+
+    def _sync_device_model(self) -> None:
+        if not self._is_v201():
+            return
+
+        adapter = self.runner.adapter
+        if adapter is None:
+            return
+
+        device_model = getattr(adapter, "device_model", None)
+        if device_model is None:
+            return
+
+        availability_map = {
+            "Available": "Available",
+            "Preparing": "Occupied",
+            "Charging": "Occupied",
+            "SuspendedEV": "Occupied",
+            "SuspendedEVSE": "Occupied",
+            "Finishing": "Occupied",
+            "Reserved": "Reserved",
+            "Unavailable": "Unavailable",
+            "Faulted": "Faulted",
+        }
+
+        for connector in self.engine.connectors:
+            evse_id = connector.id
+
+            conn_comp = device_model.find_component(name="Connector", evse_id=evse_id)
+            if conn_comp is not None:
+                avail_state = availability_map.get(connector.status.value, "Available")
+                attr = device_model.get_variable(
+                    conn_comp, "AvailabilityState", "Actual"
+                )
+                if attr is not None:
+                    attr.value = avail_state
+
+            evse_comp = device_model.find_component(name="EVSE", evse_id=evse_id)
+            if evse_comp is not None:
+                evse_available = (
+                    "true" if connector.status.value != "Unavailable" else "false"
+                )
+                attr = device_model.get_variable(evse_comp, "Available", "Actual")
+                if attr is not None:
+                    attr.value = evse_available
+
+                voltage_attr = device_model.get_variable(evse_comp, "Voltage", "Actual")
+                if voltage_attr is not None:
+                    voltage_attr.value = str(connector.voltage)
+
+                phases_attr = device_model.get_variable(
+                    evse_comp, "NumberOfPhases", "Actual"
+                )
+                if phases_attr is not None:
+                    phases_attr.value = str(connector.phase)
+
+    def _on_firmware_status_changed(self, **kwargs: Any) -> None:
+        status = kwargs.get("status")
+        self._log(
+            message=f"[cyan]Firmware:[/cyan] Status changed to {status}",
+        )
+
+    def _on_publish_firmware_status_changed(self, **kwargs: Any) -> None:
+        status = kwargs.get("status")
+        self._log(
+            message=f"[cyan]Firmware:[/cyan] Publish status changed to {status}",
+        )
+
+    def _on_local_auth_list_changed(self, **kwargs: Any) -> None:
+        version = kwargs.get("version")
+        self._log(
+            message=f"[cyan]Auth:[/cyan] Local auth list updated, version={version}",
+        )
+
+    def _on_adapter_display_message(self, **kwargs: Any) -> None:
+        self._log(
+            message=f"[cyan]Display:[/cyan] Message received from CSMS: {kwargs}",
+        )
 
     def _get_status_notification_status(self, connector_id: int) -> Optional[str]:
         """
@@ -1071,41 +1230,36 @@ class Bridge:
             adapter = self.runner.adapter
             loop = self.runner.loop
             if adapter and loop:
-
-                async def _do_send() -> None:
-                    await adapter.send_meter_values(
-                        connector_id=connector_id,
-                        value=meter_value,
-                        transaction_id=transaction_id,
-                        context=context,
+                if self._is_v201():
+                    tx_id_str = session.transaction_id
+                    if isinstance(tx_id_str, str) and tx_id_str:
+                        self._send_v201_embedded_meter_value(
+                            adapter,
+                            loop,
+                            connector_id,
+                            tx_id_str,
+                            meter_value,
+                            timestamp,
+                            context,
+                        )
+                    else:
+                        self._send_meter_value_standalone(
+                            adapter,
+                            loop,
+                            connector_id,
+                            meter_value,
+                            transaction_id,
+                            context,
+                        )
+                else:
+                    self._send_meter_value_standalone(
+                        adapter,
+                        loop,
+                        connector_id,
+                        meter_value,
+                        transaction_id,
+                        context,
                     )
-
-                coro = _do_send()
-
-                if self._fault_manager is not None:
-                    result = self._fault_manager.consume_if_active("delayed_response")
-                    if result.triggered:
-                        state = self._fault_manager.peek("delayed_response")
-                        delay = (
-                            state.config.parameters.get("delay_seconds", 5)
-                            if state and state.config
-                            else 5
-                        )
-                        self._log(
-                            message=f"Fault: delaying MeterValues send by {delay}s",
-                            level=logging.WARNING,
-                            fault_id="delayed_response",
-                        )
-                        _inner = coro
-
-                        async def _delayed_send() -> None:
-                            await asyncio.sleep(delay)
-                            await _inner
-
-                        coro = _delayed_send()
-
-                future = asyncio.run_coroutine_threadsafe(coro, loop)
-                future.add_done_callback(self._handle_future_error)
             else:
                 self._message_queue.enqueue(
                     "MeterValues",
@@ -1116,6 +1270,141 @@ class Bridge:
                         "context": context,
                     },
                 )
+
+    def _send_meter_value_standalone(
+        self,
+        adapter: Any,
+        loop: Any,
+        connector_id: int,
+        meter_value: float,
+        transaction_id: Any,
+        context: str,
+    ) -> None:
+        """Send standalone MeterValues (OCPP 1.6 or OCPP 2.0.1 outside transaction)."""
+
+        async def _do_send() -> None:
+            await adapter.send_meter_values(
+                connector_id=connector_id,
+                value=meter_value,
+                transaction_id=transaction_id,
+                context=context,
+            )
+
+        coro = _do_send()
+
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("delayed_response")
+            if result.triggered:
+                state = self._fault_manager.peek("delayed_response")
+                delay = (
+                    state.config.parameters.get("delay_seconds", 5)
+                    if state and state.config
+                    else 5
+                )
+                self._log(
+                    message=f"Fault: delaying MeterValues send by {delay}s",
+                    level=logging.WARNING,
+                    fault_id="delayed_response",
+                )
+                _inner = coro
+
+                async def _delayed_send() -> None:
+                    await asyncio.sleep(delay)
+                    await _inner
+
+                coro = _delayed_send()
+
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.add_done_callback(self._handle_future_error)
+
+    def _send_v201_embedded_meter_value(
+        self,
+        adapter: Any,
+        loop: Any,
+        connector_id: int,
+        transaction_id: str,
+        meter_value: float,
+        timestamp: str,
+        context: str,
+    ) -> None:
+        """Send meter value embedded in TransactionEvent(Updated) for OCPP 2.0.1."""
+        reading_context = context if context else "Sample.Periodic"
+
+        from ocpp.v201.datatypes import MeterValueType, SampledValueType
+        from ocpp.v201.enums import ReadingContextEnumType, MeasurandEnumType
+
+        context_map = {
+            "Sample.Periodic": ReadingContextEnumType.sample_periodic,
+            "Sample.Clock": ReadingContextEnumType.sample_clock,
+        }
+        reading_ctx = context_map.get(
+            reading_context, ReadingContextEnumType.sample_periodic
+        )
+
+        meter_value_list = [
+            MeterValueType(
+                timestamp=timestamp,
+                sampled_value=[
+                    SampledValueType(
+                        value=float(meter_value),
+                        context=reading_ctx,
+                        measurand=MeasurandEnumType.energy_active_import_register,
+                    ),
+                ],
+            )
+        ]
+
+        connector = self.engine.get_connector(connector_id)
+        charging_state = None
+        if connector is not None:
+            from chargeghost_evse.ocpp_adapter.transaction_manager_v201 import (
+                connector_state_to_charging_state,
+            )
+
+            charging_state = connector_state_to_charging_state(connector.status)
+
+        trigger_reason = (
+            "MeterValueClock"
+            if reading_context == "Sample.Clock"
+            else "MeterValuePeriodic"
+        )
+
+        async def _do_send() -> None:
+            await adapter.send_transaction_event_updated(
+                connector_id=connector_id,
+                transaction_id=transaction_id,
+                timestamp=timestamp,
+                meter_value=meter_value_list,
+                trigger_reason=trigger_reason,
+                charging_state=charging_state,
+            )
+
+        coro = _do_send()
+
+        if self._fault_manager is not None:
+            result = self._fault_manager.consume_if_active("delayed_response")
+            if result.triggered:
+                state = self._fault_manager.peek("delayed_response")
+                delay = (
+                    state.config.parameters.get("delay_seconds", 5)
+                    if state and state.config
+                    else 5
+                )
+                self._log(
+                    message=f"Fault: delaying TransactionEvent(Updated) send by {delay}s",
+                    level=logging.WARNING,
+                    fault_id="delayed_response",
+                )
+                _inner = coro
+
+                async def _delayed_send() -> None:
+                    await asyncio.sleep(delay)
+                    await _inner
+
+                coro = _delayed_send()
+
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.add_done_callback(self._handle_future_error)
 
     def _meter_values_loop(self) -> None:
         """
@@ -1132,6 +1421,7 @@ class Bridge:
             aligned_interval = 0
             if self.runner.adapter:
                 config_mgr = getattr(self.runner.adapter, "config_manager", None)
+                device_model = getattr(self.runner.adapter, "device_model", None)
                 if config_mgr is not None:
                     sample_interval = config_mgr.get_int_value(
                         "MeterValueSampleInterval", 60
@@ -1139,6 +1429,19 @@ class Bridge:
                     aligned_interval = config_mgr.get_int_value(
                         "ClockAlignedDataInterval", 0
                     )
+                elif device_model is not None:
+                    aligned_comp = device_model.find_component("SampledDataCtrlr")
+                    if aligned_comp is not None:
+                        aligned_var = device_model.find_variable(
+                            aligned_comp, "AlignInterval"
+                        )
+                        if aligned_var is not None:
+                            aligned_attr = aligned_var.attributes.get("Actual")
+                            if aligned_attr is not None:
+                                try:
+                                    aligned_interval = int(aligned_attr.value)
+                                except (ValueError, TypeError):
+                                    pass
 
             now = datetime.now(timezone.utc)
             contexts, last_sampled_at, next_aligned_at = (
@@ -1153,6 +1456,8 @@ class Bridge:
             for context in contexts:
                 self._send_meter_value(context)
 
+            self._evaluate_monitors()
+
             wait_interval = self._get_meter_values_wait_interval(
                 now,
                 sample_interval,
@@ -1162,6 +1467,85 @@ class Bridge:
             )
             self._shutdown_event.wait(timeout=wait_interval)
 
+    def _evaluate_monitors(self) -> None:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            return
+
+        monitor_mgr = getattr(adapter, "monitor_manager", None)
+        if monitor_mgr is None:
+            return
+
+        device_model = getattr(adapter, "device_model", None)
+        if device_model is None:
+            return
+
+        from ocpp.v201.datatypes import ComponentType, EVSEType, VariableType
+
+        all_breached: list[Any] = []
+
+        for connector_id in list(self.engine._connectors.keys()):
+            meter = self.engine.get_energy_meter(connector_id)
+            meter_value = meter.get_meter_reading()
+
+            evse_comp = device_model.find_component(name="EVSE", evse_id=connector_id)
+            if evse_comp is not None:
+                evse_ocpp = EVSEType(id=connector_id, connector_id=1)
+                comp_ocpp = ComponentType(name="EVSE", evse=evse_ocpp)
+
+                evse_var = device_model.find_variable(evse_comp, "Voltage")
+                if evse_var:
+                    attr = evse_var.attributes.get("Actual")
+                    if attr:
+                        try:
+                            val = float(attr.value)
+                            breached = monitor_mgr.evaluate(
+                                val, comp_ocpp, VariableType(name="Voltage")
+                            )
+                            all_breached.extend(breached)
+                        except (ValueError, TypeError) as e:
+                            self._log(
+                                message=f"Monitor eval error (EVSE/Voltage): {e}",
+                                level=logging.DEBUG,
+                            )
+
+            conn_comp = device_model.find_component(
+                name="Connector", evse_id=connector_id
+            )
+            if conn_comp is not None:
+                evse_ocpp = EVSEType(id=connector_id, connector_id=1)
+                comp_ocpp = ComponentType(name="Connector", evse=evse_ocpp)
+
+                conn_var = device_model.find_variable(conn_comp, "Power.Active.Import")
+                if conn_var:
+                    attr = conn_var.attributes.get("Actual")
+                    if attr:
+                        try:
+                            breached = monitor_mgr.evaluate(
+                                meter_value,
+                                comp_ocpp,
+                                VariableType(name="Power.Active.Import"),
+                            )
+                            all_breached.extend(breached)
+                        except (ValueError, TypeError) as e:
+                            self._log(
+                                message=f"Monitor eval error (Connector/Power.Active.Import): {e}",
+                                level=logging.DEBUG,
+                            )
+
+        if all_breached:
+            self._send_monitoring_report(adapter, loop, all_breached)
+
+    def _send_monitoring_report(
+        self, adapter: Any, loop: Any, monitors: list[Any]
+    ) -> None:
+        async def _do_send() -> None:
+            await adapter.send_notify_monitoring_report(0, monitors)
+
+        future = asyncio.run_coroutine_threadsafe(_do_send(), loop)
+        future.add_done_callback(self._handle_future_error)
+
     def _handle_future_error(self, future: "concurrent.futures.Future[Any]") -> None:
         """Log exceptions from fire-and-forget coroutine futures."""
         exc = future.exception()
@@ -1169,6 +1553,18 @@ class Bridge:
             self._log(
                 message=f"[red]OCPP send failed:[/red] {type(exc).__name__}: {exc}",
                 level=logging.ERROR,
+            )
+
+    def _handle_tx_event_queue_response(self, response: Any, event_type: str) -> None:
+        """Handle total_cost from TransactionEvent response after offline replay."""
+        if response is None:
+            return
+        total_cost = getattr(response, "total_cost", None)
+        if total_cost is not None:
+            self._log(
+                message=f"[cyan]Queue:[/cyan] TransactionEvent({event_type}) "
+                f"response: total_cost={total_cost}",
+                level=logging.DEBUG,
             )
 
     def _apply_remote_start_charging_profile(
@@ -1234,6 +1630,31 @@ class Bridge:
         """
         self.runner.logger.log(level, message, extra={"source": "bridge", **extra})
 
+    def _on_reservation_expired(self, reservation_id: int, connector_id: int) -> None:
+        adapter = self.runner.adapter
+        loop = self.runner.loop
+        if not adapter or not loop:
+            return
+        if not self._is_v201():
+            return
+
+        send_reservation_status_update = getattr(
+            adapter, "send_reservation_status_update", None
+        )
+        if send_reservation_status_update is None:
+            return
+
+        from ocpp.v201.enums import ReservationUpdateStatusEnumType
+
+        async def _do_send() -> None:
+            await send_reservation_status_update(
+                reservation_id=reservation_id,
+                status=ReservationUpdateStatusEnumType.expired,
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_do_send(), loop)
+        future.add_done_callback(self._handle_future_error)
+
     def on_reset_requested(self, reset_type: str) -> None:
         """
         Handle a remote reset request forwarded by the adapter.
@@ -1269,7 +1690,11 @@ class Bridge:
         """
         Handle connector status change events from the Engine.
 
-        Forwards status changes to the Central System via StatusNotification.
+        Routes status changes to appropriate OCPP messages:
+        - FAULTED: sends NotifyEvent
+        - OCPP 2.0.1 with active transaction and charging states:
+          sends TransactionEvent(Updated) with charging_state
+        - Otherwise: sends StatusNotification
 
         Args:
             connector_id: ID of the connector that changed.
@@ -1289,19 +1714,93 @@ class Bridge:
                 summary=f"Connector {connector_id} status changed to {conn_status}",
             )
 
-        if adapter and loop:
-            self._log(
-                message=f"Connector {connector_id} status changed to {conn_status}"
-            )
+        self._sync_device_model()
+
+        if not (adapter and loop):
+            return
+
+        self._log(message=f"Connector {connector_id} status changed to {conn_status}")
+
+        if conn_status == "Faulted":
+            self._send_notify_event_fault(connector_id, adapter, loop)
             future = asyncio.run_coroutine_threadsafe(
                 adapter.send_status_notification(
                     connector_id=connector_id,
-                    error_code="NoError",
+                    error_code="Faulted",
                     status=conn_status,
                 ),
                 loop,
             )
             future.add_done_callback(self._handle_future_error)
+            return
+
+        if self._is_v201():
+            session = self.engine.get_session(connector_id)
+            if session is not None and conn_status in (
+                "Charging",
+                "SuspendedEV",
+                "SuspendedEVSE",
+            ):
+                self._send_transaction_event_updated_charging_state(
+                    connector_id, conn_status, session, adapter, loop
+                )
+                return
+
+        future = asyncio.run_coroutine_threadsafe(
+            adapter.send_status_notification(
+                connector_id=connector_id,
+                error_code="NoError",
+                status=conn_status,
+            ),
+            loop,
+        )
+        future.add_done_callback(self._handle_future_error)
+
+    def _send_notify_event_fault(
+        self, connector_id: int, adapter: Any, loop: Any
+    ) -> None:
+        """Send NotifyEvent for a fault condition."""
+        from ocpp.v201.enums import EventNotificationEnumType, EventTriggerEnumType
+
+        future = asyncio.run_coroutine_threadsafe(
+            adapter.send_notify_event(
+                connector_id=connector_id,
+                event_id=1,
+                trigger=EventTriggerEnumType.alerting,
+                actual_value="Faulted",
+                event_notification_type=EventNotificationEnumType.custom_monitor,
+                component_name="EVSE",
+                variable_name="FaultState",
+                severity=5,
+            ),
+            loop,
+        )
+        future.add_done_callback(self._handle_future_error)
+
+    def _send_transaction_event_updated_charging_state(
+        self,
+        connector_id: int,
+        conn_status: str,
+        session: Any,
+        adapter: Any,
+        loop: Any,
+    ) -> None:
+        """Send TransactionEvent(Updated) with charging_state for status changes."""
+        tx_id = self._get_ocpp_transaction_id(session.transaction_id)
+        if tx_id is None or tx_id == -1:
+            return
+
+        async def _do_send() -> None:
+            await adapter.send_transaction_event_updated(
+                connector_id=connector_id,
+                transaction_id=str(tx_id),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                trigger_reason="ChargingStateChanged",
+                charging_state=conn_status,
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_do_send(), loop)
+        future.add_done_callback(self._handle_future_error)
 
     def _is_v201(self) -> bool:
         """Check if the bridge is using OCPP 2.0.1."""
